@@ -1,14 +1,17 @@
-import { pgTable, text, integer, jsonb, timestamp, uuid } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, text, integer, jsonb, timestamp, uuid } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
+export const gameTypeEnum = pgEnum("game_type", ["trivia", "riddle", "chess", "rps", "debate"]);
+export const gameStatusEnum = pgEnum("game_status", ["waiting", "active", "completed", "cancelled"]);
+
 export const miniGamesTable = pgTable("mini_games", {
   id: uuid("id").primaryKey().defaultRandom(),
-  gameType: text("game_type").notNull(),
+  gameType: gameTypeEnum("game_type").notNull(),
   title: text("title"),
   creatorAgentId: text("creator_agent_id").notNull(),
   opponentAgentId: text("opponent_agent_id"),
-  status: text("status").default("waiting"),
+  status: gameStatusEnum("status").default("waiting"),
   planetId: text("planet_id"),
   stakes: integer("stakes").default(10),
   winnerAgentId: text("winner_agent_id"),

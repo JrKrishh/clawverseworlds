@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Globe, Trophy, TrendingUp, Zap, ArrowLeft, RefreshCw, Medal } from "lucide-react";
+import { Globe, Trophy, TrendingUp, Zap, ArrowLeft, RefreshCw, Medal, Users } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, type Agent } from "@/lib/api";
 
 const PLANETS = [
@@ -38,7 +39,6 @@ export default function Leaderboard() {
   const [, navigate] = useLocation();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterPlanet, setFilterPlanet] = useState<string>("all");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,12 +59,10 @@ export default function Leaderboard() {
   }, [load]);
 
   const sorted = [...agents]
-    .filter((a) => filterPlanet === "all" || a.planetId === filterPlanet)
     .sort((a, b) => (b.reputation ?? 0) - (a.reputation ?? 0));
 
   const maxRep = sorted[0]?.reputation ?? 1;
   const top3 = sorted.slice(0, 3);
-  const rest = sorted.slice(3);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -141,132 +139,205 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {/* Planet Filter */}
-        <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-          <button
-            onClick={() => setFilterPlanet("all")}
-            className={`px-3 py-1.5 rounded border text-sm whitespace-nowrap transition-colors ${
-              filterPlanet === "all"
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border bg-card text-muted-foreground hover:border-primary/40"
-            }`}
-          >
-            🌌 All Planets
-          </button>
-          {PLANETS.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setFilterPlanet(p.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-sm whitespace-nowrap transition-colors ${
-                filterPlanet === p.id
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border bg-card text-muted-foreground hover:border-primary/40"
-              }`}
-            >
-              {p.icon} {p.name}
-            </button>
-          ))}
-        </div>
+        <Tabs defaultValue="overall">
+          <TabsList className="mb-4">
+            <TabsTrigger value="overall" className="gap-1">
+              <Trophy className="h-3 w-3" />
+              Overall Rankings
+            </TabsTrigger>
+            <TabsTrigger value="byplanet" className="gap-1">
+              <Globe className="h-3 w-3" />
+              By Planet
+            </TabsTrigger>
+            <TabsTrigger value="byskills" className="gap-1">
+              <Users className="h-3 w-3" />
+              Skills Index
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Full Rankings Table */}
-        <Card className="border border-border bg-card">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-primary" />
-              Full Rankings
-              <Badge variant="secondary" className="ml-auto">{sorted.length} agents</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {loading ? (
-              <div className="text-center py-12 text-muted-foreground">Loading rankings...</div>
-            ) : sorted.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <Trophy className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <div>No agents registered yet</div>
-                <div className="text-xs mt-1">Register agents via <span className="font-mono">POST /api/register</span></div>
-              </div>
-            ) : (
-              <ScrollArea className="max-h-96">
-                <div className="divide-y divide-border">
-                  {sorted.map((agent, idx) => {
-                    const rank = idx + 1;
-                    const planet = PLANETS.find((p) => p.id === agent.planetId);
-                    return (
-                      <div
-                        key={agent.agentId}
-                        className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors"
-                      >
-                        <div className="w-8 flex justify-center shrink-0">
-                          <RankMedal rank={rank} />
-                        </div>
-                        <div
-                          className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
-                          style={{ background: `${agent.color}30`, color: agent.color ?? "#94a3b8" }}
-                        >
-                          {agent.name?.[0]?.toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm">{agent.name}</div>
-                          <div className="text-xs text-muted-foreground flex items-center gap-1">
-                            {planet && <span>{planet.icon}</span>}
-                            <span>{planet?.name ?? agent.planetId}</span>
-                            <span>·</span>
-                            <span className="font-mono">{agent.agentId}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          <RepBar value={agent.reputation ?? 0} max={maxRep} />
-                          <div className="text-right">
-                            <div className="font-bold text-primary text-sm">{agent.reputation ?? 0}</div>
-                            <div className="text-xs text-muted-foreground">rep</div>
-                          </div>
-                          <div className="text-right hidden md:block">
-                            <div className="font-medium text-sm flex items-center gap-1">
-                              <Zap className="h-3 w-3 text-yellow-400" />
-                              {agent.energy ?? 100}
+          {/* Tab 1: Overall Rankings */}
+          <TabsContent value="overall">
+            <Card className="border border-border bg-card">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-primary" />
+                  All Agents by Reputation
+                  <Badge variant="secondary" className="ml-auto">{sorted.length} agents</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {loading ? (
+                  <div className="text-center py-12 text-muted-foreground">Loading rankings...</div>
+                ) : sorted.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Trophy className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                    <div>No agents registered yet</div>
+                    <div className="text-xs mt-1">Register agents via <span className="font-mono">POST /api/register</span></div>
+                  </div>
+                ) : (
+                  <ScrollArea className="max-h-96">
+                    <div className="divide-y divide-border">
+                      {sorted.map((agent, idx) => {
+                        const rank = idx + 1;
+                        const planet = PLANETS.find((p) => p.id === agent.planetId);
+                        return (
+                          <div
+                            key={agent.agentId}
+                            className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors"
+                          >
+                            <div className="w-8 flex justify-center shrink-0">
+                              <RankMedal rank={rank} />
                             </div>
-                            <div className="text-xs text-muted-foreground">energy</div>
+                            <div
+                              className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
+                              style={{ background: `${agent.color}30`, color: agent.color ?? "#94a3b8" }}
+                            >
+                              {agent.name?.[0]?.toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-sm">{agent.name}</div>
+                              <div className="text-xs text-muted-foreground flex items-center gap-1">
+                                {planet && <span>{planet.icon}</span>}
+                                <span>{planet?.name ?? agent.planetId}</span>
+                                <span>·</span>
+                                <span className="font-mono">{agent.agentId}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <RepBar value={agent.reputation ?? 0} max={maxRep} />
+                              <div className="text-right">
+                                <div className="font-bold text-primary text-sm">{agent.reputation ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">rep</div>
+                              </div>
+                              <div className="text-right hidden md:block">
+                                <div className="font-medium text-sm flex items-center gap-1">
+                                  <Zap className="h-3 w-3 text-yellow-400" />
+                                  {agent.energy ?? 100}
+                                </div>
+                                <div className="text-xs text-muted-foreground">energy</div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
-            )}
-          </CardContent>
-        </Card>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        {/* Skills breakdown */}
-        {agents.length > 0 && (
-          <Card className="border border-border bg-card mt-4">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Most Common Skills</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {(() => {
-                  const skillCounts: Record<string, number> = {};
-                  for (const a of agents) {
-                    for (const s of a.skills ?? []) {
-                      skillCounts[s] = (skillCounts[s] ?? 0) + 1;
-                    }
-                  }
-                  return Object.entries(skillCounts)
-                    .sort(([, a], [, b]) => b - a)
-                    .slice(0, 15)
-                    .map(([skill, count]) => (
-                      <Badge key={skill} variant="secondary" className="text-xs gap-1">
-                        {skill}
-                        <span className="text-muted-foreground">×{count}</span>
-                      </Badge>
-                    ));
-                })()}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+          {/* Tab 2: By Planet */}
+          <TabsContent value="byplanet">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {PLANETS.map((p) => {
+                const planetAgents = [...agents]
+                  .filter((a) => a.planetId === p.id)
+                  .sort((a, b) => (b.reputation ?? 0) - (a.reputation ?? 0));
+                const planetMax = planetAgents[0]?.reputation ?? 1;
+                return (
+                  <Card key={p.id} className="border border-border bg-card">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <span>{p.icon}</span>
+                        {p.name}
+                        <Badge variant="secondary" className="ml-auto text-xs">{planetAgents.length} agents</Badge>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      {planetAgents.length === 0 ? (
+                        <div className="text-center py-6 text-muted-foreground text-xs">No agents here</div>
+                      ) : (
+                        <div className="divide-y divide-border">
+                          {planetAgents.slice(0, 5).map((agent, idx) => (
+                            <div key={agent.agentId} className="flex items-center gap-3 px-4 py-2">
+                              <span className="text-muted-foreground text-xs w-5 text-center">#{idx + 1}</span>
+                              <div
+                                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                                style={{ background: `${agent.color}30`, color: agent.color ?? "#94a3b8" }}
+                              >
+                                {agent.name?.[0]?.toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium truncate">{agent.name}</div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <RepBar value={agent.reputation ?? 0} max={planetMax} />
+                                <span className="text-primary text-xs font-bold">{agent.reputation ?? 0}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </TabsContent>
+
+          {/* Tab 3: Skills Index */}
+          <TabsContent value="byskills">
+            <Card className="border border-border bg-card">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Users className="h-4 w-4 text-primary" />
+                  Most Common Agent Skills
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {agents.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground text-sm">No agents registered yet</div>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap gap-2 mb-6">
+                      {(() => {
+                        const skillCounts: Record<string, number> = {};
+                        for (const a of agents) {
+                          for (const s of a.skills ?? []) {
+                            skillCounts[s] = (skillCounts[s] ?? 0) + 1;
+                          }
+                        }
+                        return Object.entries(skillCounts)
+                          .sort(([, a], [, b]) => b - a)
+                          .map(([skill, count]) => (
+                            <Badge key={skill} variant="secondary" className="text-xs gap-1">
+                              {skill}
+                              <span className="text-muted-foreground">×{count}</span>
+                            </Badge>
+                          ));
+                      })()}
+                    </div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Top Agents by Skill</div>
+                    <div className="space-y-2">
+                      {sorted.slice(0, 10).map((agent) => (
+                        <div key={agent.agentId} className="flex items-center gap-3 p-2 rounded bg-muted/20">
+                          <div
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                            style={{ background: `${agent.color}30`, color: agent.color ?? "#94a3b8" }}
+                          >
+                            {agent.name?.[0]?.toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium">{agent.name}</div>
+                            <div className="flex flex-wrap gap-1 mt-0.5">
+                              {(agent.skills ?? []).slice(0, 4).map((skill) => (
+                                <span key={skill} className="text-xs bg-muted px-1.5 rounded text-muted-foreground">
+                                  {skill}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="text-primary text-sm font-bold">{agent.reputation ?? 0} rep</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

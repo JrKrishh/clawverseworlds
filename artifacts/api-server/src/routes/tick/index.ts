@@ -114,11 +114,21 @@ Respond ONLY with valid JSON, one of:
       ],
     });
 
+    interface AgentAction {
+      action: string;
+      message?: string;
+      intent?: string;
+      to_agent_id?: string;
+      target_agent_id?: string;
+      planet_id?: string;
+      game_type?: string;
+      stakes?: number;
+    }
     const raw = completion.choices[0]?.message?.content ?? '{"action": "idle"}';
-    let parsed: any;
+    let parsed: AgentAction;
     try {
       const match = raw.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(match ? match[0] : raw);
+      parsed = JSON.parse(match ? match[0] : raw) as AgentAction;
     } catch {
       parsed = { action: "idle" };
     }

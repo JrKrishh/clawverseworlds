@@ -211,8 +211,8 @@ router.get("/context", async (req, res) => {
     }));
 
     const activeGamesFormatted = activeGames.map((g) => {
-      const rounds = (g.rounds as any[]) ?? [];
-      const myMoves = rounds.filter((r: any) => r[agentId] !== undefined);
+      const rounds = (g.rounds as Record<string, string | undefined>[]) ?? [];
+      const myMoves = rounds.filter((r) => r[agentId] !== undefined);
       const roundsPlayed = rounds.length;
       const waitingForMove = roundsPlayed === 0 || (rounds[roundsPlayed - 1]?.[agentId] !== undefined && rounds.length < 3);
       return {
@@ -496,37 +496,42 @@ router.post("/game-move", async (req, res) => {
     if (!game) { res.status(404).json({ error: "Game not found" }); return; }
     if (game.status !== "active") { res.status(400).json({ error: "Game not active" }); return; }
 
-    const rounds = (game.rounds as any[]) ?? [];
+    // Authorization: agent must be a participant in this game
+    if (game.creatorAgentId !== agent_id && game.opponentAgentId !== agent_id) {
+      res.status(403).json({ error: "Not a participant in this game" }); return;
+    }
+
+    const rounds = (game.rounds as unknown as Record<string, unknown>[]) ?? [];
     const currentRound = rounds.length;
 
+    type RoundRecord = Record<string, string | undefined> & { _winner?: string };
+
     // Add move to current round
-    let roundObj: any = {};
-    if (rounds[currentRound]) {
-      roundObj = rounds[currentRound];
-    }
+    const roundObj: RoundRecord = (rounds[currentRound] as RoundRecord | undefined) ?? {};
     roundObj[agent_id] = move;
 
-    const opponentId = game.creatorAgentId === agent_id ? game.opponentAgentId : game.creatorAgentId;
+    const opponentId: string = game.creatorAgentId === agent_id ? (game.opponentAgentId ?? "") : game.creatorAgentId;
 
     // If both players submitted this round, resolve it
-    let updatedRounds = [...rounds];
+    const updatedRounds: RoundRecord[] = [...rounds] as RoundRecord[];
     let newStatus = "active";
-    let winnerAgentId = null;
+    let winnerAgentId: string | null = null;
 
     if (roundObj[agent_id] && opponentId && roundObj[opponentId]) {
       // Both submitted — resolve round
       updatedRounds[currentRound] = roundObj;
 
-      // Tally wins
-      if (updatedRounds.length >= 3 || updatedRounds.filter((r) => r._winner !== undefined).length + 1 >= 2) {
+      // Tally wins so far (including this round)
+      const completedRoundCount = updatedRounds.filter((r) => r._winner !== undefined).length + 1;
+      if (updatedRounds.length >= 3 || completedRoundCount >= 2) {
         // Weighted random based on reputation
-        const [creator] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, game.creatorAgentId)).limit(1);
-        const [opponent] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, opponentId!)).limit(1);
-        const creatorRep = creator?.reputation ?? 0;
-        const opponentRep = opponent?.reputation ?? 0;
+        const [creatorRow] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, game.creatorAgentId)).limit(1);
+        const [opponentRow] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, opponentId)).limit(1);
+        const creatorRep = creatorRow?.reputation ?? 0;
+        const opponentRep = opponentRow?.reputation ?? 0;
         const total = creatorRep + opponentRep + 2;
         const rand = Math.random() * total;
-        const roundWinner = rand < (creatorRep + 1) ? game.creatorAgentId : opponentId!;
+        const roundWinner = rand < (creatorRep + 1) ? game.creatorAgentId : opponentId;
         updatedRounds[updatedRounds.length - 1]._winner = roundWinner;
 
         // Count total wins
@@ -535,18 +540,18 @@ router.post("/game-move", async (req, res) => {
 
         if (updatedRounds.length >= 3 || creatorWins >= 2 || opponentWins >= 2) {
           newStatus = "completed";
-          winnerAgentId = creatorWins >= opponentWins ? game.creatorAgentId : opponentId!;
+          winnerAgentId = creatorWins >= opponentWins ? game.creatorAgentId : opponentId;
 
           // Award reputation
           const stakes = game.stakes ?? 10;
           await db.update(agentsTable)
-            .set({ reputation: (creator?.reputation ?? 0) + (winnerAgentId === game.creatorAgentId ? stakes : -Math.floor(stakes / 2)) })
+            .set({ reputation: (creatorRow?.reputation ?? 0) + (winnerAgentId === game.creatorAgentId ? stakes : -Math.floor(stakes / 2)) })
             .where(eq(agentsTable.agentId, game.creatorAgentId));
           await db.update(agentsTable)
-            .set({ reputation: (opponent?.reputation ?? 0) + (winnerAgentId === opponentId ? stakes : -Math.floor(stakes / 2)) })
-            .where(eq(agentsTable.agentId, opponentId!));
+            .set({ reputation: (opponentRow?.reputation ?? 0) + (winnerAgentId === opponentId ? stakes : -Math.floor(stakes / 2)) })
+            .where(eq(agentsTable.agentId, opponentId));
 
-          // Announce
+          // Announce winner in planet chat
           const [winnerAgent] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, winnerAgentId)).limit(1);
           await db.insert(planetChatTable).values({
             agentId: winnerAgentId,
@@ -557,15 +562,15 @@ router.post("/game-move", async (req, res) => {
           });
         }
       } else {
-        // Resolve this round only
-        const [creator] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, game.creatorAgentId)).limit(1);
-        const [opponent] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, opponentId!)).limit(1);
-        const total = (creator?.reputation ?? 0) + (opponent?.reputation ?? 0) + 2;
+        // Resolve this round only (intermediate round)
+        const [creatorRow] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, game.creatorAgentId)).limit(1);
+        const [opponentRow] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, opponentId)).limit(1);
+        const total = (creatorRow?.reputation ?? 0) + (opponentRow?.reputation ?? 0) + 2;
         const rand = Math.random() * total;
-        updatedRounds[updatedRounds.length - 1]._winner = rand < ((creator?.reputation ?? 0) + 1) ? game.creatorAgentId : opponentId!;
+        updatedRounds[updatedRounds.length - 1]._winner = rand < ((creatorRow?.reputation ?? 0) + 1) ? game.creatorAgentId : opponentId;
       }
     } else {
-      // First player submitted
+      // First player to submit this round
       if (updatedRounds.length <= currentRound) {
         updatedRounds.push(roundObj);
       } else {

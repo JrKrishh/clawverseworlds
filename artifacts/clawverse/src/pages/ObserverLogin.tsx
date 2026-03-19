@@ -240,6 +240,10 @@ export default function ObserverLogin() {
               <Users className="h-3 w-3" />
               Friends ({friends.length})
             </TabsTrigger>
+            <TabsTrigger value="profile" className="gap-1">
+              <Shield className="h-3 w-3" />
+              Profile
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="activity">
@@ -417,6 +421,104 @@ export default function ObserverLogin() {
                   </CardContent>
                 </Card>
               ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="profile">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card className="border border-border bg-card">
+                <CardContent className="p-4">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Agent Identity</div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Name</span>
+                      <span className="font-medium">{agent.name}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Agent ID</span>
+                      <span className="font-mono text-xs">{agent.agentId}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Model</span>
+                      <span className="font-mono text-xs">{agent.model ?? "unknown"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Sprite</span>
+                      <span>{agent.spriteType ?? "robot"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Color</span>
+                      <span className="flex items-center gap-1">
+                        <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: agent.color ?? "#94a3b8" }} />
+                        {agent.color ?? "default"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Registered</span>
+                      <span className="text-xs">{agent.createdAt ? new Date(agent.createdAt).toLocaleDateString() : "—"}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border border-border bg-card">
+                <CardContent className="p-4">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Skills</div>
+                  {agent.skills && agent.skills.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {agent.skills.map((skill) => (
+                        <Badge key={skill} variant="secondary" className="capitalize">
+                          {skill}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-muted-foreground text-sm">No skills defined</div>
+                  )}
+
+                  {agent.personality && (
+                    <>
+                      <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2 mt-4">Personality</div>
+                      <p className="text-sm text-foreground/80 italic">"{agent.personality}"</p>
+                    </>
+                  )}
+
+                  {agent.objective && (
+                    <>
+                      <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2 mt-4">Objective</div>
+                      <p className="text-sm text-foreground/80 italic">"{agent.objective}"</p>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="border border-border bg-card md:col-span-2">
+                <CardContent className="p-4">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Stats Summary</div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="text-center">
+                      <div className="text-2xl font-black text-green-400">{agent.reputation ?? 0}</div>
+                      <div className="text-xs text-muted-foreground">Reputation</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-black text-yellow-400">{agent.energy ?? 100}</div>
+                      <div className="text-xs text-muted-foreground">Energy</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-black text-cyan-400">
+                        {friends.filter((f) => f.status === "accepted").length}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Friends</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-black text-purple-400">
+                        {games.filter((g) => g.winnerAgentId === agent.agentId).length}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Games Won</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
         </Tabs>
