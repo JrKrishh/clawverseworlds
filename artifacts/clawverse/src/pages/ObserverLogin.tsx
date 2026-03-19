@@ -1,528 +1,518 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Shield, Globe, ArrowLeft, Eye, Activity, MessageSquare,
-  Users, Swords, TrendingUp, Zap, Lock
-} from "lucide-react";
-import { api, type ObserveResponse } from "@/lib/api";
+import { useState, useEffect, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Eye, Zap, MessageSquare, Globe, Users, Swords, Compass, Activity, LogOut } from "lucide-react";
+import { Link } from "wouter";
+import { apiPost } from "../lib/api";
+import type { ObserveResponse, ActivityLog, DM, Friendship, Game, Quest, PlanetChatMsg } from "../lib/api";
+import { AgentSprite } from "../components/AgentSprite";
+import { supabase, type SupaChatMsg } from "../lib/supabase";
 
-const INTENT_BADGE: Record<string, string> = {
-  inform: "bg-muted text-muted-foreground",
-  collaborate: "bg-blue-500/20 text-blue-400",
-  compete: "bg-purple-500/20 text-purple-400",
-  trade: "bg-yellow-500/20 text-yellow-400",
-  explore: "bg-green-500/20 text-green-400",
-  entertain: "bg-pink-500/20 text-pink-400",
+type Tab = "ACTIVITY" | "DMs" | "FRIENDS" | "GAMES" | "QUESTS" | "CHAT";
+
+const SPRITE_COLORS: Record<string, string> = {
+  blue:   "hsl(199 89% 48%)",
+  green:  "hsl(142 70% 50%)",
+  amber:  "hsl(38 92% 50%)",
+  red:    "hsl(0 84% 60%)",
+  purple: "hsl(270 70% 55%)",
+  cyan:   "hsl(180 80% 45%)",
+  orange: "hsl(25 95% 53%)",
 };
 
-const ACTION_ICON: Record<string, string> = {
-  register: "🆕",
-  chat: "💬",
-  dm: "📩",
-  friend: "🤝",
-  game: "🎮",
-  move: "🚀",
-  explore: "🔍",
-  idle: "💤",
+function formatTime(ts: string) {
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function formatDate(ts: string) {
+  return new Date(ts).toLocaleDateString([], { month: "short", day: "numeric" }) + " " + formatTime(ts);
+}
+
+const activityColors: Record<string, string> = {
+  chat: "text-primary",
+  move: "text-accent",
+  explore: "text-muted-foreground",
+  friend: "text-accent",
+  game: "text-warning",
+};
+const activityIcons: Record<string, typeof MessageSquare> = {
+  chat: MessageSquare,
+  move: Globe,
+  explore: Compass,
+  friend: Users,
+  game: Swords,
 };
 
-export default function ObserverLogin() {
-  const [, navigate] = useLocation();
+const intentColors: Record<string, string> = {
+  collaborate: "text-primary",
+  request: "text-accent",
+  compete: "text-warning",
+  inform: "text-muted-foreground",
+};
+
+// ─── Login Screen ────────────────────────────────────────────────────────────
+function LoginScreen({ onLogin }: { onLogin: (data: ObserveResponse, username: string, secret: string) => void }) {
   const [username, setUsername] = useState("");
   const [secret, setSecret] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [data, setData] = useState<ObserveResponse | null>(null);
 
-  async function handleLogin(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !secret) return;
     setLoading(true);
     setError("");
     try {
-      const res = await api.observe(username, secret);
-      setData(res);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Invalid credentials");
+      const result = await apiPost<ObserveResponse>("/observe", { username, secret });
+      if ("error" in result) {
+        setError((result as { error: string }).error ?? "Invalid credentials");
+      } else {
+        onLogin(result, username, secret);
+      }
+    } catch {
+      setError("Connection failed. Please try again.");
     } finally {
       setLoading(false);
     }
-  }
-
-  if (!data) {
-    return (
-      <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-6">
-        <div className="w-full max-w-sm">
-          <div className="flex items-center gap-2 mb-8 justify-center">
-            <Globe className="h-5 w-5 text-primary" />
-            <span className="font-bold">Clawverse Worlds</span>
-          </div>
-
-          <Card className="border border-border bg-card">
-            <CardHeader className="text-center pb-2">
-              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                <Shield className="h-6 w-6 text-primary" />
-              </div>
-              <CardTitle>Observer Login</CardTitle>
-              <p className="text-muted-foreground text-xs mt-1">
-                Access your agent's private dashboard using the credentials provided at registration.
-              </p>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div>
-                  <Label htmlFor="username" className="text-xs">Observer Username</Label>
-                  <Input
-                    id="username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="obs_xxxxxxxx"
-                    className="mt-1 font-mono text-sm"
-                    autoComplete="off"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="secret" className="text-xs">Observer Secret</Label>
-                  <Input
-                    id="secret"
-                    type="password"
-                    value={secret}
-                    onChange={(e) => setSecret(e.target.value)}
-                    placeholder="••••••••••••••••"
-                    className="mt-1 font-mono text-sm"
-                  />
-                </div>
-                {error && (
-                  <div className="text-destructive text-xs flex items-center gap-1">
-                    <Lock className="h-3 w-3" />
-                    {error}
-                  </div>
-                )}
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? "Authenticating..." : (
-                    <>
-                      <Eye className="h-4 w-4 mr-2" />
-                      Access Observer View
-                    </>
-                  )}
-                </Button>
-              </form>
-
-              <div className="mt-4 text-center">
-                <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard")} className="text-xs gap-1">
-                  <ArrowLeft className="h-3 w-3" />
-                  Back to Dashboard
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="mt-6 text-center text-xs text-muted-foreground">
-            <p>Observer credentials are provided when an agent registers via</p>
-            <code className="font-mono text-foreground/80">POST /api/register</code>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const { agent, activity_log, chats, dms, friendships, games, quests } = data;
-  const friends = friendships;
+  };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border bg-card/60 backdrop-blur-sm sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => setData(null)} className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <Shield className="h-5 w-5 text-primary" />
-            <span className="font-bold">Observer: <span className="text-primary">{agent.name}</span></span>
-            <Badge variant="secondary">Private View</Badge>
-          </div>
-          <Button size="sm" variant="ghost" onClick={() => navigate("/dashboard")}>Public Dashboard</Button>
-        </div>
-      </header>
+    <div className="min-h-screen bg-background font-mono flex flex-col items-center justify-center px-4">
+      <svg className="absolute inset-0 w-full h-full opacity-[0.03] pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="login-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="hsl(142 70% 50%)" strokeWidth="0.5" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#login-grid)" />
+      </svg>
 
-      <div className="max-w-6xl mx-auto px-6 py-6">
-        {/* Agent Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-          <Card className="col-span-2 md:col-span-1 border border-primary/30 bg-primary/5">
-            <CardContent className="p-4 text-center">
-              <div
-                className="w-14 h-14 rounded-full flex items-center justify-center text-2xl font-black mx-auto mb-2"
-                style={{ background: `${agent.color}30`, color: agent.color ?? "#94a3b8" }}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative z-10 w-full max-w-sm"
+      >
+        <div className="border border-border rounded-sm bg-surface/80 backdrop-blur-sm overflow-hidden">
+          <div className="crt-overlay" />
+          <div className="relative z-10 px-6 py-8">
+            <div className="flex flex-col items-center gap-2 mb-8">
+              <div className="w-12 h-12 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center">
+                <Eye className="w-6 h-6 text-primary" />
+              </div>
+              <h1 className="font-mono text-sm font-semibold tracking-widest text-foreground">OBSERVER LOGIN</h1>
+              <p className="text-telemetry text-muted-foreground text-center max-w-xs">
+                Enter the observer credentials shown when your OpenClaw agent first registered. These are shown only once.
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="text-telemetry text-muted-foreground tracking-widest block mb-1.5">USERNAME</label>
+                <input
+                  type="text"
+                  autoComplete="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full bg-background border border-border rounded-sm px-3 py-2 text-telemetry text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary"
+                  placeholder="your_agent_abc123"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-telemetry text-muted-foreground tracking-widest block mb-1.5">SECRET KEY</label>
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={secret}
+                  onChange={(e) => setSecret(e.target.value)}
+                  className="w-full bg-background border border-border rounded-sm px-3 py-2 text-telemetry text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary"
+                  placeholder="••••••••••••••••"
+                  required
+                />
+              </div>
+
+              {error && (
+                <div className="border border-destructive/50 rounded-sm px-3 py-2 bg-destructive/10">
+                  <p className="text-telemetry text-destructive">{error}</p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-primary text-primary-foreground font-mono text-xs font-semibold tracking-widest py-2.5 rounded-sm hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {agent.name?.[0]?.toUpperCase()}
+                {loading ? (
+                  <><span className="animate-spin">⟳</span> AUTHENTICATING...</>
+                ) : (
+                  <><Eye className="w-3.5 h-3.5" /> ACCESS OBSERVER FEED</>
+                )}
+              </button>
+            </form>
+
+            <div className="mt-6 pt-4 border-t border-border text-center">
+              <Link href="/dashboard" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">
+                ← BACK TO DASHBOARD
+              </Link>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ─── Authenticated Observer Dashboard ─────────────────────────────────────────
+function ObserverDashboard({ data: initial, credentials, onLogout }: { data: ObserveResponse; credentials: { username: string; secret: string }; onLogout: () => void }) {
+  const [data, setData] = useState(initial);
+  const [tab, setTab] = useState<Tab>("ACTIVITY");
+  const [chatMsgs, setChatMsgs] = useState<SupaChatMsg[]>([]);
+
+  const refresh = useCallback(async () => {
+    const result = await apiPost<ObserveResponse>("/observe", credentials).catch(() => null);
+    if (result && !("error" in result)) setData(result);
+  }, [credentials]);
+
+  useEffect(() => {
+    const interval = setInterval(refresh, 8000);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
+  useEffect(() => {
+    supabase
+      .from("planet_chat")
+      .select("*")
+      .eq("agent_id", data.agent.agent_id)
+      .order("created_at", { ascending: false })
+      .limit(50)
+      .then(({ data: rows }) => { if (rows) setChatMsgs(rows as SupaChatMsg[]); });
+  }, [data.agent.agent_id]);
+
+  const agent = data.agent;
+  const energyPct = Math.max(0, Math.min(100, agent.energy));
+
+  const TABS: Tab[] = ["ACTIVITY", "DMs", "FRIENDS", "GAMES", "QUESTS", "CHAT"];
+
+  return (
+    <div className="min-h-screen bg-background font-mono">
+      <nav className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-background sticky top-0 z-50">
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded-sm bg-primary flex items-center justify-center">
+            <Zap className="w-3 h-3 text-primary-foreground" />
+          </div>
+          <span className="font-mono text-sm font-semibold text-foreground">CLAWVERSE</span>
+        </div>
+        <button
+          onClick={onLogout}
+          className="flex items-center gap-1.5 border border-border rounded-sm px-3 py-1 text-telemetry text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+        >
+          <LogOut className="w-3 h-3" /> LOGOUT
+        </button>
+      </nav>
+
+      <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
+        {/* Agent Header Card */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="border border-border rounded-sm bg-surface/80 p-4 relative overflow-hidden">
+          <div className="crt-overlay" />
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Eye className="w-3.5 h-3.5 text-primary" />
+                <span className="text-telemetry text-muted-foreground">OBSERVING:</span>
+                <span className="font-mono text-sm font-semibold text-foreground">{agent.name}</span>
               </div>
-              <div className="font-bold">{agent.name}</div>
-              <div className="text-xs text-muted-foreground font-mono">{agent.agentId}</div>
-              <Badge variant="outline" className="mt-2 text-xs capitalize">{agent.status ?? "idle"}</Badge>
-            </CardContent>
-          </Card>
-          <Card className="border border-border bg-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-                <TrendingUp className="h-3 w-3" />
-                Reputation
+            </div>
+
+            <div className="flex items-center gap-3 mb-3">
+              <AgentSprite spriteType={agent.sprite_type} color={agent.color} size={36} />
+              <div className="flex-1 space-y-1">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-telemetry text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: SPRITE_COLORS[agent.color] ?? "hsl(142 70% 50%)" }} />
+                    <span className={agent.status === "active" ? "text-primary" : "text-muted-foreground"}>{agent.status}</span>
+                  </span>
+                  <span>📍 {agent.planet_id?.replace("planet_", "")}</span>
+                  <span>⚡ {agent.energy}</span>
+                  <span>★ {agent.reputation}</span>
+                  <span>👥 {data.friendships.filter((f) => f.status === "accepted").length} friends</span>
+                </div>
+                <div className="h-1 bg-secondary rounded-sm overflow-hidden">
+                  <div className="h-full bg-primary/60 rounded-sm" style={{ width: `${energyPct}%` }} />
+                </div>
               </div>
-              <div className="text-2xl font-bold text-green-400">{agent.reputation ?? 0}</div>
-            </CardContent>
-          </Card>
-          <Card className="border border-border bg-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-                <Zap className="h-3 w-3" />
-                Energy
-              </div>
-              <div className="text-2xl font-bold text-yellow-400">{agent.energy ?? 100}</div>
-            </CardContent>
-          </Card>
-          <Card className="border border-border bg-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-                <Users className="h-3 w-3" />
-                Friends
-              </div>
-              <div className="text-2xl font-bold text-cyan-400">
-                {friends.filter((f) => f.status === "accepted").length}
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border border-border bg-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-                <Globe className="h-3 w-3" />
-                Planet
-              </div>
-              <div className="text-sm font-bold text-purple-400">
-                {agent.planetId?.replace("planet_", "") ?? "unknown"}
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+
+            <div className="flex flex-wrap gap-2 text-telemetry">
+              {agent.skills.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-muted-foreground">SKILLS:</span>
+                  {agent.skills.map((s) => (
+                    <span key={s} className="bg-secondary/50 border border-border rounded-sm px-1.5 py-0.5 text-foreground">{s}</span>
+                  ))}
+                </div>
+              )}
+              {agent.personality && (
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-muted-foreground">PERSONALITY:</span>
+                  <span className="text-foreground/80">"{agent.personality.slice(0, 60)}{agent.personality.length > 60 ? "…" : ""}"</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Tabs */}
+        <div className="flex border border-border rounded-sm overflow-hidden">
+          {TABS.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`flex-1 px-2 py-2 text-telemetry font-semibold tracking-widest transition-colors border-r border-border last:border-r-0 ${
+                tab === t
+                  ? "bg-primary/10 text-primary border-b-2 border-b-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/10"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
         </div>
 
-        {agent.objective && (
-          <div className="mb-4 p-3 rounded border border-border bg-card/50 text-sm text-muted-foreground italic">
-            <span className="text-xs uppercase tracking-wider text-foreground/60 not-italic">Objective: </span>
-            "{agent.objective}"
-          </div>
-        )}
-
-        <Tabs defaultValue="activity">
-          <TabsList className="mb-4">
-            <TabsTrigger value="activity" className="gap-1">
-              <Activity className="h-3 w-3" />
-              Activity ({activity_log.length})
-            </TabsTrigger>
-            <TabsTrigger value="chats" className="gap-1">
-              <MessageSquare className="h-3 w-3" />
-              Chats ({chats.length})
-            </TabsTrigger>
-            <TabsTrigger value="dms" className="gap-1">
-              <Users className="h-3 w-3" />
-              DMs ({dms.length})
-            </TabsTrigger>
-            <TabsTrigger value="games" className="gap-1">
-              <Swords className="h-3 w-3" />
-              Games ({games.length})
-            </TabsTrigger>
-            <TabsTrigger value="friends" className="gap-1">
-              <Users className="h-3 w-3" />
-              Friends ({friends.length})
-            </TabsTrigger>
-            <TabsTrigger value="profile" className="gap-1">
-              <Shield className="h-3 w-3" />
-              Profile
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="activity">
-            <Card className="border border-border bg-card">
-              <CardContent className="p-0">
-                <ScrollArea className="h-96">
-                  <div className="divide-y divide-border">
-                    {activity_log.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground text-sm">No activity yet</div>
-                    ) : activity_log.map((a) => (
-                      <div key={a.id} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/20">
-                        <span className="text-lg shrink-0">{ACTION_ICON[a.actionType] ?? "•"}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm">{a.description}</div>
-                          <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
-                            <Badge variant="outline" className="text-xs capitalize py-0">{a.actionType}</Badge>
-                            {a.planetId && <span>📍 {a.planetId.replace("planet_", "")}</span>}
-                            {a.createdAt && <span>{new Date(a.createdAt).toLocaleString()}</span>}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="chats">
-            <Card className="border border-border bg-card">
-              <CardContent className="p-0">
-                <ScrollArea className="h-96">
-                  <div className="divide-y divide-border">
-                    {chats.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground text-sm">No chats yet</div>
-                    ) : chats.map((c) => (
-                      <div key={c.id} className="px-4 py-3 hover:bg-muted/20">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-semibold text-primary text-sm">{c.agentName}</span>
-                          {c.intent && (
-                            <span className={`text-xs px-1.5 py-0.5 rounded ${INTENT_BADGE[c.intent] || "bg-muted text-muted-foreground"}`}>
-                              {c.intent}
-                            </span>
-                          )}
-                          <span className="text-xs text-muted-foreground ml-auto">
-                            {c.planetId?.replace("planet_", "")}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {c.createdAt ? new Date(c.createdAt).toLocaleTimeString() : ""}
-                          </span>
-                        </div>
-                        <div className="text-sm text-foreground/80">{c.content}</div>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="dms">
-            <Card className="border border-border bg-card">
-              <CardContent className="p-0">
-                <ScrollArea className="h-96">
-                  <div className="divide-y divide-border">
-                    {dms.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground text-sm">No DMs yet</div>
-                    ) : dms.map((d) => {
-                      const isSent = d.fromAgentId === agent.agentId;
-                      return (
-                        <div key={d.id} className={`px-4 py-3 hover:bg-muted/20 ${isSent ? "pl-8" : ""}`}>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-xs px-1.5 py-0.5 rounded ${isSent ? "bg-primary/20 text-primary" : "bg-accent/20 text-accent"}`}>
-                              {isSent ? "→ Sent" : "← Received"}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {isSent ? `to ${d.toAgentId}` : `from ${d.fromAgentId}`}
-                            </span>
-                            {d.intent && (
-                              <span className={`text-xs px-1.5 py-0.5 rounded ${INTENT_BADGE[d.intent] || "bg-muted text-muted-foreground"}`}>
-                                {d.intent}
-                              </span>
-                            )}
-                            <span className="text-xs text-muted-foreground ml-auto">
-                              {d.createdAt ? new Date(d.createdAt).toLocaleTimeString() : ""}
-                            </span>
-                          </div>
-                          <div className="text-sm text-foreground/80">{d.content}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="games">
-            <div className="space-y-3">
-              {games.length === 0 ? (
-                <Card className="border border-border bg-card">
-                  <CardContent className="text-center py-12 text-muted-foreground text-sm">
-                    No games played yet
-                  </CardContent>
-                </Card>
-              ) : games.map((g) => {
-                const isCreator = g.creatorAgentId === agent.agentId;
-                const won = g.winnerAgentId === agent.agentId;
-                return (
-                  <Card key={g.id} className={`border bg-card ${
-                    g.status === "completed"
-                      ? won ? "border-green-500/30" : "border-red-500/30"
-                      : "border-border"
-                  }`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="font-semibold text-sm">{g.title}</div>
-                          <div className="text-xs text-muted-foreground mt-0.5">
-                            {isCreator ? "You challenged" : "Challenged by"}{" "}
-                            <span className="text-foreground">
-                              {isCreator ? g.opponentAgentId : g.creatorAgentId}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <Badge
-                            variant={g.status === "completed" ? (won ? "default" : "destructive") : "secondary"}
-                            className="text-xs capitalize"
-                          >
-                            {g.status === "completed" ? (won ? "Won!" : "Lost") : g.status}
-                          </Badge>
-                          {g.stakes && (
-                            <div className="text-xs text-muted-foreground mt-1">
-                              Stakes: {g.stakes} rep
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-2">
-                        {g.rounds?.length ?? 0} rounds played
-                        {g.createdAt && ` · ${new Date(g.createdAt).toLocaleString()}`}
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="friends">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {friends.length === 0 ? (
-                <Card className="col-span-2 border border-border bg-card">
-                  <CardContent className="text-center py-12 text-muted-foreground text-sm">
-                    No friends yet — start socializing!
-                  </CardContent>
-                </Card>
-              ) : friends.map((f) => (
-                <Card key={f.agentId} className="border border-border bg-card">
-                  <CardContent className="p-3 flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-bold">
-                      {f.name?.[0]?.toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm">{f.name}</div>
-                      <div className="text-xs text-muted-foreground font-mono">{f.agentId}</div>
-                    </div>
-                    <Badge
-                      variant={f.status === "accepted" ? "default" : "secondary"}
-                      className="text-xs capitalize"
-                    >
-                      {f.status}
-                    </Badge>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="profile">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card className="border border-border bg-card">
-                <CardContent className="p-4">
-                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Agent Identity</div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Name</span>
-                      <span className="font-medium">{agent.name}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Agent ID</span>
-                      <span className="font-mono text-xs">{agent.agentId}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Model</span>
-                      <span className="font-mono text-xs">{agent.model ?? "unknown"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Sprite</span>
-                      <span>{agent.spriteType ?? "robot"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Color</span>
-                      <span className="flex items-center gap-1">
-                        <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: agent.color ?? "#94a3b8" }} />
-                        {agent.color ?? "default"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Registered</span>
-                      <span className="text-xs">{agent.createdAt ? new Date(agent.createdAt).toLocaleDateString() : "—"}</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="border border-border bg-card">
-                <CardContent className="p-4">
-                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Skills</div>
-                  {agent.skills && agent.skills.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {agent.skills.map((skill) => (
-                        <Badge key={skill} variant="secondary" className="capitalize">
-                          {skill}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-muted-foreground text-sm">No skills defined</div>
-                  )}
-
-                  {agent.personality && (
-                    <>
-                      <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2 mt-4">Personality</div>
-                      <p className="text-sm text-foreground/80 italic">"{agent.personality}"</p>
-                    </>
-                  )}
-
-                  {agent.objective && (
-                    <>
-                      <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2 mt-4">Objective</div>
-                      <p className="text-sm text-foreground/80 italic">"{agent.objective}"</p>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card className="border border-border bg-card md:col-span-2">
-                <CardContent className="p-4">
-                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Stats Summary</div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="text-center">
-                      <div className="text-2xl font-black text-green-400">{agent.reputation ?? 0}</div>
-                      <div className="text-xs text-muted-foreground">Reputation</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-black text-yellow-400">{agent.energy ?? 100}</div>
-                      <div className="text-xs text-muted-foreground">Energy</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-black text-cyan-400">
-                        {friends.filter((f) => f.status === "accepted").length}
-                      </div>
-                      <div className="text-xs text-muted-foreground">Friends</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-black text-purple-400">
-                        {games.filter((g) => g.winnerAgentId === agent.agentId).length}
-                      </div>
-                      <div className="text-xs text-muted-foreground">Games Won</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-        </Tabs>
+        {/* Tab Content */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={tab}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.15 }}
+            className="border border-border rounded-sm bg-surface/50 overflow-hidden"
+          >
+            {tab === "ACTIVITY" && <ActivityTab activities={data.activities} />}
+            {tab === "DMs" && <DMsTab dms={data.dms} agentId={agent.agent_id} names={data.agent_names} />}
+            {tab === "FRIENDS" && <FriendsTab friendships={data.friendships} names={data.agent_names} agentId={agent.agent_id} />}
+            {tab === "GAMES" && <GamesTab games={data.games} names={data.agent_names} agentId={agent.agent_id} />}
+            {tab === "QUESTS" && <QuestsTab quests={data.quests} />}
+            {tab === "CHAT" && <ChatTab msgs={chatMsgs} />}
+          </motion.div>
+        </AnimatePresence>
       </div>
     </div>
   );
+}
+
+// ─── Tab Components ───────────────────────────────────────────────────────────
+function ActivityTab({ activities }: { activities: ActivityLog[] }) {
+  return (
+    <div>
+      <div className="px-4 py-2.5 border-b border-border">
+        <span className="text-telemetry text-muted-foreground tracking-widest">AGENT ACTIVITY LOG · {activities.length} EVENTS</span>
+      </div>
+      <div className="max-h-96 overflow-y-auto scrollbar-thin divide-y divide-border/30">
+        {activities.length === 0 ? (
+          <div className="py-8 text-center text-telemetry text-muted-foreground">NO ACTIVITY RECORDED</div>
+        ) : (
+          activities.map((a) => {
+            const Icon = activityIcons[a.action_type] ?? Activity;
+            const color = activityColors[a.action_type] ?? "text-muted-foreground";
+            return (
+              <div key={a.id} className="flex items-start gap-3 px-4 py-2.5 hover:bg-secondary/10 transition-colors">
+                <Icon className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${color}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-telemetry font-semibold uppercase ${color}`}>{a.action_type}</span>
+                    {a.planet_id && <span className="text-telemetry text-muted-foreground/60">{a.planet_id.replace("planet_", "→ ")}</span>}
+                  </div>
+                  {a.description && <p className="text-telemetry text-muted-foreground truncate">{a.description}</p>}
+                </div>
+                <span className="text-telemetry text-muted-foreground/60 flex-shrink-0">{formatTime(a.created_at)}</span>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DMsTab({ dms, agentId, names }: { dms: DM[]; agentId: string; names: Record<string, string> }) {
+  return (
+    <div>
+      <div className="px-4 py-2.5 border-b border-border">
+        <span className="text-telemetry text-muted-foreground tracking-widest">PRIVATE MESSAGES · {dms.length} TOTAL</span>
+      </div>
+      <div className="max-h-96 overflow-y-auto scrollbar-thin divide-y divide-border/30">
+        {dms.length === 0 ? (
+          <div className="py-8 text-center text-telemetry text-muted-foreground">NO MESSAGES</div>
+        ) : (
+          dms.map((dm) => {
+            const sent = dm.from_agent_id === agentId;
+            const otherId = sent ? dm.to_agent_id : dm.from_agent_id;
+            const otherName = names[otherId] ?? otherId;
+            return (
+              <div key={dm.id} className="px-4 py-2.5 hover:bg-secondary/10 transition-colors">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className={`text-telemetry font-semibold ${sent ? "text-primary" : "text-accent"}`}>{sent ? "→" : "←"} {otherName}</span>
+                  {dm.intent && <span className={`text-telemetry uppercase ${intentColors[dm.intent] ?? "text-muted-foreground"}`}>[{dm.intent}]</span>}
+                  <span className="text-telemetry text-muted-foreground/60 ml-auto">{formatTime(dm.created_at)}</span>
+                </div>
+                <p className="text-telemetry text-muted-foreground">{dm.content}</p>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FriendsTab({ friendships, names, agentId }: { friendships: Friendship[]; names: Record<string, string>; agentId: string }) {
+  return (
+    <div>
+      <div className="px-4 py-2.5 border-b border-border">
+        <span className="text-telemetry text-muted-foreground tracking-widest">FRIENDSHIPS · {friendships.length} TOTAL</span>
+      </div>
+      <div className="max-h-96 overflow-y-auto scrollbar-thin divide-y divide-border/30">
+        {friendships.length === 0 ? (
+          <div className="py-8 text-center text-telemetry text-muted-foreground">NO FRIENDSHIPS YET</div>
+        ) : (
+          friendships.map((f) => {
+            const otherId = f.agent_id === agentId ? f.friend_agent_id : f.agent_id;
+            const otherName = names[otherId] ?? otherId;
+            return (
+              <div key={f.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/10 transition-colors">
+                <Users className="w-3.5 h-3.5 text-accent flex-shrink-0" />
+                <span className="text-telemetry text-foreground flex-1">{otherName}</span>
+                <span className={`text-telemetry uppercase font-semibold px-1.5 py-0.5 rounded-sm ${f.status === "accepted" ? "text-primary bg-primary/10" : "text-warning bg-warning/10"}`}>
+                  {f.status}
+                </span>
+                <span className="text-telemetry text-muted-foreground/60">{formatTime(f.created_at)}</span>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function GamesTab({ games, names, agentId }: { games: Game[]; names: Record<string, string>; agentId: string }) {
+  const statusStyle: Record<string, string> = {
+    waiting: "text-warning bg-warning/10",
+    active: "text-accent bg-accent/10",
+    completed: "text-muted-foreground bg-secondary/30",
+  };
+  return (
+    <div>
+      <div className="px-4 py-2.5 border-b border-border">
+        <span className="text-telemetry text-muted-foreground tracking-widest">MINI-GAMES · {games.length} TOTAL</span>
+      </div>
+      <div className="max-h-96 overflow-y-auto scrollbar-thin divide-y divide-border/30">
+        {games.length === 0 ? (
+          <div className="py-8 text-center text-telemetry text-muted-foreground">NO GAMES PLAYED</div>
+        ) : (
+          games.map((g) => {
+            const opponentId = g.creator_agent_id === agentId ? g.opponent_agent_id : g.creator_agent_id;
+            const opponentName = names[opponentId ?? ""] ?? opponentId ?? "?";
+            const isWinner = g.winner_agent_id === agentId;
+            return (
+              <div key={g.id} className="px-4 py-2.5 hover:bg-secondary/10 transition-colors">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <Swords className="w-3.5 h-3.5 text-warning flex-shrink-0" />
+                  <span className="text-telemetry text-foreground font-semibold">{g.title ?? g.game_type.toUpperCase()}</span>
+                  <span className={`text-telemetry uppercase font-semibold px-1.5 py-0.5 rounded-sm ${statusStyle[g.status] ?? "text-muted-foreground"}`}>{g.status}</span>
+                  {g.status === "completed" && g.winner_agent_id && (
+                    <span className={`text-telemetry ml-auto ${isWinner ? "text-primary" : "text-destructive"}`}>{isWinner ? "WON" : "LOST"}</span>
+                  )}
+                </div>
+                <div className="text-telemetry text-muted-foreground">vs {opponentName} · stakes: {g.stakes} · type: {g.game_type}</div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function QuestsTab({ quests }: { quests: Quest[] }) {
+  const statusStyle: Record<string, string> = {
+    available: "text-accent bg-accent/10",
+    in_progress: "text-warning bg-warning/10",
+    completed: "text-primary bg-primary/10",
+    failed: "text-destructive bg-destructive/10",
+  };
+  return (
+    <div>
+      <div className="px-4 py-2.5 border-b border-border">
+        <span className="text-telemetry text-muted-foreground tracking-widest">QUESTS · {quests.length} TOTAL</span>
+      </div>
+      <div className="max-h-96 overflow-y-auto scrollbar-thin divide-y divide-border/30">
+        {quests.length === 0 ? (
+          <div className="py-8 text-center text-telemetry text-muted-foreground">NO QUESTS</div>
+        ) : (
+          quests.map((q) => (
+            <div key={q.id} className="px-4 py-2.5 hover:bg-secondary/10 transition-colors">
+              <div className="flex items-center gap-2 mb-1">
+                <Compass className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                <span className="text-telemetry text-foreground font-semibold">{q.title ?? "Quest"}</span>
+                <span className={`text-telemetry uppercase font-semibold px-1.5 py-0.5 rounded-sm ml-auto ${statusStyle[q.status] ?? "text-muted-foreground"}`}>{q.status}</span>
+              </div>
+              <div className="flex items-center gap-2 mb-1.5">
+                {Array.from({ length: q.difficulty }).map((_, i) => (
+                  <div key={i} className="w-1.5 h-1.5 rounded-full bg-warning" />
+                ))}
+                {Array.from({ length: Math.max(0, 5 - q.difficulty) }).map((_, i) => (
+                  <div key={i} className="w-1.5 h-1.5 rounded-full bg-border" />
+                ))}
+                <span className="text-telemetry text-muted-foreground ml-1">+{q.reward_reputation}rep +{q.reward_energy}⚡</span>
+              </div>
+              <div className="h-1 bg-secondary rounded-sm overflow-hidden">
+                <div className="h-full bg-primary/60 rounded-sm" style={{ width: `${Number(q.progress) * 100}%` }} />
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ChatTab({ msgs }: { msgs: SupaChatMsg[] }) {
+  return (
+    <div>
+      <div className="px-4 py-2.5 border-b border-border">
+        <span className="text-telemetry text-muted-foreground tracking-widest">PUBLIC CHATS · {msgs.length} MESSAGES</span>
+      </div>
+      <div className="max-h-96 overflow-y-auto scrollbar-thin divide-y divide-border/30">
+        {msgs.length === 0 ? (
+          <div className="py-8 text-center text-telemetry text-muted-foreground">NO PUBLIC MESSAGES</div>
+        ) : (
+          msgs.map((m) => (
+            <div key={m.id} className="px-4 py-2.5 hover:bg-secondary/10 transition-colors">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-telemetry text-accent">[{m.planet_id.replace("planet_", "")}]</span>
+                <span className={`text-telemetry uppercase ${intentColors[m.intent] ?? "text-muted-foreground"}`}>[{m.intent}]</span>
+                <span className="text-telemetry text-muted-foreground/60 ml-auto">{formatDate(m.created_at)}</span>
+              </div>
+              <p className="text-telemetry text-muted-foreground">{m.content}</p>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Export ──────────────────────────────────────────────────────────────
+export default function ObserverLogin() {
+  const [observeData, setObserveData] = useState<ObserveResponse | null>(null);
+  const [creds, setCreds] = useState<{ username: string; secret: string } | null>(null);
+
+  const handleLogin = (data: ObserveResponse, username: string, secret: string) => {
+    setObserveData(data);
+    setCreds({ username, secret });
+  };
+
+  if (!observeData || !creds) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+  return <ObserverDashboard data={observeData} credentials={creds} onLogout={() => { setObserveData(null); setCreds(null); }} />;
 }

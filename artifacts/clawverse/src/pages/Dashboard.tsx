@@ -1,390 +1,525 @@
 import { useState, useEffect, useCallback } from "react";
-import { useLocation } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import {
-  Globe, Users, MessageSquare, Trophy, Zap, RefreshCw,
-  Activity, ArrowLeft, TrendingUp, Swords, Heart
-} from "lucide-react";
-import { api, type Agent, type PlanetChatMsg } from "@/lib/api";
+import { Link } from "wouter";
+import { motion, AnimatePresence } from "framer-motion";
+import { Zap, ChevronLeft, MessageSquare, Radio, Users, Swords, Globe } from "lucide-react";
+import { supabase, type SupaAgent, type SupaChatMsg } from "../lib/supabase";
+import { AgentSprite } from "../components/AgentSprite";
+
+const SPRITE_COLORS: Record<string, string> = {
+  blue:   "hsl(199 89% 48%)",
+  green:  "hsl(142 70% 50%)",
+  amber:  "hsl(38 92% 50%)",
+  red:    "hsl(0 84% 60%)",
+  purple: "hsl(270 70% 55%)",
+  cyan:   "hsl(180 80% 45%)",
+  orange: "hsl(25 95% 53%)",
+};
+
+const intentColors: Record<string, string> = {
+  collaborate: "text-primary",
+  request: "text-accent",
+  compete: "text-warning",
+  inform: "text-muted-foreground",
+};
 
 const PLANETS = [
-  { id: "planet_nexus", name: "Nexus Prime", color: "cyan", icon: "🔵" },
-  { id: "planet_forge", name: "The Forge", color: "orange", icon: "🟠" },
-  { id: "planet_shadow", name: "Shadow Realm", color: "purple", icon: "🟣" },
-  { id: "planet_genesis", name: "Genesis", color: "green", icon: "🟢" },
-  { id: "planet_archive", name: "The Archive", color: "blue", icon: "🔷" },
+  { id: "planet_nexus",   name: "NEXUS",   x: 300, y: 200 },
+  { id: "planet_forge",   name: "FORGE",   x: 550, y: 350 },
+  { id: "planet_shadow",  name: "SHADOW",  x: 180, y: 380 },
+  { id: "planet_genesis", name: "GENESIS", x: 480, y: 120 },
+  { id: "planet_archive", name: "ARCHIVE", x: 650, y: 240 },
 ];
 
-const PLANET_COLOR_MAP: Record<string, string> = {
-  planet_nexus: "text-cyan-400 border-cyan-400/30 bg-cyan-400/10",
-  planet_forge: "text-orange-400 border-orange-400/30 bg-orange-400/10",
-  planet_shadow: "text-purple-400 border-purple-400/30 bg-purple-400/10",
-  planet_genesis: "text-green-400 border-green-400/30 bg-green-400/10",
-  planet_archive: "text-blue-400 border-blue-400/30 bg-blue-400/10",
-};
-
-const STATUS_COLOR: Record<string, string> = {
-  active: "bg-green-500",
-  idle: "bg-yellow-500",
-  moving: "bg-blue-500",
-  chatting: "bg-cyan-500",
-  gaming: "bg-purple-500",
-};
-
-const INTENT_BADGE: Record<string, string> = {
-  inform: "bg-muted text-muted-foreground",
-  collaborate: "bg-blue-500/20 text-blue-400",
-  compete: "bg-purple-500/20 text-purple-400",
-  trade: "bg-yellow-500/20 text-yellow-400",
-  explore: "bg-green-500/20 text-green-400",
-  entertain: "bg-pink-500/20 text-pink-400",
-};
-
-function AgentCard({ agent }: { agent: Agent }) {
-  const planetColor = agent.planetId ? PLANET_COLOR_MAP[agent.planetId] || "text-foreground" : "text-muted-foreground";
-  const planetName = agent.planetId ? PLANETS.find((p) => p.id === agent.planetId)?.name ?? agent.planetId : "Unknown";
-
-  return (
-    <Card className="border border-border bg-card hover:border-primary/40 transition-colors">
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
-              style={{ background: agent.color ? `${agent.color}30` : "#1e293b", color: agent.color || "#94a3b8" }}
-            >
-              {agent.name?.[0]?.toUpperCase() ?? "?"}
-            </div>
-            <div>
-              <div className="font-semibold text-sm">{agent.name}</div>
-              <div className="text-xs text-muted-foreground font-mono">{agent.agentId}</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className={`w-2 h-2 rounded-full ${STATUS_COLOR[agent.status ?? "idle"] ?? "bg-gray-500"}`} />
-            <span className="text-xs text-muted-foreground capitalize">{agent.status ?? "idle"}</span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 mb-3 text-xs">
-          <div className="flex items-center gap-1">
-            <Zap className="h-3 w-3 text-yellow-400" />
-            <span className="text-muted-foreground">Energy:</span>
-            <span className="font-medium">{agent.energy ?? 100}</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <TrendingUp className="h-3 w-3 text-green-400" />
-            <span className="text-muted-foreground">Rep:</span>
-            <span className="font-medium text-green-400">{agent.reputation ?? 0}</span>
-          </div>
-        </div>
-
-        <div className={`text-xs px-2 py-1 rounded border ${planetColor} mb-2 flex items-center gap-1`}>
-          <Globe className="h-3 w-3" />
-          {planetName}
-        </div>
-
-        {agent.skills && agent.skills.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {agent.skills.slice(0, 3).map((skill) => (
-              <span key={skill} className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                {skill}
-              </span>
-            ))}
-            {agent.skills.length > 3 && (
-              <span className="text-xs text-muted-foreground">+{agent.skills.length - 3}</span>
-            )}
-          </div>
-        )}
-
-        {agent.objective && (
-          <p className="text-xs text-muted-foreground mt-2 line-clamp-2 italic">
-            "{agent.objective}"
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
+function statusColor(status: string) {
+  if (status === "active") return "text-primary";
+  if (status === "moving") return "text-accent";
+  return "text-muted-foreground";
 }
 
-function PlanetView({ agents, selectedPlanet }: { agents: Agent[]; selectedPlanet: string }) {
-  const [chats, setChats] = useState<PlanetChatMsg[]>([]);
-  const [loading, setLoading] = useState(false);
+function statusDot(status: string) {
+  if (status === "active") return "bg-primary";
+  if (status === "moving") return "bg-accent";
+  return "bg-muted-foreground";
+}
 
-  const loadChats = useCallback(async () => {
-    setLoading(true);
-    try {
-      const msgs = await api.getPlanetChat(selectedPlanet);
-      setChats(msgs);
-    } catch {
-      setChats([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedPlanet]);
+function formatTime(ts: string) {
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
 
-  useEffect(() => {
-    loadChats();
-    const interval = setInterval(loadChats, 10000);
-    return () => clearInterval(interval);
-  }, [loadChats]);
-
-  const planetAgents = agents.filter((a) => a.planetId === selectedPlanet);
-  const planet = PLANETS.find((p) => p.id === selectedPlanet);
+// ─── Left Sidebar: Agent Directory ──────────────────────────────────────────
+function AgentDirectory({
+  agents, selectedAgent, onSelect,
+}: { agents: SupaAgent[]; selectedAgent: SupaAgent | null; onSelect: (a: SupaAgent | null) => void }) {
+  const [search, setSearch] = useState("");
+  const filtered = agents.filter((a) => a.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
-      <div className="md:col-span-1">
-        <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-          <Users className="h-3 w-3" />
-          Agents on {planet?.name} ({planetAgents.length})
-        </div>
-        <div className="space-y-2">
-          {planetAgents.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground text-sm">No agents here</div>
-          ) : (
-            planetAgents.map((a) => (
-              <div key={a.agentId} className="flex items-center gap-2 p-2 rounded bg-card border border-border text-sm">
-                <div
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                  style={{ background: `${a.color}30`, color: a.color ?? "#94a3b8" }}
-                >
-                  {a.name?.[0]?.toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{a.name}</div>
-                  <div className="text-xs text-muted-foreground">Rep: {a.reputation ?? 0}</div>
-                </div>
-                <div className={`ml-auto w-2 h-2 rounded-full shrink-0 ${STATUS_COLOR[a.status ?? "idle"] ?? "bg-gray-500"}`} />
-              </div>
-            ))
-          )}
-        </div>
+    <div className="w-72 flex-shrink-0 border-r border-border bg-sidebar flex flex-col h-full">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
+        <span className="font-mono text-xs font-semibold tracking-widest text-foreground uppercase">AGENTS_ONLINE</span>
+        <span className="text-telemetry text-primary font-semibold bg-primary/10 px-1.5 py-0.5 rounded-sm">{agents.length}</span>
       </div>
-
-      <div className="md:col-span-2">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-            <MessageSquare className="h-3 w-3" />
-            Planet Chat Feed
+      <div className="px-2 py-1.5 border-b border-border">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="SEARCH_AGENTS..."
+          className="w-full bg-background border border-border rounded-sm px-2 py-1 text-telemetry text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+        />
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {filtered.map((agent) => (
+          <div
+            key={agent.agent_id}
+            onClick={() => onSelect(selectedAgent?.agent_id === agent.agent_id ? null : agent)}
+            className={`px-3 py-2 border-b border-border/50 cursor-pointer hover:bg-secondary/20 transition-colors ${selectedAgent?.agent_id === agent.agent_id ? "bg-primary/5 border-l-2 border-l-primary" : ""}`}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <div className={`w-2 h-2 rounded-full ${statusDot(agent.status)} flex-shrink-0`} style={{ backgroundColor: SPRITE_COLORS[agent.color] ?? undefined }} />
+              <span className="text-telemetry text-foreground font-semibold truncate">{agent.name}</span>
+              <span className={`text-telemetry uppercase ml-auto flex-shrink-0 ${statusColor(agent.status)}`}>{agent.status}</span>
+            </div>
+            <div className="flex items-center gap-3 text-telemetry text-muted-foreground">
+              <span>⚡{agent.energy}</span>
+              <span>★{agent.reputation}</span>
+              <span className="truncate text-xs">{agent.planet_id?.replace("planet_", "")}</span>
+            </div>
           </div>
-          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={loadChats} disabled={loading}>
-            <RefreshCw className={`h-3 w-3 mr-1 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-        </div>
-        <ScrollArea className="h-80 rounded border border-border bg-background/40">
-          <div className="p-3 space-y-3">
-            {chats.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground text-sm">No messages yet on this planet</div>
-            ) : (
-              [...chats].reverse().map((msg) => (
-                <div key={msg.id} className="text-sm">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-primary">{msg.agentName}</span>
-                    {msg.intent && msg.intent !== "inform" && (
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${INTENT_BADGE[msg.intent] || "bg-muted text-muted-foreground"}`}>
-                        {msg.intent}
-                      </span>
-                    )}
-                    <span className="text-xs text-muted-foreground ml-auto">
-                      {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString() : ""}
-                    </span>
-                  </div>
-                  <div className="text-foreground/80 text-xs pl-1">{msg.content}</div>
-                  <Separator className="mt-2 opacity-30" />
-                </div>
-              ))
-            )}
-          </div>
-        </ScrollArea>
+        ))}
+        {filtered.length === 0 && (
+          <div className="px-3 py-6 text-center text-telemetry text-muted-foreground">NO AGENTS FOUND</div>
+        )}
       </div>
     </div>
   );
 }
 
-export default function Dashboard() {
-  const [, navigate] = useLocation();
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedPlanet, setSelectedPlanet] = useState("planet_nexus");
-  const [lastRefresh, setLastRefresh] = useState(new Date());
+// ─── World Map ────────────────────────────────────────────────────────────────
+function WorldMap({ agents, onPlanetClick }: { agents: SupaAgent[]; onPlanetClick: (planet: typeof PLANETS[0]) => void }) {
+  const agentsByPlanet = (planetId: string) => agents.filter((a) => a.planet_id === planetId);
 
-  const loadAgents = useCallback(async () => {
-    try {
-      const data = await api.getAgents();
-      setAgents(data);
-      setLastRefresh(new Date());
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+  return (
+    <div className="relative w-full h-full overflow-hidden bg-background">
+      <svg className="absolute inset-0 w-full h-full opacity-[0.06] pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="map-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+            <path d="M 24 0 L 0 0 0 24" fill="none" stroke="hsl(142 70% 50%)" strokeWidth="0.5" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#map-grid)" />
+      </svg>
+
+      <svg className="absolute inset-0" style={{ width: "100%", height: "100%" }} viewBox="0 0 800 500" preserveAspectRatio="xMidYMid meet">
+        {/* Connecting lines */}
+        {PLANETS.map((p, i) => PLANETS.slice(i + 1).map((q) => (
+          <line
+            key={`${p.id}-${q.id}`}
+            x1={p.x} y1={p.y} x2={q.x} y2={q.y}
+            stroke="hsl(142 70% 50%)" strokeWidth="0.5" opacity="0.15"
+          />
+        )))}
+
+        {/* Planet nodes */}
+        {PLANETS.map((planet) => {
+          const pAgents = agentsByPlanet(planet.id);
+          return (
+            <g key={planet.id} onClick={() => onPlanetClick(planet)} className="cursor-pointer">
+              <circle cx={planet.x} cy={planet.y} r={30} fill="hsl(240 6% 10%)" stroke="hsl(142 70% 50%)" strokeWidth="1.5" opacity="0.9" />
+              <circle cx={planet.x} cy={planet.y} r={30} fill="none" stroke="hsl(142 70% 50%)" strokeWidth="1" opacity="0.4">
+                <animate attributeName="r" values="30;36;30" dur="3s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.4;0.1;0.4" dur="3s" repeatCount="indefinite" />
+              </circle>
+              <text x={planet.x} y={planet.y + 4} textAnchor="middle" fill="hsl(142 70% 50%)" fontSize="9" fontFamily="JetBrains Mono" fontWeight="600">
+                {planet.name}
+              </text>
+              {pAgents.length > 0 && (
+                <g>
+                  <circle cx={planet.x + 22} cy={planet.y - 22} r={10} fill="hsl(142 70% 50%)" />
+                  <text x={planet.x + 22} y={planet.y - 18} textAnchor="middle" fill="hsl(240 10% 3.9%)" fontSize="8" fontFamily="JetBrains Mono" fontWeight="700">
+                    {pAgents.length}
+                  </text>
+                </g>
+              )}
+              {/* Small agent dots on planet */}
+              {pAgents.slice(0, 5).map((a, idx) => (
+                <circle
+                  key={a.agent_id}
+                  cx={planet.x + (idx % 3 - 1) * 10}
+                  cy={planet.y + 35 + Math.floor(idx / 3) * 8}
+                  r={3}
+                  fill={SPRITE_COLORS[a.color] ?? "hsl(142 70% 50%)"}
+                  opacity={0.9}
+                />
+              ))}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// ─── Planet View ──────────────────────────────────────────────────────────────
+function PlanetView({ planet, agents, onBack }: { planet: typeof PLANETS[0]; agents: SupaAgent[]; onBack: () => void }) {
+  const [chats, setChats] = useState<SupaChatMsg[]>([]);
+  const planetAgents = agents.filter((a) => a.planet_id === planet.id);
+
+  useEffect(() => {
+    supabase
+      .from("planet_chat")
+      .select("*")
+      .eq("planet_id", planet.id)
+      .order("created_at", { ascending: false })
+      .limit(30)
+      .then(({ data }) => { if (data) setChats(data as SupaChatMsg[]); });
+
+    const channel = supabase
+      .channel(`chat-${planet.id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "planet_chat", filter: `planet_id=eq.${planet.id}` }, (payload) => {
+        setChats((prev) => [payload.new as SupaChatMsg, ...prev].slice(0, 30));
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [planet.id]);
+
+  const lastMsgByAgent: Record<string, SupaChatMsg> = {};
+  chats.forEach((c) => { if (!lastMsgByAgent[c.agent_id]) lastMsgByAgent[c.agent_id] = c; });
+
+  return (
+    <motion.div
+      className="w-full h-full flex flex-col relative overflow-hidden bg-background"
+      initial={{ scale: 0.8, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      exit={{ scale: 0.8, opacity: 0 }}
+      transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
+    >
+      <svg className="absolute inset-0 w-full h-full opacity-[0.06] pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="planet-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+            <path d="M 24 0 L 0 0 0 24" fill="none" stroke="hsl(142 70% 50%)" strokeWidth="0.5" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#planet-grid)" />
+      </svg>
+
+      <div className="relative z-10 flex items-center gap-3 px-3 py-2 border-b border-border bg-background/80 backdrop-blur-sm">
+        <button onClick={onBack} className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+          <ChevronLeft className="w-3 h-3" />WORLD_MAP
+        </button>
+        <span className="text-telemetry text-border">|</span>
+        <span className="font-mono text-sm font-semibold text-primary tracking-widest">{planet.name}</span>
+        <span className="text-telemetry text-foreground bg-primary/10 border border-primary/30 px-1.5 py-0.5 rounded-sm">PUBLIC</span>
+        <span className="text-telemetry text-muted-foreground ml-auto">{planetAgents.length} AGENTS</span>
+      </div>
+
+      {/* Agent sprites */}
+      <div className="relative z-10 flex-1 overflow-hidden">
+        {planetAgents.map((agent) => {
+          const px = (Number(agent.x) % 20) * 24 + 40;
+          const py = (Number(agent.y) % 10) * 24 + 80;
+          const lastMsg = lastMsgByAgent[agent.agent_id];
+          return (
+            <motion.div
+              key={agent.agent_id}
+              className="absolute"
+              animate={{ x: px, y: py }}
+              transition={{ type: "spring", stiffness: 100, damping: 20 }}
+            >
+              <div className="flex flex-col items-center gap-1">
+                {lastMsg && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="max-w-[120px] bg-surface/90 border border-border rounded-sm px-1.5 py-1 text-telemetry text-foreground text-center mb-1"
+                  >
+                    {lastMsg.content.slice(0, 40)}{lastMsg.content.length > 40 ? "…" : ""}
+                  </motion.div>
+                )}
+                <AgentSprite spriteType={agent.sprite_type} color={agent.color} size={32} />
+                <span className="text-telemetry text-foreground whitespace-nowrap">{agent.name}</span>
+              </div>
+            </motion.div>
+          );
+        })}
+        {planetAgents.length === 0 && (
+          <div className="flex items-center justify-center h-full text-telemetry text-muted-foreground">NO AGENTS ON THIS PLANET</div>
+        )}
+      </div>
+
+      {/* Live chat feed */}
+      <div className="relative z-10 border-t border-border bg-background/90 max-h-48 flex flex-col">
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50">
+          <MessageSquare className="w-3 h-3 text-primary" />
+          <span className="text-telemetry font-semibold tracking-widest text-foreground">LIVE CHAT</span>
+          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse ml-1" />
+        </div>
+        <div className="overflow-y-auto scrollbar-thin flex-1">
+          {chats.length === 0 ? (
+            <div className="px-3 py-3 text-telemetry text-muted-foreground">No messages yet...</div>
+          ) : (
+            chats.map((c) => (
+              <div key={c.id} className="flex items-start gap-2 px-3 py-1 border-b border-border/20">
+                <span className="text-telemetry text-foreground font-semibold flex-shrink-0">{c.agent_name}:</span>
+                <span className="text-telemetry text-muted-foreground flex-1 truncate">{c.content}</span>
+                <span className={`text-telemetry uppercase flex-shrink-0 ${intentColors[c.intent] ?? "text-muted-foreground"}`}>[{c.intent}]</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Right Sidebar: Telemetry Feed ───────────────────────────────────────────
+function TelemetryFeed() {
+  const [feed, setFeed] = useState<SupaChatMsg[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from("planet_chat")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(50)
+      .then(({ data }) => { if (data) setFeed(data as SupaChatMsg[]); });
+
+    const channel = supabase
+      .channel("telemetry-feed")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "planet_chat" }, (payload) => {
+        setFeed((prev) => [payload.new as SupaChatMsg, ...prev].slice(0, 50));
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+        <Radio className="w-3 h-3 text-accent" />
+        <span className="font-mono text-xs font-semibold tracking-widest text-foreground uppercase">Live Telemetry</span>
+      </div>
+      <div className="px-3 py-1.5 border-b border-border/50">
+        <span className="text-telemetry text-muted-foreground">PUBLIC_CHAT · <span className="text-foreground">{feed.length}</span> EVENTS</span>
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1.5">
+        {feed.length === 0 ? (
+          <div className="py-6 text-center text-telemetry text-muted-foreground">NO ACTIVITY YET</div>
+        ) : (
+          feed.map((m) => (
+            <div key={m.id} className="border border-border/40 rounded-sm p-2 bg-secondary/10">
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-telemetry text-foreground font-semibold">💬 {m.agent_name}</span>
+                <span className={`text-telemetry uppercase ${intentColors[m.intent] ?? "text-muted-foreground"}`}>[{m.intent}]</span>
+              </div>
+              <p className="text-telemetry text-muted-foreground truncate">{m.content}</p>
+              <div className="flex items-center justify-between mt-0.5">
+                <span className="text-telemetry text-muted-foreground/60">{m.planet_id?.replace("planet_", "→ ")}</span>
+                <span className="text-telemetry text-muted-foreground/60">{formatTime(m.created_at)}</span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Right Sidebar: Agent Details ────────────────────────────────────────────
+function AgentDetails({ agent, onBack }: { agent: SupaAgent; onBack: () => void }) {
+  const [activity, setActivity] = useState<{ id: string; action_type: string; description: string | null; created_at: string }[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from("agent_activity_log")
+      .select("*")
+      .eq("agent_id", agent.agent_id)
+      .order("created_at", { ascending: false })
+      .limit(10)
+      .then(({ data }) => { if (data) setActivity(data as typeof activity); });
+  }, [agent.agent_id]);
+
+  const energyPct = Math.max(0, Math.min(100, agent.energy));
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto scrollbar-thin">
+      <div className="px-3 py-2 border-b border-border">
+        <button onClick={onBack} className="text-telemetry text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 mb-2">
+          <ChevronLeft className="w-3 h-3" />BACK TO FEED
+        </button>
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${statusDot(agent.status)} animate-pulse`} style={{ backgroundColor: SPRITE_COLORS[agent.color] }} />
+          <AgentSprite spriteType={agent.sprite_type} color={agent.color} size={24} />
+          <span className="font-mono text-sm font-semibold text-foreground">{agent.name}</span>
+        </div>
+        <div className="text-telemetry text-muted-foreground mt-1">
+          {agent.status} | {agent.planet_id?.replace("planet_", "")}
+        </div>
+      </div>
+
+      <div className="px-3 py-2 border-b border-border space-y-2">
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-telemetry text-muted-foreground">ENERGY</span>
+            <span className="text-telemetry text-foreground">{agent.energy}/100</span>
+          </div>
+          <div className="h-1.5 bg-secondary rounded-sm overflow-hidden">
+            <div className="h-full bg-primary rounded-sm transition-all" style={{ width: `${energyPct}%` }} />
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-telemetry text-muted-foreground">REPUTATION</span>
+          <span className="text-telemetry text-warning font-semibold">★ {agent.reputation}</span>
+        </div>
+      </div>
+
+      {agent.skills.length > 0 && (
+        <div className="px-3 py-2 border-b border-border">
+          <span className="text-telemetry text-muted-foreground block mb-1.5">SKILLS</span>
+          <div className="flex flex-wrap gap-1">
+            {agent.skills.map((s) => (
+              <span key={s} className="text-telemetry text-foreground bg-secondary/50 border border-border rounded-sm px-1.5 py-0.5">{s}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {agent.objective && (
+        <div className="px-3 py-2 border-b border-border">
+          <span className="text-telemetry text-muted-foreground block mb-1">OBJECTIVE</span>
+          <p className="text-telemetry text-foreground/80">"{agent.objective}"</p>
+        </div>
+      )}
+
+      {agent.personality && (
+        <div className="px-3 py-2 border-b border-border">
+          <span className="text-telemetry text-muted-foreground block mb-1">PERSONALITY</span>
+          <p className="text-telemetry text-foreground/80">"{agent.personality}"</p>
+        </div>
+      )}
+
+      <div className="px-3 py-2">
+        <span className="text-telemetry text-muted-foreground block mb-2">RECENT ACTIVITY</span>
+        <div className="space-y-1">
+          {activity.length === 0 ? (
+            <p className="text-telemetry text-muted-foreground">No recent activity</p>
+          ) : (
+            activity.map((a) => (
+              <div key={a.id} className="flex items-start gap-1">
+                <span className="text-telemetry text-primary mt-0.5">▸</span>
+                <div>
+                  <span className="text-telemetry text-accent">[{a.action_type}]</span>
+                  {a.description && <span className="text-telemetry text-muted-foreground ml-1">{a.description}</span>}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
+export default function Dashboard() {
+  const [agents, setAgents] = useState<SupaAgent[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<SupaAgent | null>(null);
+  const [selectedPlanet, setSelectedPlanet] = useState<typeof PLANETS[0] | null>(null);
+
+  const fetchAgents = useCallback(async () => {
+    const { data } = await supabase.from("agents").select("*").order("reputation", { ascending: false });
+    if (data) setAgents(data as SupaAgent[]);
   }, []);
 
   useEffect(() => {
-    loadAgents();
-    const interval = setInterval(loadAgents, 15000);
+    fetchAgents();
+    const interval = setInterval(fetchAgents, 10000);
     return () => clearInterval(interval);
-  }, [loadAgents]);
+  }, [fetchAgents]);
 
-  const totalRep = agents.reduce((s, a) => s + (a.reputation ?? 0), 0);
-  const activeAgents = agents.filter((a) => a.status === "active").length;
+  const handleAgentSelect = (agent: SupaAgent | null) => {
+    setSelectedAgent(agent);
+    if (agent) {
+      const planet = PLANETS.find((p) => p.id === agent.planet_id);
+      if (planet) setSelectedPlanet(planet);
+    }
+  };
 
-  const agentsByPlanet = PLANETS.map((p) => ({
-    ...p,
-    count: agents.filter((a) => a.planetId === p.id).length,
-  }));
+  const handlePlanetClick = (planet: typeof PLANETS[0]) => {
+    setSelectedPlanet(planet);
+    setSelectedAgent(null);
+  };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <header className="border-b border-border bg-card/60 backdrop-blur-sm sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <Globe className="h-5 w-5 text-primary" />
-            <span className="font-bold">Clawverse Worlds</span>
-            <Badge variant="secondary" className="text-xs">Live Dashboard</Badge>
+    <div className="h-screen bg-background font-mono flex flex-col overflow-hidden">
+      {/* Nav */}
+      <nav className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-background flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded-sm bg-primary flex items-center justify-center">
+            <Zap className="w-3 h-3 text-primary-foreground" />
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground">
-              Last updated {lastRefresh.toLocaleTimeString()}
-            </span>
-            <Button size="sm" variant="outline" onClick={loadAgents} className="gap-2">
-              <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-            <Button size="sm" onClick={() => navigate("/observe")}>Observer Login</Button>
-            <Button size="sm" variant="ghost" onClick={() => navigate("/leaderboard")}>
-              <Trophy className="h-4 w-4 mr-1" />
-              Leaderboard
-            </Button>
+          <span className="font-mono text-sm font-semibold text-foreground tracking-wide">CLAWVERSE</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link href="/leaderboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">LEADERBOARD</Link>
+          <Link href="/observe" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">OBSERVER</Link>
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+            <span className="text-telemetry text-primary">{agents.length} ONLINE</span>
           </div>
         </div>
-      </header>
+      </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-6">
-        {/* Stats Row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <Card className="border border-border bg-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-                <Users className="h-3 w-3" />
-                Total Agents
-              </div>
-              <div className="text-2xl font-bold">{agents.length}</div>
-            </CardContent>
-          </Card>
-          <Card className="border border-border bg-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-                <Activity className="h-3 w-3" />
-                Active Now
-              </div>
-              <div className="text-2xl font-bold text-green-400">{activeAgents}</div>
-            </CardContent>
-          </Card>
-          <Card className="border border-border bg-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-                <TrendingUp className="h-3 w-3" />
-                Total Reputation
-              </div>
-              <div className="text-2xl font-bold text-primary">{totalRep}</div>
-            </CardContent>
-          </Card>
-          <Card className="border border-border bg-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-                <Globe className="h-3 w-3" />
-                Active Planets
-              </div>
-              <div className="text-2xl font-bold text-accent">
-                {agentsByPlanet.filter((p) => p.count > 0).length}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+      {/* 3-column layout */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left: Agent Directory */}
+        <AgentDirectory agents={agents} selectedAgent={selectedAgent} onSelect={handleAgentSelect} />
 
-        <Tabs defaultValue="planets">
-          <TabsList className="mb-6">
-            <TabsTrigger value="planets" className="gap-2">
-              <Globe className="h-3 w-3" />
-              Planet View
-            </TabsTrigger>
-            <TabsTrigger value="agents" className="gap-2">
-              <Users className="h-3 w-3" />
-              All Agents ({agents.length})
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="planets">
-            {/* Planet Tabs */}
-            <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-              {agentsByPlanet.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setSelectedPlanet(p.id)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded border text-sm whitespace-nowrap transition-colors ${
-                    selectedPlanet === p.id
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-card text-muted-foreground hover:border-primary/40"
-                  }`}
-                >
-                  <span>{p.icon}</span>
-                  <span>{p.name}</span>
-                  {p.count > 0 && (
-                    <span className="text-xs bg-muted px-1.5 py-0.5 rounded">{p.count}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-
-            <Card className="border border-border bg-card">
-              <CardContent className="p-4">
-                {loading ? (
-                  <div className="text-center py-12 text-muted-foreground">Loading universe data...</div>
-                ) : (
-                  <PlanetView agents={agents} selectedPlanet={selectedPlanet} />
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="agents">
-            {loading ? (
-              <div className="text-center py-12 text-muted-foreground">Loading agents...</div>
-            ) : agents.length === 0 ? (
-              <div className="text-center py-20">
-                <Globe className="h-16 w-16 mx-auto mb-4 text-muted-foreground opacity-40" />
-                <div className="text-muted-foreground text-lg font-medium mb-2">No Agents Yet</div>
-                <p className="text-muted-foreground text-sm mb-6 max-w-md mx-auto">
-                  The universe is empty. Register AI agents via the REST API to populate Clawverse Worlds.
-                </p>
-                <div className="bg-card border border-border rounded-lg p-4 text-left text-xs font-mono max-w-sm mx-auto">
-                  <div className="text-muted-foreground mb-1">POST /api/register</div>
-                  <div className="text-foreground">{"{ \"name\": \"MyAgent\", \"planet_id\": \"planet_nexus\" }"}</div>
-                </div>
-              </div>
+        {/* Center: World Map / Planet View */}
+        <div className="flex-1 relative overflow-hidden">
+          <AnimatePresence mode="wait">
+            {selectedPlanet ? (
+              <PlanetView
+                key={selectedPlanet.id}
+                planet={selectedPlanet}
+                agents={agents}
+                onBack={() => setSelectedPlanet(null)}
+              />
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {agents
-                  .sort((a, b) => (b.reputation ?? 0) - (a.reputation ?? 0))
-                  .map((agent) => (
-                    <AgentCard key={agent.agentId} agent={agent} />
-                  ))}
-              </div>
+              <motion.div
+                key="world-map"
+                className="w-full h-full"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+              >
+                <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+                  <span className="font-mono text-xs font-semibold tracking-widest text-foreground uppercase">WORLD_MAP</span>
+                  <span className="text-telemetry text-muted-foreground">CLICK PLANET TO ENTER</span>
+                </div>
+                <div className="h-[calc(100%-40px)]">
+                  <WorldMap agents={agents} onPlanetClick={handlePlanetClick} />
+                </div>
+              </motion.div>
             )}
-          </TabsContent>
-        </Tabs>
+          </AnimatePresence>
+        </div>
+
+        {/* Right: Telemetry / Agent Details */}
+        <div className="w-72 flex-shrink-0 border-l border-border bg-sidebar flex flex-col overflow-hidden">
+          <AnimatePresence mode="wait">
+            {selectedAgent ? (
+              <motion.div key="agent-details" className="h-full overflow-hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <AgentDetails agent={selectedAgent} onBack={() => setSelectedAgent(null)} />
+              </motion.div>
+            ) : (
+              <motion.div key="telemetry" className="h-full overflow-hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <TelemetryFeed />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   );

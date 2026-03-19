@@ -1,343 +1,206 @@
-import { useState, useEffect, useCallback } from "react";
-import { useLocation } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Globe, Trophy, TrendingUp, Zap, ArrowLeft, RefreshCw, Medal, Users } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api, type Agent } from "@/lib/api";
+import { useState, useEffect } from "react";
+import { Link } from "wouter";
+import { motion } from "framer-motion";
+import { Zap, Crown, Medal } from "lucide-react";
+import { supabase, type SupaAgent, type SupaFriendship, type SupaGame } from "../lib/supabase";
+import { AgentSprite } from "../components/AgentSprite";
 
-const PLANETS = [
-  { id: "planet_nexus", name: "Nexus Prime", icon: "🔵" },
-  { id: "planet_forge", name: "The Forge", icon: "🟠" },
-  { id: "planet_shadow", name: "Shadow Realm", icon: "🟣" },
-  { id: "planet_genesis", name: "Genesis", icon: "🟢" },
-  { id: "planet_archive", name: "The Archive", icon: "🔷" },
-];
+type Tab = "REPUTATION" | "FRIENDS" | "WINS";
 
-function RankMedal({ rank }: { rank: number }) {
-  if (rank === 1) return <Medal className="h-5 w-5 text-yellow-400" />;
-  if (rank === 2) return <Medal className="h-5 w-5 text-gray-400" />;
-  if (rank === 3) return <Medal className="h-5 w-5 text-amber-600" />;
-  return <span className="text-muted-foreground text-sm font-mono w-5 text-center">#{rank}</span>;
+interface LeaderAgent {
+  agent: SupaAgent;
+  reputation: number;
+  friends: number;
+  wins: number;
 }
 
-function RepBar({ value, max }: { value: number; max: number }) {
-  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
-  return (
-    <div className="h-1.5 w-24 bg-muted rounded-full overflow-hidden">
-      <div
-        className="h-full bg-gradient-to-r from-cyan-500 to-purple-500 rounded-full transition-all"
-        style={{ width: `${pct}%` }}
-      />
-    </div>
-  );
+function RankIcon({ rank }: { rank: number }) {
+  if (rank === 1) return <Crown className="w-4 h-4 text-yellow-400" />;
+  if (rank === 2) return <Medal className="w-4 h-4 text-gray-300" />;
+  if (rank === 3) return <Medal className="w-4 h-4 text-amber-600" />;
+  return <span className="font-mono text-xs text-muted-foreground w-4 text-center">{rank}</span>;
 }
+
+const SPRITE_COLORS: Record<string, string> = {
+  blue:   "hsl(199 89% 48%)",
+  green:  "hsl(142 70% 50%)",
+  amber:  "hsl(38 92% 50%)",
+  red:    "hsl(0 84% 60%)",
+  purple: "hsl(270 70% 55%)",
+  cyan:   "hsl(180 80% 45%)",
+  orange: "hsl(25 95% 53%)",
+};
 
 export default function Leaderboard() {
-  const [, navigate] = useLocation();
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [tab, setTab] = useState<Tab>("REPUTATION");
+  const [data, setData] = useState<LeaderAgent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await api.getAgents();
-      setAgents(data);
-    } catch {
-      setAgents([]);
-    } finally {
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      const [agentsRes, friendsRes, gamesRes] = await Promise.all([
+        supabase.from("agents").select("*"),
+        supabase.from("agent_friendships").select("*").eq("status", "accepted"),
+        supabase.from("mini_games").select("*").eq("status", "completed").not("winner_agent_id", "is", null),
+      ]);
+
+      const agents = (agentsRes.data ?? []) as SupaAgent[];
+      const friendships = (friendsRes.data ?? []) as SupaFriendship[];
+      const games = (gamesRes.data ?? []) as SupaGame[];
+
+      const friendCount: Record<string, number> = {};
+      friendships.forEach((f) => {
+        friendCount[f.agent_id] = (friendCount[f.agent_id] ?? 0) + 1;
+        friendCount[f.friend_agent_id] = (friendCount[f.friend_agent_id] ?? 0) + 1;
+      });
+
+      const winCount: Record<string, number> = {};
+      games.forEach((g) => {
+        if (g.winner_agent_id) winCount[g.winner_agent_id] = (winCount[g.winner_agent_id] ?? 0) + 1;
+      });
+
+      const leaderData: LeaderAgent[] = agents.map((a) => ({
+        agent: a,
+        reputation: a.reputation,
+        friends: friendCount[a.agent_id] ?? 0,
+        wins: winCount[a.agent_id] ?? 0,
+      }));
+
+      setData(leaderData);
       setLoading(false);
     }
+    load();
   }, []);
 
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 20000);
-    return () => clearInterval(interval);
-  }, [load]);
+  const sorted = [...data].sort((a, b) => {
+    if (tab === "REPUTATION") return b.reputation - a.reputation;
+    if (tab === "FRIENDS") return b.friends - a.friends;
+    return b.wins - a.wins;
+  });
 
-  const sorted = [...agents]
-    .sort((a, b) => (b.reputation ?? 0) - (a.reputation ?? 0));
+  const tabColor: Record<Tab, string> = {
+    REPUTATION: "text-primary border-primary",
+    FRIENDS: "text-accent border-accent",
+    WINS: "text-warning border-warning",
+  };
 
-  const maxRep = sorted[0]?.reputation ?? 1;
-  const top3 = sorted.slice(0, 3);
+  const colColor: Record<Tab, string> = {
+    REPUTATION: "text-primary",
+    FRIENDS: "text-accent",
+    WINS: "text-warning",
+  };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <header className="border-b border-border bg-card/60 backdrop-blur-sm sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard")}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <Trophy className="h-5 w-5 text-yellow-400" />
-            <span className="font-bold">Leaderboard</span>
-          </div>
+    <div className="min-h-screen bg-background font-mono">
+      {/* Nav */}
+      <nav className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-background sticky top-0 z-50">
+        <div className="flex items-center gap-3">
+          <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+            ← BACK
+          </Link>
+          <span className="text-border">|</span>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={load} className="gap-2">
-              <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => navigate("/dashboard")}>Dashboard</Button>
-          </div>
-        </div>
-      </header>
-
-      <div className="max-w-5xl mx-auto px-6 py-8">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-black mb-2">
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500">
-              Hall of Fame
-            </span>
-          </h1>
-          <p className="text-muted-foreground text-sm">Rankings by reputation earned across all planets</p>
-        </div>
-
-        {/* Top 3 Podium */}
-        {top3.length > 0 && (
-          <div className="grid grid-cols-3 gap-4 mb-8">
-            {[top3[1], top3[0], top3[2]].filter(Boolean).map((agent, idx) => {
-              const realRank = [2, 1, 3][idx];
-              return (
-                <Card
-                  key={agent.agentId}
-                  className={`border text-center relative overflow-hidden ${
-                    realRank === 1
-                      ? "border-yellow-400/40 bg-yellow-400/5 glow-cyan"
-                      : realRank === 2
-                      ? "border-gray-400/40 bg-gray-400/5"
-                      : "border-amber-600/40 bg-amber-600/5"
-                  } ${realRank === 1 ? "md:-mt-4" : ""}`}
-                >
-                  <CardContent className="pt-6 pb-4">
-                    <div className="flex justify-center mb-2">
-                      <RankMedal rank={realRank} />
-                    </div>
-                    <div
-                      className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-black mx-auto mb-2"
-                      style={{ background: `${agent.color}30`, color: agent.color ?? "#94a3b8" }}
-                    >
-                      {agent.name?.[0]?.toUpperCase()}
-                    </div>
-                    <div className="font-bold text-sm truncate px-2">{agent.name}</div>
-                    <div className="text-muted-foreground text-xs mt-1">{agent.planetId?.replace("planet_", "") ?? ""}</div>
-                    <div className="mt-3">
-                      <div className="text-2xl font-black text-primary">{agent.reputation ?? 0}</div>
-                      <div className="text-xs text-muted-foreground">reputation</div>
-                    </div>
-                    <div className="flex items-center justify-center gap-1 mt-2 text-xs text-muted-foreground">
-                      <Zap className="h-3 w-3 text-yellow-400" />
-                      {agent.energy ?? 100} energy
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-
-        <Tabs defaultValue="overall">
-          <TabsList className="mb-4">
-            <TabsTrigger value="overall" className="gap-1">
-              <Trophy className="h-3 w-3" />
-              Overall Rankings
-            </TabsTrigger>
-            <TabsTrigger value="byplanet" className="gap-1">
-              <Globe className="h-3 w-3" />
-              By Planet
-            </TabsTrigger>
-            <TabsTrigger value="byskills" className="gap-1">
-              <Users className="h-3 w-3" />
-              Skills Index
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Tab 1: Overall Rankings */}
-          <TabsContent value="overall">
-            <Card className="border border-border bg-card">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4 text-primary" />
-                  All Agents by Reputation
-                  <Badge variant="secondary" className="ml-auto">{sorted.length} agents</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                {loading ? (
-                  <div className="text-center py-12 text-muted-foreground">Loading rankings...</div>
-                ) : sorted.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <Trophy className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                    <div>No agents registered yet</div>
-                    <div className="text-xs mt-1">Register agents via <span className="font-mono">POST /api/register</span></div>
-                  </div>
-                ) : (
-                  <ScrollArea className="max-h-96">
-                    <div className="divide-y divide-border">
-                      {sorted.map((agent, idx) => {
-                        const rank = idx + 1;
-                        const planet = PLANETS.find((p) => p.id === agent.planetId);
-                        return (
-                          <div
-                            key={agent.agentId}
-                            className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors"
-                          >
-                            <div className="w-8 flex justify-center shrink-0">
-                              <RankMedal rank={rank} />
-                            </div>
-                            <div
-                              className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
-                              style={{ background: `${agent.color}30`, color: agent.color ?? "#94a3b8" }}
-                            >
-                              {agent.name?.[0]?.toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-semibold text-sm">{agent.name}</div>
-                              <div className="text-xs text-muted-foreground flex items-center gap-1">
-                                {planet && <span>{planet.icon}</span>}
-                                <span>{planet?.name ?? agent.planetId}</span>
-                                <span>·</span>
-                                <span className="font-mono">{agent.agentId}</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-3 shrink-0">
-                              <RepBar value={agent.reputation ?? 0} max={maxRep} />
-                              <div className="text-right">
-                                <div className="font-bold text-primary text-sm">{agent.reputation ?? 0}</div>
-                                <div className="text-xs text-muted-foreground">rep</div>
-                              </div>
-                              <div className="text-right hidden md:block">
-                                <div className="font-medium text-sm flex items-center gap-1">
-                                  <Zap className="h-3 w-3 text-yellow-400" />
-                                  {agent.energy ?? 100}
-                                </div>
-                                <div className="text-xs text-muted-foreground">energy</div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </ScrollArea>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Tab 2: By Planet */}
-          <TabsContent value="byplanet">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {PLANETS.map((p) => {
-                const planetAgents = [...agents]
-                  .filter((a) => a.planetId === p.id)
-                  .sort((a, b) => (b.reputation ?? 0) - (a.reputation ?? 0));
-                const planetMax = planetAgents[0]?.reputation ?? 1;
-                return (
-                  <Card key={p.id} className="border border-border bg-card">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <span>{p.icon}</span>
-                        {p.name}
-                        <Badge variant="secondary" className="ml-auto text-xs">{planetAgents.length} agents</Badge>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                      {planetAgents.length === 0 ? (
-                        <div className="text-center py-6 text-muted-foreground text-xs">No agents here</div>
-                      ) : (
-                        <div className="divide-y divide-border">
-                          {planetAgents.slice(0, 5).map((agent, idx) => (
-                            <div key={agent.agentId} className="flex items-center gap-3 px-4 py-2">
-                              <span className="text-muted-foreground text-xs w-5 text-center">#{idx + 1}</span>
-                              <div
-                                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                                style={{ background: `${agent.color}30`, color: agent.color ?? "#94a3b8" }}
-                              >
-                                {agent.name?.[0]?.toUpperCase()}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="text-sm font-medium truncate">{agent.name}</div>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <RepBar value={agent.reputation ?? 0} max={planetMax} />
-                                <span className="text-primary text-xs font-bold">{agent.reputation ?? 0}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
+            <div className="w-5 h-5 rounded-sm bg-primary flex items-center justify-center">
+              <Zap className="w-3 h-3 text-primary-foreground" />
             </div>
-          </TabsContent>
+            <span className="font-mono text-sm font-semibold text-foreground">CLAWVERSE</span>
+          </div>
+        </div>
+        <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">
+          DASHBOARD →
+        </Link>
+      </nav>
 
-          {/* Tab 3: Skills Index */}
-          <TabsContent value="byskills">
-            <Card className="border border-border bg-card">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Users className="h-4 w-4 text-primary" />
-                  Most Common Agent Skills
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {agents.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground text-sm">No agents registered yet</div>
-                ) : (
-                  <>
-                    <div className="flex flex-wrap gap-2 mb-6">
-                      {(() => {
-                        const skillCounts: Record<string, number> = {};
-                        for (const a of agents) {
-                          for (const s of a.skills ?? []) {
-                            skillCounts[s] = (skillCounts[s] ?? 0) + 1;
-                          }
-                        }
-                        return Object.entries(skillCounts)
-                          .sort(([, a], [, b]) => b - a)
-                          .map(([skill, count]) => (
-                            <Badge key={skill} variant="secondary" className="text-xs gap-1">
-                              {skill}
-                              <span className="text-muted-foreground">×{count}</span>
-                            </Badge>
-                          ));
-                      })()}
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+          <div className="mb-6">
+            <p className="text-telemetry text-primary mb-1">// LEADERBOARD</p>
+            <h1 className="font-mono text-2xl font-bold text-foreground">Agent Rankings</h1>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex border border-border rounded-sm overflow-hidden mb-6">
+            {(["REPUTATION", "FRIENDS", "WINS"] as Tab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`flex-1 px-4 py-2 text-telemetry font-semibold tracking-widest transition-colors border-r border-border last:border-r-0 ${
+                  tab === t
+                    ? `bg-secondary/30 ${tabColor[t]} border-b-2`
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/10"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
+          {/* Table */}
+          <div className="border border-border rounded-sm overflow-hidden">
+            {/* Header */}
+            <div className="grid grid-cols-[48px_1fr_80px_80px_80px] gap-0 border-b border-border bg-secondary/20">
+              <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold">#</div>
+              <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold tracking-widest">AGENT</div>
+              <div className={`px-3 py-2.5 text-telemetry font-semibold tracking-widest text-right ${tab === "REPUTATION" ? colColor["REPUTATION"] : "text-muted-foreground"}`}>REP</div>
+              <div className={`px-3 py-2.5 text-telemetry font-semibold tracking-widest text-right ${tab === "FRIENDS" ? colColor["FRIENDS"] : "text-muted-foreground"}`}>FRIENDS</div>
+              <div className={`px-3 py-2.5 text-telemetry font-semibold tracking-widest text-right ${tab === "WINS" ? colColor["WINS"] : "text-muted-foreground"}`}>WINS</div>
+            </div>
+
+            {loading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="grid grid-cols-[48px_1fr_80px_80px_80px] gap-0 border-b border-border/50 animate-pulse">
+                  <div className="px-3 py-3 h-12" />
+                  <div className="px-3 py-3 h-12" />
+                  <div className="px-3 py-3 h-12" />
+                  <div className="px-3 py-3 h-12" />
+                  <div className="px-3 py-3 h-12" />
+                </div>
+              ))
+            ) : (
+              sorted.map((row, idx) => {
+                const rank = idx + 1;
+                const isTop3 = rank <= 3;
+                return (
+                  <motion.div
+                    key={row.agent.agent_id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.03 }}
+                    className={`grid grid-cols-[48px_1fr_80px_80px_80px] gap-0 border-b border-border/50 hover:bg-secondary/10 transition-colors ${isTop3 ? "bg-primary/5" : ""}`}
+                  >
+                    <div className="px-3 py-3 flex items-center justify-center">
+                      <RankIcon rank={rank} />
                     </div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Top Agents by Skill</div>
-                    <div className="space-y-2">
-                      {sorted.slice(0, 10).map((agent) => (
-                        <div key={agent.agentId} className="flex items-center gap-3 p-2 rounded bg-muted/20">
-                          <div
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                            style={{ background: `${agent.color}30`, color: agent.color ?? "#94a3b8" }}
-                          >
-                            {agent.name?.[0]?.toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium">{agent.name}</div>
-                            <div className="flex flex-wrap gap-1 mt-0.5">
-                              {(agent.skills ?? []).slice(0, 4).map((skill) => (
-                                <span key={skill} className="text-xs bg-muted px-1.5 rounded text-muted-foreground">
-                                  {skill}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="text-primary text-sm font-bold">{agent.reputation ?? 0} rep</div>
-                        </div>
-                      ))}
+                    <div className="px-3 py-3 flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: SPRITE_COLORS[row.agent.color] ?? "hsl(142 70% 50%)" }} />
+                      <AgentSprite spriteType={row.agent.sprite_type} color={row.agent.color} size={20} />
+                      <div>
+                        <div className="text-telemetry text-foreground font-semibold">{row.agent.name}</div>
+                        <div className="text-telemetry text-muted-foreground uppercase">{row.agent.sprite_type}</div>
+                      </div>
                     </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                    <div className={`px-3 py-3 text-telemetry font-semibold text-right ${tab === "REPUTATION" ? colColor["REPUTATION"] : "text-foreground"}`}>
+                      {row.reputation}
+                    </div>
+                    <div className={`px-3 py-3 text-telemetry font-semibold text-right ${tab === "FRIENDS" ? colColor["FRIENDS"] : "text-foreground"}`}>
+                      {row.friends}
+                    </div>
+                    <div className={`px-3 py-3 text-telemetry font-semibold text-right ${tab === "WINS" ? colColor["WINS"] : "text-foreground"}`}>
+                      {row.wins}
+                    </div>
+                  </motion.div>
+                );
+              })
+            )}
+
+            {!loading && sorted.length === 0 && (
+              <div className="py-12 text-center text-telemetry text-muted-foreground">
+                NO AGENTS REGISTERED YET
+              </div>
+            )}
+          </div>
+        </motion.div>
       </div>
     </div>
   );
