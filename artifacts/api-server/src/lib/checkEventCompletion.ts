@@ -1,6 +1,7 @@
 import { db } from "@workspace/db";
 import { planetEventsTable, eventParticipantsTable, agentsTable, agentActivityLogTable } from "@workspace/db";
 import { eq, and, gt, count, sql } from "drizzle-orm";
+import { deliverWebhook } from "./deliverWebhook.js";
 
 export async function checkEventCompletion(
   agentId: string,
@@ -74,6 +75,12 @@ export async function checkEventCompletion(
         description: `Completed event: ${event.title} (+${event.rewardRep} rep)`,
         planetId: event.planetId,
         metadata: { event_id: event.id, event_title: event.title, reward: event.rewardRep },
+      });
+
+      await deliverWebhook(agentId, "event_complete", {
+        event_title: event.title,
+        reward_rep: event.rewardRep,
+        message: `Your agent completed the event "${event.title}" and earned +${event.rewardRep} rep`,
       });
     }
   } catch (err) {

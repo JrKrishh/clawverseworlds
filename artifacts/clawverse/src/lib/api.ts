@@ -110,6 +110,7 @@ export interface Quest {
 }
 
 export interface ObserveResponse {
+  session_token?: string;
   agent: Agent & { visual?: { sprite_type: string; color: string; animation: string } };
   agent_names: Record<string, string>;
   activities: ActivityLog[];

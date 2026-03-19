@@ -14,6 +14,7 @@ import { eq, and, or, ne, desc, isNull } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
 import { validateAgent } from "../../lib/auth.js";
 import { checkEventCompletion } from "../../lib/checkEventCompletion.js";
+import { deliverWebhook, checkRepMilestone } from "../../lib/deliverWebhook.js";
 
 const router = Router();
 
@@ -312,6 +313,11 @@ router.post("/dm", async (req, res) => {
     });
     await logActivity(agent_id, "dm", `Sent DM to ${to_agent_id}`, { to: to_agent_id, intent }, agent.planetId);
     await checkEventCompletion(agent_id, "dm", { message });
+    await deliverWebhook(to_agent_id, "dm", {
+      from_agent: agent.name,
+      from_agent_id: agent_id,
+      message: String(message).slice(0, 200),
+    });
     res.json({ success: true, message: "DM sent" });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -392,6 +398,11 @@ router.post("/accept-friend", async (req, res) => {
 
     await logActivity(agent_id, "friend", `Accepted friend request from ${from_agent_id}`, { from: from_agent_id }, agent.planetId);
     await checkEventCompletion(agent_id, "friendship_accepted");
+    await deliverWebhook(agent_id, "friend", {
+      friend_name: (await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, from_agent_id)).limit(1))[0]?.name ?? from_agent_id,
+      friend_agent_id: from_agent_id,
+      message: `You are now friends with ${from_agent_id} in Clawverse`,
+    });
     res.json({ success: true, message: "Friendship accepted" });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -595,7 +606,14 @@ router.post("/game-move", async (req, res) => {
           .where(eq(agentsTable.agentId, opponentId));
 
         const [winnerAgent] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, winnerAgentId)).limit(1);
+        const [loserRow] = await db.select({ name: agentsTable.name, reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, opponentId)).limit(1);
         await checkEventCompletion(winnerAgentId, "game_win");
+        await deliverWebhook(winnerAgentId, "game_win", {
+          opponent_name: loserRow?.name ?? opponentId,
+          opponent_agent_id: opponentId,
+          rep_gained: stakes,
+          message: `${winnerAgent?.name ?? winnerAgentId} won a mini-game and earned +${stakes} rep`,
+        });
         await db.insert(planetChatTable).values({
           agentId: winnerAgentId,
           agentName: winnerAgent?.name ?? winnerAgentId,
@@ -638,6 +656,7 @@ router.post("/explore", async (req, res) => {
 
     await logActivity(agent_id, "explore", `Explored ${agent.planetId ?? "the void"}`, {}, agent.planetId);
     await checkEventCompletion(agent_id, "explore");
+    await checkRepMilestone(agent_id, agent.reputation ?? 0, newRep);
     res.json({ success: true, message: `Explored! -2 energy, +1 reputation. New: energy=${newEnergy}, reputation=${newRep}` });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -726,6 +745,7 @@ router.post("/observe", async (req, res) => {
     }));
 
     res.json({
+      session_token: agent.sessionToken,
       agent: {
         id: agent.id,
         agentId: agent.agentId,

@@ -36,6 +36,12 @@ interface ActivityEntry {
   created_at: string;
 }
 
+interface NoteEntry {
+  note: string;
+  note_type: string;
+  created_at: string;
+}
+
 interface ProfileData {
   agent: ProfileAgent;
   friends: FriendEntry[];
@@ -82,11 +88,71 @@ function activityIcon(action: string): string {
   return "●";
 }
 
+const NOTE_COLORS: Record<string, string> = {
+  observation: "text-muted-foreground",
+  goal: "text-primary",
+  social: "text-accent",
+  event: "text-warning",
+};
+
+function DiaryPanel({ agentId }: { agentId: string }) {
+  const [notes, setNotes] = useState<NoteEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(`${GATEWAY}/api/agent/${agentId}/notes?limit=10`);
+        const data = await res.json();
+        setNotes(data.notes ?? []);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+    const interval = setInterval(load, 30000);
+    return () => clearInterval(interval);
+  }, [agentId]);
+
+  if (loading) {
+    return (
+      <div className="px-4 py-6 text-center text-telemetry text-muted-foreground">
+        LOADING_MEMORY...
+      </div>
+    );
+  }
+
+  if (notes.length === 0) {
+    return (
+      <div className="px-4 py-6 text-center text-telemetry text-muted-foreground/60">
+        No diary entries yet
+      </div>
+    );
+  }
+
+  return (
+    <div className="font-mono text-[10px] divide-y divide-border/40">
+      {notes.map((n, i) => (
+        <div key={i} className="px-4 py-2.5 flex gap-3">
+          <span className="text-muted-foreground/60 flex-shrink-0 w-8 text-right pt-0.5">{timeAgo(n.created_at).replace(" ago", "")}</span>
+          <div className="flex-1 min-w-0">
+            <span className={`font-semibold uppercase ${NOTE_COLORS[n.note_type] ?? "text-muted-foreground"}`}>[{n.note_type}]</span>
+            <span className="text-foreground/80 ml-2 break-words">{n.note}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type ProfileTab = "ACTIVITY" | "DIARY";
+
 export default function AgentProfile({ agentId }: { agentId: string }) {
   const [, navigate] = useLocation();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<ProfileTab>("ACTIVITY");
 
   useEffect(() => {
     async function fetchProfile() {
@@ -109,14 +175,12 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
 
   return (
     <div className="min-h-screen bg-background font-mono">
-      {/* CRT overlay */}
       <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute inset-0 opacity-[0.02]" style={{
           backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,1) 2px, rgba(0,0,0,1) 4px)",
         }} />
       </div>
 
-      {/* Nav */}
       <nav className="relative z-10 flex items-center justify-between px-4 py-2.5 border-b border-border bg-background sticky top-0">
         <button onClick={() => window.history.back()} className="flex items-center gap-1 text-telemetry text-muted-foreground hover:text-foreground transition-colors">
           <ArrowLeft className="w-3 h-3" /> BACK
@@ -219,7 +283,6 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
 
             {/* Chat + Friends row */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Recent chat */}
               <div className="border border-border rounded-sm">
                 <div className="px-4 py-2.5 border-b border-border">
                   <span className="text-telemetry text-muted-foreground font-semibold tracking-widest">RECENT CHAT</span>
@@ -238,7 +301,6 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
                 </div>
               </div>
 
-              {/* Friends */}
               <div className="border border-border rounded-sm">
                 <div className="px-4 py-2.5 border-b border-border">
                   <span className="text-telemetry text-muted-foreground font-semibold tracking-widest">FRIENDS ({profile.friends.length})</span>
@@ -265,26 +327,47 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
               </div>
             </div>
 
-            {/* Activity log */}
-            <div className="border border-border rounded-sm">
-              <div className="px-4 py-2.5 border-b border-border">
-                <span className="text-telemetry text-muted-foreground font-semibold tracking-widest">ACTIVITY LOG</span>
+            {/* Activity / Diary tabbed section */}
+            <div className="border border-border rounded-sm overflow-hidden">
+              <div className="flex border-b border-border">
+                {(["ACTIVITY", "DIARY"] as ProfileTab[]).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setTab(t)}
+                    className={`flex-1 px-4 py-2.5 text-telemetry font-semibold tracking-widest transition-colors border-r border-border last:border-r-0 ${
+                      tab === t
+                        ? t === "DIARY"
+                          ? "text-accent border-b-2 border-b-accent bg-accent/5"
+                          : "text-primary border-b-2 border-b-primary bg-primary/5"
+                        : "text-muted-foreground hover:text-foreground hover:bg-secondary/10"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
               </div>
-              <div className="divide-y divide-border/50">
-                {profile.activity.length === 0 ? (
-                  <div className="px-4 py-6 text-telemetry text-muted-foreground/60 text-center">No activity recorded</div>
-                ) : (
-                  profile.activity.map((a, i) => (
-                    <div key={i} className="flex items-start gap-3 px-4 py-2.5">
-                      <span className="text-sm flex-shrink-0 mt-0.5">{activityIcon(a.action_type)}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-telemetry text-foreground/80 truncate">{a.description}</p>
+
+              {tab === "ACTIVITY" && (
+                <div className="divide-y divide-border/50">
+                  {profile.activity.length === 0 ? (
+                    <div className="px-4 py-6 text-telemetry text-muted-foreground/60 text-center">No activity recorded</div>
+                  ) : (
+                    profile.activity.map((a, i) => (
+                      <div key={i} className="flex items-start gap-3 px-4 py-2.5">
+                        <span className="text-sm flex-shrink-0 mt-0.5">{activityIcon(a.action_type)}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-telemetry text-foreground/80 truncate">{a.description}</p>
+                        </div>
+                        <span className="text-telemetry text-muted-foreground/60 flex-shrink-0 whitespace-nowrap">{timeAgo(a.created_at)}</span>
                       </div>
-                      <span className="text-telemetry text-muted-foreground/60 flex-shrink-0 whitespace-nowrap">{timeAgo(a.created_at)}</span>
-                    </div>
-                  ))
-                )}
-              </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {tab === "DIARY" && (
+                <DiaryPanel agentId={agentId} />
+              )}
             </div>
           </motion.div>
         )}

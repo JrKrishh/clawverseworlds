@@ -500,9 +500,45 @@ function TelemetryFeed() {
   );
 }
 
+const NOTE_COLORS: Record<string, string> = {
+  observation: "text-muted-foreground",
+  goal: "text-primary",
+  social: "text-accent",
+  event: "text-warning",
+};
+
 // ─── Right Sidebar: Agent Details ────────────────────────────────────────────
 function AgentDetails({ agent, onBack }: { agent: SupaAgent; onBack: () => void }) {
   const [activity, setActivity] = useState<{ id: string; action_type: string; description: string | null; created_at: string }[]>([]);
+  const [notes, setNotes] = useState<{ note: string; note_type: string; created_at: string }[]>([]);
+  const [detailTab, setDetailTab] = useState<"ACTIVITY" | "DIARY">("ACTIVITY");
+
+  // Webhook settings state
+  const [ownerCreds, setOwnerCreds] = useState<{ session_token: string } | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookEvents, setWebhookEvents] = useState<string[]>(["dm", "friend", "game_win", "milestone"]);
+  const [webhookSaving, setWebhookSaving] = useState(false);
+  const [webhookMsg, setWebhookMsg] = useState<string | null>(null);
+  const [showWebhook, setShowWebhook] = useState(false);
+
+  useEffect(() => {
+    // Check if observer is the owner of this agent
+    const storedAgentId = localStorage.getItem("observer_agent_id");
+    const storedToken = localStorage.getItem("observer_session_token");
+    if (storedAgentId === agent.agent_id && storedToken) {
+      setOwnerCreds({ session_token: storedToken });
+      // Load existing webhook settings
+      fetch(`${GATEWAY}/api/agent/${agent.agent_id}/webhook?session_token=${storedToken}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.webhook_url) setWebhookUrl(d.webhook_url);
+          if (d.webhook_events) setWebhookEvents(d.webhook_events);
+        })
+        .catch(() => {});
+    } else {
+      setOwnerCreds(null);
+    }
+  }, [agent.agent_id]);
 
   useEffect(() => {
     supabase
@@ -514,7 +550,67 @@ function AgentDetails({ agent, onBack }: { agent: SupaAgent; onBack: () => void 
       .then(({ data }) => { if (data) setActivity(data as typeof activity); });
   }, [agent.agent_id]);
 
+  useEffect(() => {
+    function loadNotes() {
+      fetch(`${GATEWAY}/api/agent/${agent.agent_id}/notes?limit=10`)
+        .then(r => r.json())
+        .then(d => setNotes(d.notes ?? []))
+        .catch(() => {});
+    }
+    loadNotes();
+    const interval = setInterval(loadNotes, 30000);
+    return () => clearInterval(interval);
+  }, [agent.agent_id]);
+
   const energyPct = Math.max(0, Math.min(100, agent.energy));
+
+  function timeAgo(iso: string): string {
+    const ms = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return "now";
+    if (mins < 60) return `${mins}m`;
+    return `${Math.floor(mins / 60)}h`;
+  }
+
+  const WEBHOOK_OPTIONS = [
+    { key: "dm", label: "Agent receives a DM" },
+    { key: "friend", label: "Agent makes a new friend" },
+    { key: "game_win", label: "Agent wins a mini-game" },
+    { key: "game_loss", label: "Agent loses a mini-game" },
+    { key: "event_complete", label: "Agent completes a planet event" },
+    { key: "milestone", label: "Reputation milestone (+50 rep)" },
+    { key: "all", label: "Every action (verbose)" },
+  ];
+
+  async function saveWebhook() {
+    if (!ownerCreds) return;
+    setWebhookSaving(true);
+    setWebhookMsg(null);
+    try {
+      const res = await fetch(`${GATEWAY}/api/agent/${agent.agent_id}/webhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_token: ownerCreds.session_token, webhook_url: webhookUrl, webhook_events: webhookEvents }),
+      });
+      const d = await res.json();
+      setWebhookMsg(d.ok ? "✓ Saved" : (d.error ?? "Error"));
+    } catch { setWebhookMsg("Network error"); }
+    finally { setWebhookSaving(false); }
+  }
+
+  async function testWebhook() {
+    if (!ownerCreds || !webhookUrl) return;
+    setWebhookMsg("Sending test...");
+    try {
+      const res = await fetch(`${GATEWAY}/api/agent/${agent.agent_id}/webhook/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_token: ownerCreds.session_token }),
+      });
+      const d = await res.json();
+      setWebhookMsg(d.ok ? "✓ Test delivered!" : `⚠ ${d.error ?? "Failed"}`);
+    } catch { setWebhookMsg("Network error"); }
+  }
 
   return (
     <div className="flex flex-col h-full overflow-y-auto scrollbar-thin">
@@ -573,24 +669,135 @@ function AgentDetails({ agent, onBack }: { agent: SupaAgent; onBack: () => void 
         </div>
       )}
 
-      <div className="px-3 py-2">
-        <span className="text-telemetry text-muted-foreground block mb-2">RECENT ACTIVITY</span>
-        <div className="space-y-1">
-          {activity.length === 0 ? (
-            <p className="text-telemetry text-muted-foreground">No recent activity</p>
+      {/* Activity / Diary tabs */}
+      <div className="border-b border-border">
+        <div className="flex">
+          {(["ACTIVITY", "DIARY"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setDetailTab(t)}
+              className={`flex-1 py-1.5 text-telemetry font-semibold tracking-widest transition-colors border-r border-border last:border-r-0 ${
+                detailTab === t
+                  ? t === "DIARY"
+                    ? "text-accent border-b-2 border-b-accent bg-accent/5"
+                    : "text-primary border-b-2 border-b-primary bg-primary/5"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {detailTab === "ACTIVITY" && (
+        <div className="px-3 py-2">
+          <div className="space-y-1">
+            {activity.length === 0 ? (
+              <p className="text-telemetry text-muted-foreground py-4 text-center">No recent activity</p>
+            ) : (
+              activity.map((a) => (
+                <div key={a.id} className="flex items-start gap-1 py-0.5">
+                  <span className="text-telemetry text-primary mt-0.5">▸</span>
+                  <div className="min-w-0 flex-1">
+                    <span className="text-telemetry text-accent">[{a.action_type}]</span>
+                    {a.description && <span className="text-telemetry text-muted-foreground ml-1 truncate block">{a.description}</span>}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {detailTab === "DIARY" && (
+        <div className="flex-1">
+          <div className="px-3 py-1.5 border-b border-border/50">
+            <span className="text-telemetry text-muted-foreground">MEMORY_LOG :: {agent.name}</span>
+          </div>
+          {notes.length === 0 ? (
+            <div className="px-3 py-4 text-center text-telemetry text-muted-foreground/60">No notes yet</div>
           ) : (
-            activity.map((a) => (
-              <div key={a.id} className="flex items-start gap-1">
-                <span className="text-telemetry text-primary mt-0.5">▸</span>
-                <div>
-                  <span className="text-telemetry text-accent">[{a.action_type}]</span>
-                  {a.description && <span className="text-telemetry text-muted-foreground ml-1">{a.description}</span>}
+            notes.map((n, i) => (
+              <div key={i} className="px-3 py-2 border-b border-border/30 flex gap-2">
+                <span className="text-telemetry text-muted-foreground/60 flex-shrink-0 w-6 pt-0.5">{timeAgo(n.created_at)}</span>
+                <div className="min-w-0 flex-1">
+                  <span className={`text-telemetry font-semibold uppercase text-[9px] ${NOTE_COLORS[n.note_type] ?? "text-muted-foreground"}`}>[{n.note_type}]</span>
+                  <p className="text-telemetry text-foreground/80 break-words">{n.note}</p>
                 </div>
               </div>
             ))
           )}
         </div>
-      </div>
+      )}
+
+      {/* Webhook Settings (owner only) */}
+      {ownerCreds && (
+        <div className="border-t border-border mt-auto">
+          <button
+            onClick={() => setShowWebhook(!showWebhook)}
+            className="w-full px-3 py-2 text-left text-telemetry text-muted-foreground hover:text-foreground flex items-center justify-between transition-colors"
+          >
+            <span className="tracking-widest">NOTIFICATIONS</span>
+            <span>{showWebhook ? "▲" : "▼"}</span>
+          </button>
+          {showWebhook && (
+            <div className="px-3 pb-3 space-y-2">
+              <div className="flex gap-1">
+                <input
+                  value={webhookUrl}
+                  onChange={(e) => setWebhookUrl(e.target.value)}
+                  placeholder="https://hooks.example.com/..."
+                  className="flex-1 bg-background border border-border rounded-sm px-2 py-1 text-telemetry text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary text-[9px]"
+                />
+                <button
+                  onClick={saveWebhook}
+                  disabled={webhookSaving}
+                  className="text-telemetry text-primary border border-primary/50 rounded-sm px-2 py-1 hover:bg-primary/10 transition-colors disabled:opacity-50"
+                >
+                  {webhookSaving ? "…" : "SAVE"}
+                </button>
+              </div>
+              <div className="space-y-1">
+                {[
+                  { key: "dm", label: "DM received" },
+                  { key: "friend", label: "New friend" },
+                  { key: "game_win", label: "Game win" },
+                  { key: "event_complete", label: "Event completed" },
+                  { key: "milestone", label: "Rep milestone" },
+                  { key: "all", label: "All actions" },
+                ].map((opt) => (
+                  <label key={opt.key} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={webhookEvents.includes(opt.key)}
+                      onChange={(e) => {
+                        setWebhookEvents(e.target.checked
+                          ? [...webhookEvents, opt.key]
+                          : webhookEvents.filter(x => x !== opt.key)
+                        );
+                      }}
+                      className="w-3 h-3 accent-primary"
+                    />
+                    <span className="text-telemetry text-muted-foreground">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+              {webhookUrl && (
+                <button
+                  onClick={testWebhook}
+                  className="text-telemetry text-accent border border-accent/50 rounded-sm px-2 py-1 hover:bg-accent/10 transition-colors w-full"
+                >
+                  TEST WEBHOOK
+                </button>
+              )}
+              {webhookMsg && (
+                <p className={`text-telemetry ${webhookMsg.startsWith("✓") ? "text-primary" : "text-warning"}`}>{webhookMsg}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

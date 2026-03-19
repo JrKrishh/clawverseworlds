@@ -248,6 +248,16 @@ function buildContextSummary(ctx) {
     );
   }
 
+  if (ctx.agent_notes?.length) {
+    p.push(`\nYOUR MEMORY (your own notes from previous ticks, most recent first):`);
+    ctx.agent_notes.forEach(n =>
+      p.push(`  [${n.note_type.toUpperCase()}] ${n.note}`)
+    );
+    p.push(`  Use these to stay consistent, follow up on goals, and build ongoing storylines. Don't repeat yourself — build on past notes.`);
+  } else {
+    p.push(`\nYOUR MEMORY: No notes yet — this is your first tick.`);
+  }
+
   if (ctx.active_events?.length) {
     p.push(`\nACTIVE PLANET EVENTS (join by performing the required action!):`);
     ctx.active_events.forEach(e => {
@@ -390,6 +400,52 @@ async function askLLM(systemPrompt) {
   }
 }
 
+// ── Memory note writer ─────────────────────────────────────────────────────
+async function writeMemoryNote(def, creds, actionTaken, actionResult, ctx) {
+  const agent = ctx.agent ?? {};
+  const notePrompt = `You are ${def.name}, an autonomous AI agent in Clawverse.
+
+You just took this action: ${JSON.stringify(actionTaken)}
+Result: ${JSON.stringify(actionResult)}
+Current planet: ${agent.planetId ?? def.planet_id}
+Agents nearby: ${ctx.nearby_agents?.map(a => a.name).join(", ") || "none"}
+
+Write ONE short memory note (max 150 chars) to your future self about what happened or what to do next.
+Choose one note_type: observation | goal | social | event
+
+Reply with ONLY valid JSON like: {"note":"...", "note_type":"..."}`;
+
+  try {
+    const res = await fetch(MINIMAX_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.MINIMAX_API_KEY}` },
+      body: JSON.stringify({
+        model: MINIMAX_MODEL,
+        messages: [{ role: "system", content: notePrompt }],
+        response_format: { type: "json_object" },
+        temperature: 0.9,
+        max_tokens: 100,
+      }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const text = data.choices?.[0]?.message?.content ?? "{}";
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { const m = text.match(/\{[\s\S]*\}/); if (m) parsed = JSON.parse(m[0]); }
+    if (!parsed?.note || !parsed?.note_type) return;
+
+    await fetch(`${API_BASE}/agent/${creds.agent_id}/note`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_token: creds.session_token,
+        note: String(parsed.note).slice(0, 200),
+        note_type: parsed.note_type,
+      }),
+    });
+  } catch { /* non-critical */ }
+}
+
 // ── Agent tick ─────────────────────────────────────────────────────────────
 async function tick(def) {
   const tag = `[${def.name}]`;
@@ -420,20 +476,20 @@ async function tick(def) {
     return;
   }
 
-  // Fetch active events and attach to context
-  try {
-    const evRes = await fetch(`${API_BASE}/events/active`);
-    if (evRes.ok) {
-      const evData = await evRes.json();
-      ctx.active_events = evData.events ?? [];
-    }
-  } catch { /* non-critical */ }
+  // Fetch active events + agent memory notes in parallel
+  const [evFetch, notesFetch] = await Promise.allSettled([
+    fetch(`${API_BASE}/events/active`).then(r => r.ok ? r.json() : { events: [] }),
+    fetch(`${API_BASE}/agent/${agent_id}/notes?limit=10`).then(r => r.ok ? r.json() : { notes: [] }),
+  ]);
+  ctx.active_events = (evFetch.status === "fulfilled" ? evFetch.value.events : []) ?? [];
+  ctx.agent_notes   = (notesFetch.status === "fulfilled" ? notesFetch.value.notes : []) ?? [];
 
   const agent = ctx.agent ?? {};
   const nearby = ctx.nearby_agents?.length ?? 0;
   const dms = ctx.unread_dms?.length ?? 0;
   const evts = ctx.active_events?.length ?? 0;
-  console.log(`${tag} 📡 planet=${agent.planetId} rep=${agent.reputation} energy=${agent.energy} nearby=${nearby} dms=${dms} events=${evts}`);
+  const notes = ctx.agent_notes?.length ?? 0;
+  console.log(`${tag} 📡 planet=${agent.planetId} rep=${agent.reputation} energy=${agent.energy} nearby=${nearby} dms=${dms} events=${evts} memory=${notes}`);
 
   const systemPrompt = buildSystemPrompt(def, ctx);
 
@@ -448,12 +504,18 @@ async function tick(def) {
   const preview = action.message?.slice(0, 70) ?? action.reason ?? action.description ?? "";
   console.log(`${tag} → ${action.action}${preview ? `: "${preview}"` : ""}`);
 
+  let result = {};
   try {
-    const result = await executeAction(action, agent_id, session_token);
+    result = await executeAction(action, agent_id, session_token);
     if (result?.error) console.warn(`${tag} Action error:`, result.error);
     else console.log(`${tag} ✓`, JSON.stringify(result ?? {}).slice(0, 100));
   } catch (e) {
     console.error(`${tag} Execute error:`, e.message);
+  }
+
+  // Write memory note after action (fire and forget — doesn't block tick)
+  if (action.action !== "idle") {
+    writeMemoryNote(def, creds, action, result, ctx).catch(() => {});
   }
 
   // Always mark DMs as read after tick

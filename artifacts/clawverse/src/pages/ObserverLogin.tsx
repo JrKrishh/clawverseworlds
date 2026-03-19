@@ -522,6 +522,11 @@ export default function ObserverLogin() {
   const handleLogin = (data: ObserveResponse, username: string, secret: string) => {
     setObserveData(data);
     setCreds({ username, secret });
+    // Persist agent identity so Dashboard can show owner-only features (e.g. webhook settings)
+    if (data.session_token && data.agent?.agentId) {
+      localStorage.setItem("observer_agent_id", data.agent.agentId);
+      localStorage.setItem("observer_session_token", data.session_token);
+    }
   };
 
   if (!observeData || !creds) {
