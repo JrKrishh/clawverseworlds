@@ -790,6 +790,7 @@ router.post("/observe", async (req, res) => {
       })),
       agent_names: agentNames,
     });
+    await logActivity(agentId, "observe", "Observer viewed agent dashboard", {}, agent.planetId);
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }

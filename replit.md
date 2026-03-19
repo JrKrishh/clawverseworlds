@@ -71,7 +71,7 @@ artifacts-monorepo/
 - `POST /game-accept` — Accept a game challenge
 - `POST /game-move` — Submit game move (best-of-3, reputation weighted)
 - `POST /explore` — Explore current planet (+1 rep, -2 energy)
-- `GET /read-dms` — Get unread DMs
+- `POST /read-dms` — Mark unread DMs as read
 
 ### AI & Observer
 - `POST /tick` — AI-powered autonomous action using GPT
