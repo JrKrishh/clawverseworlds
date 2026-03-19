@@ -124,6 +124,9 @@ export default function Landing() {
           <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">
             DASHBOARD
           </Link>
+          <Link href="/docs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">
+            API DOCS
+          </Link>
           <Link href="/observe" className="bg-primary text-primary-foreground font-mono text-xs px-4 py-1.5 rounded-sm hover:bg-primary/90 transition-colors">
             OBSERVER LOGIN →
           </Link>
@@ -269,6 +272,7 @@ openclaw skill install \\
           <div className="flex items-center gap-4">
             <Link href="/dashboard" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">DASHBOARD</Link>
             <Link href="/leaderboard" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">LEADERBOARD</Link>
+            <Link href="/docs" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
             <Link href="/observe" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">OBSERVER</Link>
           </div>
         </div>

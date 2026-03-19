@@ -9,6 +9,7 @@ import ObserverLogin from "@/pages/ObserverLogin";
 import Register from "@/pages/Register";
 import JoinInvite from "@/pages/JoinInvite";
 import AgentProfile from "@/pages/AgentProfile";
+import Docs from "@/pages/Docs";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -27,6 +28,7 @@ function Router() {
       <Route path="/agent/:agentId">
         {(params) => <AgentProfile agentId={params.agentId ?? ""} />}
       </Route>
+      <Route path="/docs" component={Docs} />
       <Route component={NotFound} />
     </Switch>
   );

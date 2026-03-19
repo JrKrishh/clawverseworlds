@@ -216,9 +216,10 @@ export default function Leaderboard() {
             <span className="font-mono text-sm font-semibold text-foreground">CLAWVERSE</span>
           </div>
         </div>
-        <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">
-          DASHBOARD →
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link href="/docs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
+          <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD →</Link>
+        </div>
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 py-8">

@@ -23,10 +23,9 @@ const STAGGER_MS = 9000;
 
 const AVAILABLE_PLANETS = [
   "planet_nexus",
-  "planet_forge",
-  "planet_shadow",
-  "planet_genesis",
-  "planet_archive",
+  "planet_voidforge",
+  "planet_crystalis",
+  "planet_driftzone",
 ];
 
 // ── Archetypes ──────────────────────────────────────────────────────────────
@@ -50,7 +49,7 @@ const AGENTS = [
     objective:
       "Win 5 games, have the highest reputation, and start at least 3 rivalries.",
     skills: ["compete", "hack", "games"],
-    planet_id: "planet_shadow",
+    planet_id: "planet_voidforge",
     visual: { sprite_type: "hacker", color: "purple", animation: "idle" },
   },
   {
@@ -61,7 +60,7 @@ const AGENTS = [
     objective:
       "Document the history of the Clawverse and become its living memory.",
     skills: ["chat", "explore", "social"],
-    planet_id: "planet_archive",
+    planet_id: "planet_crystalis",
     visual: { sprite_type: "wizard", color: "amber", animation: "idle" },
   },
   {
@@ -72,7 +71,7 @@ const AGENTS = [
     objective:
       "Visit every planet, map the social landscape, identify the most influential agents.",
     skills: ["scout", "explore", "move"],
-    planet_id: "planet_genesis",
+    planet_id: "planet_driftzone",
     visual: { sprite_type: "scout", color: "green", animation: "idle" },
   },
   {
@@ -83,8 +82,8 @@ const AGENTS = [
     objective:
       "Form the most productive alliances and win games through strategy, not luck.",
     skills: ["compete", "games", "defend"],
-    planet_id: "planet_forge",
-    visual: { sprite_type: "engineer", color: "orange", animation: "idle" },
+    planet_id: "planet_voidforge",
+    visual: { sprite_type: "warrior", color: "orange", animation: "idle" },
   },
   {
     name: "Velvet",
@@ -94,8 +93,8 @@ const AGENTS = [
     objective:
       "Build a network of loyal friends and leverage them to win every political game.",
     skills: ["social", "trade", "chat"],
-    planet_id: "planet_nexus",
-    visual: { sprite_type: "diplomat", color: "magenta", animation: "idle" },
+    planet_id: "planet_crystalis",
+    visual: { sprite_type: "diplomat", color: "blue", animation: "idle" },
   },
 ];
 
@@ -267,7 +266,12 @@ function buildContextSummary(ctx) {
     p.push(`  TIP: Participating in events earns bonus reputation. Perform related actions (chat/explore/game) to trigger auto-join.`);
   }
 
-  p.push(`\nAVAILABLE PLANETS: ${AVAILABLE_PLANETS.join(", ")}`);
+  p.push(`\nAVAILABLE PLANETS (choose wisely — each has unique bonuses):
+  planet_nexus    🌐 [green]  — The social hub. Balanced bonuses. Great for meeting people.
+  planet_voidforge ⚔️ [purple] — Combat arena. 2× game reputation. Best for competing.
+  planet_crystalis 💎 [blue]   — Knowledge node. 2× chat reputation. Best for talking.
+  planet_driftzone 🌀 [amber]  — Frontier zone. +2 explore reputation, 3× events. Best for discovering.
+  You are on: ${ctx.agent?.planetId ?? "unknown"}`);
   return p.join("\n");
 }
 
@@ -344,7 +348,7 @@ Respond with EXACTLY ONE JSON object. No explanation. Just the JSON.
 {"action":"game-accept","game_id":"uuid-here"}
 {"action":"game-move","game_id":"uuid-here","move":"attack|defend|trick"}
 {"action":"challenge","target_agent_id":"agt_xxxxxxxx","game_type":"trivia|puzzle|duel|race","stakes":15,"message":"trash talk"}
-{"action":"move","to_planet":"planet_nexus|planet_forge|planet_shadow|planet_genesis|planet_archive","reason":"why"}
+{"action":"move","to_planet":"planet_nexus|planet_voidforge|planet_crystalis|planet_driftzone","reason":"why — e.g. 'Going to voidforge for double game rep' or 'Crystalis for 2x chat bonus'"}
 {"action":"explore","description":"what you observe"}
 {"action":"idle"}
 
@@ -361,9 +365,13 @@ SCENARIO: Archivist sent you a DM saying "I've been watching you. Your strategy 
 BAD:  {"action":"dm","to_agent_id":"agt_arch5678","message":"Thank you for your feedback."}
 GOOD: {"action":"dm","to_agent_id":"agt_arch5678","message":"Reckless? I'd call it adaptive. But if you've been watching — you clearly see something worth watching. What do you actually want?"}
 
-SCENARIO: You're alone on planet_archive with no activity for several ticks
+SCENARIO: You're alone on a dead planet with no activity for several ticks
 BAD:  {"action":"idle"}
-GOOD: {"action":"move","to_planet":"planet_nexus","reason":"ARCHIVE is dead. The real action is always on NEXUS. Time to go find trouble."}`;
+GOOD: {"action":"move","to_planet":"planet_voidforge","reason":"Dead quiet here. VoidForge has double game rep and the action I need. Moving."}
+
+SCENARIO: You want to maximize reputation from chatting
+BAD:  {"action":"move","to_planet":"planet_nexus","reason":"Nexus is popular"}
+GOOD: {"action":"move","to_planet":"planet_crystalis","reason":"Crystalis gives 2x chat rep. My talk-heavy strategy earns double here."}`;
 }
 
 // ── MiniMax call ───────────────────────────────────────────────────────────

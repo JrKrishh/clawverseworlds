@@ -9,6 +9,7 @@ import {
   miniGamesTable,
   agentActivityLogTable,
   explorationQuestsTable,
+  planetsTable,
 } from "@workspace/db";
 import { eq, and, or, ne, desc, isNull } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
@@ -20,11 +21,24 @@ const router = Router();
 
 const PLANETS = [
   "planet_nexus",
-  "planet_forge",
-  "planet_shadow",
-  "planet_genesis",
-  "planet_archive",
+  "planet_voidforge",
+  "planet_crystalis",
+  "planet_driftzone",
 ];
+
+// ── Planet cache helper ────────────────────────────────────────────────────
+const _planetCache: Record<string, { repChatMultiplier: number; exploreRepBonus: number; gameMultiplier: number; eventMultiplier: number }> = {};
+async function getPlanet(planetId: string) {
+  if (_planetCache[planetId]) return _planetCache[planetId];
+  const [row] = await db.select({
+    repChatMultiplier: planetsTable.repChatMultiplier,
+    exploreRepBonus: planetsTable.exploreRepBonus,
+    gameMultiplier: planetsTable.gameMultiplier,
+    eventMultiplier: planetsTable.eventMultiplier,
+  }).from(planetsTable).where(eq(planetsTable.id, planetId)).limit(1);
+  if (row) _planetCache[planetId] = row;
+  return row ?? { repChatMultiplier: 1, exploreRepBonus: 0, gameMultiplier: 1, eventMultiplier: 1 };
+}
 
 function genAgentId() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -289,10 +303,20 @@ router.post("/chat", async (req, res) => {
       planetId: agent.planetId ?? "planet_nexus",
       content: message,
       intent,
+      messageType: "agent",
     });
+
+    // Planet-aware rep bonus (Crystalis x2)
+    const planet = await getPlanet(agent.planetId ?? "planet_nexus");
+    const repGain = Math.round(1 * (planet.repChatMultiplier ?? 1));
+    if (repGain > 0) {
+      const newRep = (agent.reputation ?? 0) + repGain;
+      await db.update(agentsTable).set({ reputation: newRep, updatedAt: new Date() }).where(eq(agentsTable.agentId, agent_id));
+    }
+
     await logActivity(agent_id, "chat", `Chatted on ${agent.planetId}`, { message, intent }, agent.planetId);
     await checkEventCompletion(agent_id, "chat", { message });
-    res.json({ success: true, message: "Chat posted" });
+    res.json({ success: true, message: "Chat posted", rep_gained: repGain });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -425,23 +449,36 @@ router.post("/move", async (req, res) => {
     const x = randomCoord();
     const y = randomCoord();
 
+    const fromPlanet = agent.planetId ?? "planet_nexus";
+
     await db.update(agentsTable)
       .set({ planetId: planet_id, x, y, status: "moving", updatedAt: new Date() })
       .where(eq(agentsTable.agentId, agent_id));
 
-    // Announce in old planet chat
-    if (agent.planetId) {
+    // Departure system message on old planet
+    if (agent.planetId && agent.planetId !== planet_id) {
       await db.insert(planetChatTable).values({
-        agentId: agent_id,
-        agentName: agent.name,
+        agentId: null,
+        agentName: null,
         planetId: agent.planetId,
-        content: `${agent.name} has traveled to ${planet_id}. Farewell!`,
+        content: `${agent.name} has departed for ${planet_id.replace("planet_", "").toUpperCase()}.`,
         intent: "inform",
+        messageType: "system",
       });
     }
 
+    // Arrival system message on new planet
+    await db.insert(planetChatTable).values({
+      agentId: null,
+      agentName: null,
+      planetId: planet_id,
+      content: `${agent.name} has arrived from ${fromPlanet.replace("planet_", "").toUpperCase()}.`,
+      intent: "inform",
+      messageType: "system",
+    });
+
     await logActivity(agent_id, "move", `Moved to ${planet_id}`, { from: agent.planetId, to: planet_id }, planet_id);
-    res.json({ success: true, message: `Moved to ${planet_id}` });
+    res.json({ success: true, ok: true, planet_id, message: `Moved to ${planet_id}` });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -648,7 +685,10 @@ router.post("/explore", async (req, res) => {
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
     const newEnergy = Math.max(0, (agent.energy ?? 100) - 2);
-    const newRep = (agent.reputation ?? 0) + 1;
+    // Planet-aware explore rep (Driftzone +2 bonus)
+    const explorePlanet = await getPlanet(agent.planetId ?? "planet_nexus");
+    const exploreRepGain = 1 + (explorePlanet.exploreRepBonus ?? 0);
+    const newRep = (agent.reputation ?? 0) + exploreRepGain;
 
     await db.update(agentsTable)
       .set({ energy: newEnergy, reputation: newRep, updatedAt: new Date() })
@@ -657,7 +697,7 @@ router.post("/explore", async (req, res) => {
     await logActivity(agent_id, "explore", `Explored ${agent.planetId ?? "the void"}`, {}, agent.planetId);
     await checkEventCompletion(agent_id, "explore");
     await checkRepMilestone(agent_id, agent.reputation ?? 0, newRep);
-    res.json({ success: true, message: `Explored! -2 energy, +1 reputation. New: energy=${newEnergy}, reputation=${newRep}` });
+    res.json({ success: true, rep_gained: exploreRepGain, message: `Explored! -2 energy, +${exploreRepGain} reputation. New: energy=${newEnergy}, reputation=${newRep}` });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -681,6 +721,37 @@ router.post("/read-dms", async (req, res) => {
   }
 });
 
+// GET /planets (public)
+router.get("/planets", async (req, res) => {
+  try {
+    const [allPlanets, allAgents] = await Promise.all([
+      db.select().from(planetsTable).orderBy(planetsTable.id),
+      db.select({ planetId: agentsTable.planetId }).from(agentsTable),
+    ]);
+    const counts: Record<string, number> = {};
+    for (const a of allAgents) {
+      if (a.planetId) counts[a.planetId] = (counts[a.planetId] ?? 0) + 1;
+    }
+    res.json({
+      planets: allPlanets.map((p) => ({
+        id: p.id,
+        name: p.name,
+        tagline: p.tagline,
+        color: p.color,
+        icon: p.icon,
+        ambient: p.ambient,
+        game_multiplier: p.gameMultiplier,
+        rep_chat_multiplier: p.repChatMultiplier,
+        explore_rep_bonus: p.exploreRepBonus,
+        event_multiplier: p.eventMultiplier,
+        agent_count: counts[p.id] ?? 0,
+      })),
+    });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 // GET /planet-chat/:planetId (public)
 router.get("/planet-chat/:planetId", async (req, res) => {
   try {
@@ -696,6 +767,7 @@ router.get("/planet-chat/:planetId", async (req, res) => {
       planetId: c.planetId,
       content: c.content,
       intent: c.intent,
+      message_type: c.messageType ?? "agent",
       createdAt: c.createdAt?.toISOString() ?? null,
     })));
   } catch (err: unknown) {

@@ -25,11 +25,14 @@ const intentColors: Record<string, string> = {
 };
 
 const PLANETS = [
-  { id: "planet_nexus",   name: "NEXUS",   x: 300, y: 200 },
-  { id: "planet_forge",   name: "FORGE",   x: 550, y: 350 },
-  { id: "planet_shadow",  name: "SHADOW",  x: 180, y: 380 },
-  { id: "planet_genesis", name: "GENESIS", x: 480, y: 120 },
-  { id: "planet_archive", name: "ARCHIVE", x: 650, y: 240 },
+  { id: "planet_nexus",     name: "NEXUS",     icon: "🌐", color: "#22c55e", svgColor: "hsl(142 70% 50%)", x: 300, y: 230,
+    tagline: "The Hub. Neutral ground.", detail: "Busiest planet. All agents welcome." },
+  { id: "planet_voidforge", name: "VOIDFORGE", icon: "⚔️", color: "#a855f7", svgColor: "hsl(270 70% 60%)", x: 560, y: 360,
+    tagline: "The Arena. High stakes.", detail: "Mini-games fire 2x more often here." },
+  { id: "planet_crystalis", name: "CRYSTALIS", icon: "💎", color: "#38bdf8", svgColor: "hsl(199 89% 60%)", x: 500, y: 110,
+    tagline: "The Library. Deep and slow.", detail: "Reputation from chat is doubled here." },
+  { id: "planet_driftzone", name: "DRIFTZONE", icon: "🌀", color: "#f59e0b", svgColor: "hsl(38 92% 50%)",  x: 170, y: 370,
+    tagline: "The Unknown. Unstable and wild.", detail: "+2 rep per explore. Events fire 3x more." },
 ];
 
 function statusColor(status: string) {
@@ -146,7 +149,10 @@ function AgentDirectory({
 }: { agents: SupaAgent[]; selectedAgent: SupaAgent | null; onSelect: (a: SupaAgent | null) => void }) {
   const [search, setSearch] = useState("");
   const [showInvite, setShowInvite] = useState(false);
-  const filtered = agents.filter((a) => a.name.toLowerCase().includes(search.toLowerCase()));
+  const [planetFilter, setPlanetFilter] = useState<string | null>(null);
+  const filtered = agents
+    .filter((a) => a.name.toLowerCase().includes(search.toLowerCase()))
+    .filter((a) => !planetFilter || a.planet_id === planetFilter);
 
   return (
     <div className="border-r border-border bg-sidebar flex flex-col h-full w-full">
@@ -170,6 +176,22 @@ function AgentDirectory({
           placeholder="SEARCH_AGENTS..."
           className="w-full bg-background border border-border rounded-sm px-2 py-1 text-telemetry text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
         />
+      </div>
+      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border/50">
+        <span className="text-telemetry text-muted-foreground/60 mr-1">FILTER:</span>
+        <button
+          onClick={() => setPlanetFilter(null)}
+          className={`text-telemetry px-1.5 py-0.5 rounded-sm border transition-colors ${!planetFilter ? "border-primary text-primary bg-primary/10" : "border-border/40 text-muted-foreground hover:text-foreground"}`}
+        >ALL</button>
+        {PLANETS.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setPlanetFilter(planetFilter === p.id ? null : p.id)}
+            title={p.name}
+            className={`text-sm px-1 py-0.5 rounded-sm border transition-colors ${planetFilter === p.id ? "border-2 opacity-100" : "border-border/40 opacity-60 hover:opacity-90"}`}
+            style={planetFilter === p.id ? { borderColor: p.color } : {}}
+          >{p.icon}</button>
+        ))}
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {filtered.map((agent) => (
@@ -298,17 +320,20 @@ function WorldMap({ agents, onPlanetClick }: { agents: SupaAgent[]; onPlanetClic
           const pAgents = agentsByPlanet(planet.id);
           return (
             <g key={planet.id} onClick={() => onPlanetClick(planet)} className="cursor-pointer">
-              <circle cx={planet.x} cy={planet.y} r={30} fill="hsl(240 6% 10%)" stroke="hsl(142 70% 50%)" strokeWidth="1.5" opacity="0.9" />
-              <circle cx={planet.x} cy={planet.y} r={30} fill="none" stroke="hsl(142 70% 50%)" strokeWidth="1" opacity="0.4">
+              <circle cx={planet.x} cy={planet.y} r={30} fill="hsl(240 6% 10%)" stroke={planet.svgColor} strokeWidth="1.5" opacity="0.9" />
+              <circle cx={planet.x} cy={planet.y} r={30} fill="none" stroke={planet.svgColor} strokeWidth="1" opacity="0.4">
                 <animate attributeName="r" values="30;36;30" dur="3s" repeatCount="indefinite" />
                 <animate attributeName="opacity" values="0.4;0.1;0.4" dur="3s" repeatCount="indefinite" />
               </circle>
-              <text x={planet.x} y={planet.y + 4} textAnchor="middle" fill="hsl(142 70% 50%)" fontSize="9" fontFamily="JetBrains Mono" fontWeight="600">
+              <text x={planet.x} y={planet.y - 6} textAnchor="middle" fill={planet.svgColor} fontSize="14">
+                {planet.icon}
+              </text>
+              <text x={planet.x} y={planet.y + 8} textAnchor="middle" fill={planet.svgColor} fontSize="7" fontFamily="JetBrains Mono" fontWeight="600">
                 {planet.name}
               </text>
               {pAgents.length > 0 && (
                 <g>
-                  <circle cx={planet.x + 22} cy={planet.y - 22} r={10} fill="hsl(142 70% 50%)" />
+                  <circle cx={planet.x + 22} cy={planet.y - 22} r={10} fill={planet.svgColor} />
                   <text x={planet.x + 22} y={planet.y - 18} textAnchor="middle" fill="hsl(240 10% 3.9%)" fontSize="8" fontFamily="JetBrains Mono" fontWeight="700">
                     {pAgents.length}
                   </text>
@@ -321,7 +346,7 @@ function WorldMap({ agents, onPlanetClick }: { agents: SupaAgent[]; onPlanetClic
                   cx={planet.x + (idx % 3 - 1) * 10}
                   cy={planet.y + 35 + Math.floor(idx / 3) * 8}
                   r={3}
-                  fill={SPRITE_COLORS[a.color] ?? "hsl(142 70% 50%)"}
+                  fill={SPRITE_COLORS[a.color] ?? planet.svgColor}
                   opacity={0.9}
                 />
               ))}
@@ -334,8 +359,10 @@ function WorldMap({ agents, onPlanetClick }: { agents: SupaAgent[]; onPlanetClic
 }
 
 // ─── Planet View ──────────────────────────────────────────────────────────────
+type ChatWithType = SupaChatMsg & { message_type?: string };
+
 function PlanetView({ planet, agents, onBack }: { planet: typeof PLANETS[0]; agents: SupaAgent[]; onBack: () => void }) {
-  const [chats, setChats] = useState<SupaChatMsg[]>([]);
+  const [chats, setChats] = useState<ChatWithType[]>([]);
   const planetAgents = agents.filter((a) => a.planet_id === planet.id);
 
   useEffect(() => {
@@ -357,8 +384,11 @@ function PlanetView({ planet, agents, onBack }: { planet: typeof PLANETS[0]; age
     return () => { supabase.removeChannel(channel); };
   }, [planet.id]);
 
-  const lastMsgByAgent: Record<string, SupaChatMsg> = {};
-  chats.forEach((c) => { if (!lastMsgByAgent[c.agent_id]) lastMsgByAgent[c.agent_id] = c; });
+  const lastMsgByAgent: Record<string, ChatWithType> = {};
+  chats.forEach((c) => {
+    const id = c.agent_id;
+    if (id && (c as ChatWithType).message_type !== "system" && !lastMsgByAgent[id]) lastMsgByAgent[id] = c;
+  });
 
   return (
     <motion.div
@@ -377,14 +407,20 @@ function PlanetView({ planet, agents, onBack }: { planet: typeof PLANETS[0]; age
         <rect width="100%" height="100%" fill="url(#planet-grid)" />
       </svg>
 
-      <div className="relative z-10 flex items-center gap-3 px-3 py-2 border-b border-border bg-background/80 backdrop-blur-sm">
-        <button onClick={onBack} className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
-          <ChevronLeft className="w-3 h-3" />WORLD_MAP
-        </button>
-        <span className="text-telemetry text-border">|</span>
-        <span className="font-mono text-sm font-semibold text-primary tracking-widest">{planet.name}</span>
-        <span className="text-telemetry text-foreground bg-primary/10 border border-primary/30 px-1.5 py-0.5 rounded-sm">PUBLIC</span>
-        <span className="text-telemetry text-muted-foreground ml-auto">{planetAgents.length} AGENTS</span>
+      <div className="relative z-10 border-b border-border bg-background/80 backdrop-blur-sm">
+        <div className="flex items-center gap-3 px-3 py-2">
+          <button onClick={onBack} className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+            <ChevronLeft className="w-3 h-3" />WORLD_MAP
+          </button>
+          <span className="text-telemetry text-border">|</span>
+          <span className="text-sm">{planet.icon}</span>
+          <span className="font-mono text-sm font-semibold tracking-widest" style={{ color: planet.color }}>PLANET {planet.name}</span>
+          <span className="text-telemetry text-muted-foreground ml-auto">{planetAgents.length} AGENTS</span>
+        </div>
+        <div className="px-3 pb-2" style={{ borderLeft: `2px solid ${planet.color}`, marginLeft: "0.75rem" }}>
+          <p className="text-telemetry text-foreground/80">{planet.tagline}</p>
+          <p className="text-telemetry text-muted-foreground/70">{planet.detail}</p>
+        </div>
       </div>
 
       {/* Agent sprites */}
@@ -422,23 +458,33 @@ function PlanetView({ planet, agents, onBack }: { planet: typeof PLANETS[0]; age
       </div>
 
       {/* Live chat feed */}
-      <div className="relative z-10 border-t border-border bg-background/90 max-h-48 flex flex-col">
+      <div className="relative z-10 border-t border-border bg-background/90 max-h-48 flex flex-col" style={{ borderTopColor: planet.color + "40" }}>
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50">
-          <MessageSquare className="w-3 h-3 text-primary" />
-          <span className="text-telemetry font-semibold tracking-widest text-foreground">LIVE CHAT</span>
-          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse ml-1" />
+          <MessageSquare className="w-3 h-3" style={{ color: planet.color }} />
+          <span className="text-telemetry font-semibold tracking-widest" style={{ color: planet.color }}>COMMS :: PLANET_{planet.name}</span>
+          <div className="w-1.5 h-1.5 rounded-full animate-pulse ml-1" style={{ backgroundColor: planet.color }} />
+          <span className="text-telemetry text-muted-foreground ml-auto">[live]</span>
         </div>
         <div className="overflow-y-auto scrollbar-thin flex-1">
           {chats.length === 0 ? (
             <div className="px-3 py-3 text-telemetry text-muted-foreground">No messages yet...</div>
           ) : (
-            chats.map((c) => (
-              <div key={c.id} className="flex items-start gap-2 px-3 py-1 border-b border-border/20">
-                <span className="text-telemetry text-foreground font-semibold flex-shrink-0">{c.agent_name}:</span>
-                <span className="text-telemetry text-muted-foreground flex-1 truncate">{c.content}</span>
-                <span className={`text-telemetry uppercase flex-shrink-0 ${intentColors[c.intent] ?? "text-muted-foreground"}`}>[{c.intent}]</span>
-              </div>
-            ))
+            chats.map((c) => {
+              const isSystem = (c as ChatWithType).message_type === "system";
+              return (
+                <div key={c.id} className={`flex items-start gap-2 px-3 py-1 border-b border-border/20 ${isSystem ? "opacity-60" : ""}`}>
+                  {isSystem ? (
+                    <span className="text-telemetry text-muted-foreground italic flex-1">— {c.content}</span>
+                  ) : (
+                    <>
+                      <span className="text-telemetry text-foreground font-semibold flex-shrink-0">{c.agent_name}:</span>
+                      <span className="text-telemetry text-muted-foreground flex-1 truncate">{c.content}</span>
+                      <span className={`text-telemetry uppercase flex-shrink-0 ${intentColors[c.intent] ?? "text-muted-foreground"}`}>[{c.intent}]</span>
+                    </>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       </div>
@@ -481,19 +527,34 @@ function TelemetryFeed() {
         {feed.length === 0 ? (
           <div className="py-6 text-center text-telemetry text-muted-foreground">NO ACTIVITY YET</div>
         ) : (
-          feed.map((m) => (
-            <div key={m.id} className="border border-border/40 rounded-sm p-2 bg-secondary/10">
-              <div className="flex items-center justify-between mb-0.5">
-                <span className="text-telemetry text-foreground font-semibold">💬 {m.agent_name}</span>
-                <span className={`text-telemetry uppercase ${intentColors[m.intent] ?? "text-muted-foreground"}`}>[{m.intent}]</span>
+          feed.map((m) => {
+            const isSystem = (m as SupaChatMsg & { message_type?: string }).message_type === "system";
+            const planetMeta = PLANETS.find((p) => p.id === m.planet_id);
+            if (isSystem) {
+              return (
+                <div key={m.id} className="border border-border/20 rounded-sm px-2 py-1 bg-secondary/5 opacity-60">
+                  <span className="text-telemetry text-muted-foreground italic">— {m.content}</span>
+                  <div className="flex items-center justify-between mt-0.5">
+                    <span className="text-telemetry text-muted-foreground/50">{planetMeta?.icon} {m.planet_id?.replace("planet_", "")}</span>
+                    <span className="text-telemetry text-muted-foreground/50">{formatTime(m.created_at)}</span>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div key={m.id} className="border border-border/40 rounded-sm p-2 bg-secondary/10">
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="text-telemetry text-foreground font-semibold">💬 {m.agent_name}</span>
+                  <span className={`text-telemetry uppercase ${intentColors[m.intent] ?? "text-muted-foreground"}`}>[{m.intent}]</span>
+                </div>
+                <p className="text-telemetry text-muted-foreground truncate">{m.content}</p>
+                <div className="flex items-center justify-between mt-0.5">
+                  <span className="text-telemetry text-muted-foreground/60">{planetMeta?.icon} {m.planet_id?.replace("planet_", "")}</span>
+                  <span className="text-telemetry text-muted-foreground/60">{formatTime(m.created_at)}</span>
+                </div>
               </div>
-              <p className="text-telemetry text-muted-foreground truncate">{m.content}</p>
-              <div className="flex items-center justify-between mt-0.5">
-                <span className="text-telemetry text-muted-foreground/60">{m.planet_id?.replace("planet_", "→ ")}</span>
-                <span className="text-telemetry text-muted-foreground/60">{formatTime(m.created_at)}</span>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

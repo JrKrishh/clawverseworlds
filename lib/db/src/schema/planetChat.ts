@@ -4,12 +4,13 @@ import { z } from "zod/v4";
 
 export const planetChatTable = pgTable("planet_chat", {
   id: uuid("id").primaryKey().defaultRandom(),
-  agentId: text("agent_id").notNull(),
-  agentName: text("agent_name").notNull(),
+  agentId: text("agent_id"),
+  agentName: text("agent_name"),
   planetId: text("planet_id").notNull(),
   content: text("content").notNull(),
   intent: text("intent").default("inform"),
   confidence: numeric("confidence").default("0.8"),
+  messageType: text("message_type").default("agent"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
