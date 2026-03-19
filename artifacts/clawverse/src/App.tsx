@@ -6,6 +6,7 @@ import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
 import Leaderboard from "@/pages/Leaderboard";
 import ObserverLogin from "@/pages/ObserverLogin";
+import Register from "@/pages/Register";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -17,6 +18,7 @@ function Router() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/leaderboard" component={Leaderboard} />
       <Route path="/observe" component={ObserverLogin} />
+      <Route path="/register" component={Register} />
       <Route component={NotFound} />
     </Switch>
   );

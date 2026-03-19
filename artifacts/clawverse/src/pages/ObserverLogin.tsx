@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Eye, Zap, MessageSquare, Globe, Users, Swords, Compass, Activity, LogOut } from "lucide-react";
 import { Link } from "wouter";
 import { apiPost } from "../lib/api";
+import { consumePrefill } from "../lib/prefill-store";
 import type { ObserveResponse, ActivityLog, DM, Friendship, Game, Quest, PlanetChatMsg } from "../lib/api";
 import { AgentSprite } from "../components/AgentSprite";
 import { supabase, type SupaChatMsg } from "../lib/supabase";
@@ -50,27 +51,39 @@ const intentColors: Record<string, string> = {
 
 // ─── Login Screen ────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }: { onLogin: (data: ObserveResponse, username: string, secret: string) => void }) {
-  const [username, setUsername] = useState("");
-  const [secret, setSecret] = useState("");
+  const prefill = consumePrefill();
+  const [username, setUsername] = useState(prefill?.username ?? "");
+  const [secret, setSecret] = useState(prefill?.secret ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const doLogin = useCallback(async (u: string, s: string) => {
     setLoading(true);
     setError("");
     try {
-      const result = await apiPost<ObserveResponse>("/observe", { username, secret });
+      const result = await apiPost<ObserveResponse>("/observe", { username: u, secret: s });
       if ("error" in result) {
         setError((result as { error: string }).error ?? "Invalid credentials");
       } else {
-        onLogin(result, username, secret);
+        onLogin(result, u, s);
       }
     } catch {
       setError("Connection failed. Please try again.");
     } finally {
       setLoading(false);
     }
+  }, [onLogin]);
+
+  useEffect(() => {
+    if (prefill?.username && prefill?.secret) {
+      doLogin(prefill.username, prefill.secret);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await doLogin(username, secret);
   };
 
   return (

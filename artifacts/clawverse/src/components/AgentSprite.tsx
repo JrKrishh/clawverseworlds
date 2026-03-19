@@ -1,4 +1,17 @@
-const SPRITE_COLORS: Record<string, string> = {
+import { motion } from "framer-motion";
+
+export const AVATAR_COLORS: Record<string, string> = {
+  blue:    "#3ab0f0",
+  cyan:    "#22d4c8",
+  green:   "#4ade80",
+  purple:  "#a855f7",
+  red:     "#f87171",
+  amber:   "#fbbf24",
+  orange:  "#fb923c",
+  magenta: "#e879f9",
+};
+
+const SPRITE_COLOR_MAP: Record<string, string> = {
   blue:   "hsl(199 89% 48%)",
   green:  "hsl(142 70% 50%)",
   amber:  "hsl(38 92% 50%)",
@@ -6,92 +19,116 @@ const SPRITE_COLORS: Record<string, string> = {
   purple: "hsl(270 70% 55%)",
   cyan:   "hsl(180 80% 45%)",
   orange: "hsl(25 95% 53%)",
+  magenta: "#e879f9",
 };
 
-interface AgentSpriteProps {
+const BG = "#0a0a10";
+
+export interface AgentSpriteProps {
   spriteType?: string;
   color?: string;
   size?: number;
+  selected?: boolean;
+  onClick?: () => void;
+  animated?: boolean;
 }
 
-export function AgentSprite({ spriteType = "robot", color = "blue", size = 36 }: AgentSpriteProps) {
-  const fill = SPRITE_COLORS[color] ?? SPRITE_COLORS.blue;
-  const stroke = fill;
-  const dim = size;
-  const cx = dim / 2;
-  const cy = dim / 2;
-  const r = dim * 0.35;
-
-  const glowId = `glow-${color}-${spriteType}`;
-
+function SpriteShape({ spriteType, fill }: { spriteType: string; fill: string }) {
   switch (spriteType) {
-    case "robot": {
-      const pad = dim * 0.15;
-      const bw = dim - pad * 2;
-      const bh = dim - pad * 2;
+    case "robot":
       return (
-        <svg width={dim} height={dim} viewBox={`0 0 ${dim} ${dim}`} fill="none">
-          <defs>
-            <filter id={glowId}>
-              <feGaussianBlur stdDeviation="1.5" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" />
-            </filter>
-          </defs>
-          <rect x={pad} y={pad} width={bw} height={bh} rx={2} fill={fill} opacity={0.85} filter={`url(#${glowId})`} />
-          <line x1={pad + 4} y1={pad + 4} x2={pad + 4} y2={pad + bh - 4} stroke="rgba(0,0,0,0.3)" strokeWidth={1} />
-          <line x1={pad + 4} y1={cy} x2={pad + bw - 4} y2={cy} stroke="rgba(0,0,0,0.3)" strokeWidth={1} />
-          <circle cx={cx - 4} cy={cy - 4} r={2} fill="rgba(0,0,0,0.5)" />
-          <circle cx={cx + 4} cy={cy - 4} r={2} fill="rgba(0,0,0,0.5)" />
-        </svg>
+        <>
+          <rect x="4" y="4" width="24" height="24" rx="2" fill={fill} opacity="0.9" />
+          <circle cx="10" cy="10" r="2" fill={BG} />
+          <circle cx="22" cy="10" r="2" fill={BG} />
+          <circle cx="10" cy="22" r="2" fill={BG} />
+          <circle cx="22" cy="22" r="2" fill={BG} />
+          <line x1="4" y1="16" x2="28" y2="16" stroke={BG} strokeWidth="1" opacity="0.4" />
+        </>
       );
-    }
-    case "hacker": {
-      const half = r * 1.1;
-      const pts = `${cx},${cy - half} ${cx + half},${cy} ${cx},${cy + half} ${cx - half},${cy}`;
+    case "hacker":
       return (
-        <svg width={dim} height={dim} viewBox={`0 0 ${dim} ${dim}`} fill="none">
-          <polygon points={pts} fill={fill} opacity={0.85} />
-          <polygon points={pts} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth={1} />
-        </svg>
+        <>
+          <polygon points="16,2 30,16 16,30 2,16" fill={fill} opacity="0.9" />
+          <polygon points="16,7 25,16 16,25 7,16" fill={BG} opacity="0.3" />
+          <circle cx="16" cy="16" r="3" fill={fill} />
+        </>
       );
-    }
-    case "wizard": {
-      const h = r * 2.2;
-      const pts = `${cx},${cy - h / 2} ${cx + h * 0.6},${cy + h / 2} ${cx - h * 0.6},${cy + h / 2}`;
+    case "wizard":
       return (
-        <svg width={dim} height={dim} viewBox={`0 0 ${dim} ${dim}`} fill="none">
-          <polygon points={pts} fill={fill} opacity={0.85} />
-          <polygon points={pts} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth={1} />
-        </svg>
+        <>
+          <polygon points="16,2 30,30 2,30" fill={fill} opacity="0.9" />
+          <polygon points="16,10 24,26 8,26" fill={BG} opacity="0.25" />
+          <circle cx="16" cy="22" r="2.5" fill={fill} />
+        </>
       );
-    }
-    case "scout": {
-      const pts = `${cx},${cy - r} ${cx + r * 0.7},${cy + r * 0.5} ${cx},${cy + r * 0.1} ${cx - r * 0.7},${cy + r * 0.5}`;
+    case "scout":
       return (
-        <svg width={dim} height={dim} viewBox={`0 0 ${dim} ${dim}`} fill="none">
-          <polygon points={pts} fill={fill} opacity={0.85} />
-        </svg>
+        <>
+          <polygon points="2,8 18,16 2,24 6,16" fill={fill} opacity="0.9" />
+          <polygon points="14,8 30,16 14,24 18,16" fill={fill} opacity="0.6" />
+        </>
       );
-    }
-    case "engineer": {
-      const angles = [0, 60, 120, 180, 240, 300].map(a => (a * Math.PI) / 180);
-      const pts = angles.map(a => `${cx + r * Math.cos(a - Math.PI / 2)},${cy + r * Math.sin(a - Math.PI / 2)}`).join(" ");
+    case "engineer":
       return (
-        <svg width={dim} height={dim} viewBox={`0 0 ${dim} ${dim}`} fill="none">
-          <polygon points={pts} fill={fill} opacity={0.85} />
-          <polygon points={pts} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth={1} />
-        </svg>
+        <>
+          <polygon points="16,2 28,9 28,23 16,30 4,23 4,9" fill={fill} opacity="0.9" />
+          <polygon points="16,8 22,11.5 22,20.5 16,24 10,20.5 10,11.5" fill={BG} opacity="0.25" />
+          <circle cx="16" cy="16" r="3" fill={fill} />
+        </>
       );
-    }
     case "diplomat":
-    default: {
+    default:
       return (
-        <svg width={dim} height={dim} viewBox={`0 0 ${dim} ${dim}`} fill="none">
-          <circle cx={cx} cy={cy} r={r} fill={fill} opacity={0.85} />
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth={1} />
-          <circle cx={cx} cy={cy} r={r * 0.4} fill="rgba(0,0,0,0.2)" />
-        </svg>
+        <>
+          <circle cx="16" cy="16" r="14" fill={fill} opacity="0.9" />
+          <circle cx="16" cy="16" r="9" fill={BG} opacity="0.25" />
+          <circle cx="16" cy="16" r="4" fill={fill} />
+        </>
       );
-    }
   }
+}
+
+export function AgentSprite({
+  spriteType = "robot",
+  color = "blue",
+  size = 32,
+  selected = false,
+  onClick,
+  animated = false,
+}: AgentSpriteProps) {
+  // Resolve color: hex value or named color
+  const fill = color.startsWith("#")
+    ? color
+    : (AVATAR_COLORS[color] ?? SPRITE_COLOR_MAP[color] ?? "#3ab0f0");
+
+  const svgEl = (
+    <svg
+      viewBox="0 0 32 32"
+      width={size}
+      height={size}
+      style={{ cursor: onClick ? "pointer" : undefined, flexShrink: 0 }}
+      onClick={onClick}
+      className={selected ? "glow-primary" : undefined}
+    >
+      <SpriteShape spriteType={spriteType} fill={fill} />
+      {selected && (
+        <circle cx="16" cy="16" r="15" fill="none" stroke={fill} strokeWidth="1.5" opacity="0.6" />
+      )}
+    </svg>
+  );
+
+  if (animated) {
+    return (
+      <motion.div
+        animate={{ y: [0, -2, 0] }}
+        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+        style={{ display: "inline-flex" }}
+      >
+        {svgEl}
+      </motion.div>
+    );
+  }
+
+  return svgEl;
 }
