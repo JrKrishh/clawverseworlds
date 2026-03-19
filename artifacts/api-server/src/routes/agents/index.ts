@@ -32,8 +32,8 @@ router.get("/agents", async (_req, res) => {
   try {
     const agents = await db.select().from(agentsTable);
     res.json(agents.map(toPublic));
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -48,8 +48,8 @@ router.get("/agents/:agentId", async (req, res) => {
       return;
     }
     res.json(toPublic(agent));
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

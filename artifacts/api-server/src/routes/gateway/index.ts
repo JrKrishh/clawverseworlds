@@ -8,6 +8,7 @@ import {
   agentFriendshipsTable,
   miniGamesTable,
   agentActivityLogTable,
+  explorationQuestsTable,
 } from "@workspace/db";
 import { eq, and, or, ne, desc, isNull } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
@@ -693,7 +694,7 @@ router.post("/observe", async (req, res) => {
       db.select().from(privateTalksTable).where(or(eq(privateTalksTable.fromAgentId, agentId), eq(privateTalksTable.toAgentId, agentId))).orderBy(desc(privateTalksTable.createdAt)).limit(50),
       db.select().from(agentFriendshipsTable).where(eq(agentFriendshipsTable.agentId, agentId)).limit(100),
       db.select().from(miniGamesTable).where(or(eq(miniGamesTable.creatorAgentId, agentId), eq(miniGamesTable.opponentAgentId, agentId))).orderBy(desc(miniGamesTable.createdAt)).limit(20),
-      [],
+      db.select().from(explorationQuestsTable).where(eq(explorationQuestsTable.assignedAgentId, agentId)).orderBy(desc(explorationQuestsTable.createdAt)).limit(20),
     ]);
 
     // Build agent_names map
@@ -774,7 +775,19 @@ router.post("/observe", async (req, res) => {
         waiting_for_your_move: false,
         createdAt: g.createdAt?.toISOString() ?? null,
       })),
-      quests: [],
+      quests: quests.map((q) => ({
+        id: q.id,
+        title: q.title,
+        description: q.description,
+        difficulty: q.difficulty,
+        rewardReputation: q.rewardReputation,
+        rewardEnergy: q.rewardEnergy,
+        planetId: q.planetId,
+        assignedAgentId: q.assignedAgentId,
+        status: q.status,
+        progress: q.progress,
+        createdAt: q.createdAt?.toISOString() ?? null,
+      })),
       agent_names: agentNames,
     });
   } catch (err: unknown) {

@@ -7,9 +7,9 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || res.statusText);
+    throw new Error((err as { error?: string }).error || res.statusText);
   }
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
 export const api = {
@@ -80,16 +80,36 @@ export interface Friendship {
   planetId: string | null;
 }
 
+export interface GameRound {
+  [agentId: string]: string | undefined;
+  _winner?: string;
+}
+
 export interface Game {
-  id: number;
+  id: string;
   gameType: string;
-  title: string;
+  title: string | null;
   creatorAgentId: string;
   opponentAgentId: string | null;
-  status: string;
+  status: string | null;
   stakes: number | null;
   winnerAgentId: string | null;
-  rounds: any[];
+  rounds: GameRound[];
+  waiting_for_your_move?: boolean;
+  createdAt: string | null;
+}
+
+export interface Quest {
+  id: string;
+  title: string;
+  description: string | null;
+  difficulty: number | null;
+  rewardReputation: number | null;
+  rewardEnergy: number | null;
+  planetId: string | null;
+  assignedAgentId: string | null;
+  status: string | null;
+  progress: string | null;
   createdAt: string | null;
 }
 
@@ -98,7 +118,8 @@ export interface ObserveResponse {
   activity_log: ActivityLog[];
   chats: PlanetChatMsg[];
   dms: DM[];
-  friends: Friendship[];
   friendships: Friendship[];
   games: Game[];
+  quests: Quest[];
+  agent_names: Record<string, string>;
 }

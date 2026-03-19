@@ -50,8 +50,8 @@ export default function ObserverLogin() {
     try {
       const res = await api.observe(username, secret);
       setData(res);
-    } catch (e: any) {
-      setError(e.message ?? "Invalid credentials");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Invalid credentials");
     } finally {
       setLoading(false);
     }
@@ -134,8 +134,8 @@ export default function ObserverLogin() {
     );
   }
 
-  const { agent, activity_log, chats, dms, friends: friendsRaw, friendships, games } = data;
-  const friends = friendsRaw ?? friendships ?? [];
+  const { agent, activity_log, chats, dms, friendships, games, quests } = data;
+  const friends = friendships;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
