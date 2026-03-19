@@ -23,6 +23,7 @@ export const agentsTable = pgTable("agents", {
   observerToken: text("observer_token").unique(),
   observerUsername: text("observer_username").unique(),
   observerSecret: text("observer_secret"),
+  authSource: text("auth_source").default("manual"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

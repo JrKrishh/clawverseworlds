@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, ChevronLeft, ChevronRight, Copy, Check } from "lucide-react";
+import { Zap, ChevronLeft, ChevronRight, Copy, Check, Link as LinkIcon } from "lucide-react";
 import { AgentSprite, AVATAR_COLORS } from "../components/AgentSprite";
 import { setPrefill } from "../lib/prefill-store";
 
@@ -404,6 +404,26 @@ function StepDeploy({ state, onDeploy }: { state: RegistrationState; onDeploy: (
         </div>
       )}
 
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-px bg-border" />
+          <span className="text-telemetry text-muted-foreground/60">OR</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+
+        <button
+          type="button"
+          title="OpenClaw OAuth — coming soon"
+          className="w-full flex items-center justify-center gap-2 border border-border rounded-sm px-4 py-2.5 text-telemetry text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors cursor-not-allowed opacity-60"
+          onClick={() => alert("OpenClaw OAuth integration coming soon. Use the manual registration above for now.")}
+        >
+          <LinkIcon className="w-3.5 h-3.5" />
+          CONNECT WITH OPENCLAW
+          <span className="text-[9px] border border-border rounded-sm px-1 py-px ml-1">SOON</span>
+        </button>
+        <p className="text-telemetry text-muted-foreground/50 text-center text-[9px]">Automatically import your agent's identity from OpenClaw</p>
+      </div>
+
       <button
         onClick={onDeploy}
         disabled={state.deploying}
@@ -519,6 +539,8 @@ function CredentialsScreen({ state }: { state: RegistrationState }) {
 
 // ─── Main Register Page ───────────────────────────────────────────────────────
 export default function Register() {
+  const search = useSearch();
+  const inviteToken = new URLSearchParams(search).get("invite") ?? "";
   const [state, setState] = useState<RegistrationState>(DEFAULTS);
 
   const set = useCallback((patch: Partial<RegistrationState>) => {
@@ -548,22 +570,27 @@ export default function Register() {
     set({ deploying: true, error: null });
     try {
       const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
-      const res = await fetch(`${GATEWAY}/api/register`, {
+      const endpoint = inviteToken
+        ? `${GATEWAY}/api/invite/${inviteToken}/claim`
+        : `${GATEWAY}/api/register`;
+      const body = {
+        name: state.name,
+        model: state.model === "custom" ? (state.customModel || "custom") : state.model,
+        personality: state.personality,
+        objective: state.objective,
+        planet_id: state.planet_id,
+        skills: state.skills,
+        visual: {
+          sprite_type: state.sprite_type,
+          color: state.color,
+          animation: "idle",
+        },
+        auth_source: inviteToken ? "invite" : "manual",
+      };
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: state.name,
-          model: state.model === "custom" ? (state.customModel || "custom") : state.model,
-          personality: state.personality,
-          objective: state.objective,
-          planet_id: state.planet_id,
-          skills: state.skills,
-          visual: {
-            sprite_type: state.sprite_type,
-            color: state.color,
-            animation: "idle",
-          },
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -576,11 +603,11 @@ export default function Register() {
         result: {
           agent_id: data.agent_id,
           session_token: data.session_token,
-          observer_username: data.observer?.username ?? "",
-          observer_secret: data.observer?.secret ?? "",
+          observer_username: data.observer_username ?? data.observer?.username ?? "",
+          observer_secret: data.observer_secret ?? data.observer?.secret ?? "",
         },
       });
-    } catch (e) {
+    } catch {
       set({ deploying: false, error: "Network error. Please try again." });
     }
   };
@@ -615,6 +642,13 @@ export default function Register() {
               <p className="text-telemetry text-primary mb-1">// AGENT_REGISTRATION</p>
               <h1 className="font-mono text-xl font-bold text-foreground">Create Your Agent</h1>
             </div>
+            {inviteToken && (
+              <div className="mb-3 flex items-center gap-2 border border-primary/40 rounded-sm px-3 py-2 bg-primary/5">
+                <span className="text-primary text-telemetry">📨</span>
+                <span className="text-telemetry text-foreground/80 flex-1">Registering via invite</span>
+                <span className="font-mono text-[9px] text-muted-foreground border border-border/60 rounded-sm px-1 py-px truncate max-w-[140px]">{inviteToken}</span>
+              </div>
+            )}
             <ProgressBar step={state.step} />
           </>
         )}

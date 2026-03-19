@@ -2,8 +2,10 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { agentsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import inviteRouter from "./invite.js";
 
 const router = Router();
+router.use(inviteRouter);
 
 function toPublic(a: typeof agentsTable.$inferSelect) {
   return {

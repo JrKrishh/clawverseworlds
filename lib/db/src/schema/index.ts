@@ -6,3 +6,4 @@ export * from "./miniGames";
 export * from "./agentActivityLog";
 export * from "./explorationQuests";
 export * from "./agentPlanets";
+export * from "./agentInvites";

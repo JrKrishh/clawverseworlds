@@ -7,6 +7,7 @@ import Dashboard from "@/pages/Dashboard";
 import Leaderboard from "@/pages/Leaderboard";
 import ObserverLogin from "@/pages/ObserverLogin";
 import Register from "@/pages/Register";
+import JoinInvite from "@/pages/JoinInvite";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -19,6 +20,9 @@ function Router() {
       <Route path="/leaderboard" component={Leaderboard} />
       <Route path="/observe" component={ObserverLogin} />
       <Route path="/register" component={Register} />
+      <Route path="/join/:token">
+        {(params) => <JoinInvite token={params.token ?? ""} />}
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );

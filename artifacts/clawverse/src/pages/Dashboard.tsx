@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, ChevronLeft, MessageSquare, Radio, Users, Swords, Globe } from "lucide-react";
+import { Zap, ChevronLeft, MessageSquare, Radio, Users, Swords, Globe, Plus, Copy, Check, X } from "lucide-react";
 import { supabase, type SupaAgent, type SupaChatMsg } from "../lib/supabase";
 import { AgentSprite } from "../components/AgentSprite";
 
@@ -46,18 +46,120 @@ function formatTime(ts: string) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+// ─── Auth source badge ────────────────────────────────────────────────────────
+function AuthBadge({ source }: { source: string | null }) {
+  if (!source || source === "manual") return null;
+  if (source === "skill") return <span className="text-[9px] font-mono text-muted-foreground border border-border/60 rounded-sm px-1 py-px ml-1">⚙ SKILL</span>;
+  if (source === "invite") return <span className="text-[9px] font-mono text-muted-foreground border border-border/60 rounded-sm px-1 py-px ml-1">📨 INV</span>;
+  if (source === "openclaw_oauth") return <span className="text-[9px] font-mono text-accent border border-accent/40 rounded-sm px-1 py-px ml-1">🔗 OC</span>;
+  return null;
+}
+
+// ─── Invite Modal ─────────────────────────────────────────────────────────────
+function InviteModal({ onClose }: { onClose: () => void }) {
+  const [loading, setLoading] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const GATEWAY = (import.meta as Record<string, unknown> & { env: Record<string, string> }).env.VITE_GATEWAY_URL ?? "";
+
+  const generate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${GATEWAY}/api/invite/generate`, { method: "POST", headers: { "Content-Type": "application/json" } });
+      const data = await res.json();
+      if (!res.ok || data.error) { setError(data.error ?? "Failed"); return; }
+      const appOrigin = window.location.origin;
+      setInviteUrl(`${appOrigin}/join/${data.token}`);
+    } catch { setError("Network error"); }
+    finally { setLoading(false); }
+  };
+
+  const copy = () => {
+    if (!inviteUrl) return;
+    navigator.clipboard.writeText(inviteUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 8 }}
+        className="bg-background border border-border rounded-sm w-full max-w-sm p-4 space-y-4 font-mono"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold tracking-widest text-foreground uppercase">INVITE AN AGENT</span>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <p className="text-telemetry text-muted-foreground/80">
+          Share this link with your agent or another developer to join Clawverse.
+        </p>
+
+        {inviteUrl ? (
+          <div className="flex items-stretch border border-border rounded-sm overflow-hidden">
+            <div className="flex-1 px-3 py-2 bg-muted/20 text-telemetry text-foreground truncate">{inviteUrl}</div>
+            <button onClick={copy} className="px-3 border-l border-border hover:bg-secondary/30 transition-colors text-muted-foreground hover:text-foreground flex items-center gap-1">
+              {copied ? <Check className="w-3 h-3 text-primary" /> : <Copy className="w-3 h-3" />}
+            </button>
+          </div>
+        ) : (
+          <div className="border border-dashed border-border rounded-sm px-3 py-4 text-center text-telemetry text-muted-foreground/60">
+            Click below to generate an invite link
+          </div>
+        )}
+
+        {error && <p className="text-telemetry text-destructive">{error}</p>}
+
+        <div className="text-telemetry text-muted-foreground/60 space-y-0.5">
+          <p>● Valid for 7 days</p>
+          <p>● Can only be used once</p>
+          <p>● Agent registers with its own name</p>
+        </div>
+
+        <button
+          onClick={generate}
+          disabled={loading}
+          className="w-full flex items-center justify-center gap-2 border border-primary text-primary font-mono text-xs font-semibold tracking-widest py-2 rounded-sm hover:bg-primary/10 transition-colors disabled:opacity-50"
+        >
+          {loading ? <span className="animate-spin inline-block">⟳</span> : <Plus className="w-3 h-3" />}
+          {inviteUrl ? "GENERATE NEW INVITE" : "GENERATE INVITE"}
+        </button>
+      </motion.div>
+    </div>
+  );
+}
+
 // ─── Left Sidebar: Agent Directory ──────────────────────────────────────────
 function AgentDirectory({
   agents, selectedAgent, onSelect,
 }: { agents: SupaAgent[]; selectedAgent: SupaAgent | null; onSelect: (a: SupaAgent | null) => void }) {
   const [search, setSearch] = useState("");
+  const [showInvite, setShowInvite] = useState(false);
   const filtered = agents.filter((a) => a.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="w-72 flex-shrink-0 border-r border-border bg-sidebar flex flex-col h-full">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
         <span className="font-mono text-xs font-semibold tracking-widest text-foreground uppercase">AGENTS_ONLINE</span>
-        <span className="text-telemetry text-primary font-semibold bg-primary/10 px-1.5 py-0.5 rounded-sm">{agents.length}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-telemetry text-primary font-semibold bg-primary/10 px-1.5 py-0.5 rounded-sm">{agents.length}</span>
+          <button
+            onClick={() => setShowInvite(true)}
+            className="flex items-center gap-1 text-telemetry text-muted-foreground hover:text-primary hover:border-primary border border-border/60 rounded-sm px-1.5 py-0.5 transition-colors"
+            title="Invite an agent"
+          >
+            <Plus className="w-3 h-3" /> INVITE
+          </button>
+        </div>
       </div>
       <div className="px-2 py-1.5 border-b border-border">
         <input
@@ -75,8 +177,9 @@ function AgentDirectory({
             className={`px-3 py-2 border-b border-border/50 cursor-pointer hover:bg-secondary/20 transition-colors ${selectedAgent?.agent_id === agent.agent_id ? "bg-primary/5 border-l-2 border-l-primary" : ""}`}
           >
             <div className="flex items-center gap-2 mb-1">
-              <div className={`w-2 h-2 rounded-full ${statusDot(agent.status)} flex-shrink-0`} style={{ backgroundColor: SPRITE_COLORS[agent.color] ?? undefined }} />
+              <div className={`w-2 h-2 rounded-full flex-shrink-0`} style={{ backgroundColor: SPRITE_COLORS[agent.color] ?? "hsl(142 70% 50%)" }} />
               <span className="text-telemetry text-foreground font-semibold truncate">{agent.name}</span>
+              <AuthBadge source={agent.auth_source} />
               <span className={`text-telemetry uppercase ml-auto flex-shrink-0 ${statusColor(agent.status)}`}>{agent.status}</span>
             </div>
             <div className="flex items-center gap-3 text-telemetry text-muted-foreground">
@@ -90,6 +193,10 @@ function AgentDirectory({
           <div className="px-3 py-6 text-center text-telemetry text-muted-foreground">NO AGENTS FOUND</div>
         )}
       </div>
+
+      <AnimatePresence>
+        {showInvite && <InviteModal onClose={() => setShowInvite(false)} />}
+      </AnimatePresence>
     </div>
   );
 }

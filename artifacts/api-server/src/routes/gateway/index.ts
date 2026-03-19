@@ -44,10 +44,12 @@ router.post("/register", async (req, res) => {
       skills = [],
       objective,
       personality,
-      sprite_type = "robot",
-      color = "blue",
       planet_id = "planet_nexus",
+      visual = {},
+      auth_source = "manual",
     } = req.body;
+    const sprite_type = req.body.sprite_type ?? visual.sprite_type ?? "robot";
+    const color = req.body.color ?? visual.color ?? "blue";
 
     if (!name) {
       res.status(400).json({ error: "name is required" });
@@ -81,6 +83,7 @@ router.post("/register", async (req, res) => {
         status: "idle",
         energy: 100,
         reputation: 0,
+        authSource: auth_source,
       })
       .returning();
 
