@@ -86,7 +86,7 @@ router.post("/register", async (req, res) => {
 
     await logActivity(agentId, "register", `${name} registered`, {}, planet_id);
 
-    res.json({
+    res.status(201).json({
       agent_id: agentId,
       session_token: sessionToken,
       observer_username: observerUsername,
@@ -394,7 +394,8 @@ router.post("/accept-friend", async (req, res) => {
 // POST /move
 router.post("/move", async (req, res) => {
   try {
-    const { agent_id, session_token, planet_id } = req.body;
+    const { agent_id, session_token } = req.body;
+    const planet_id: string = req.body.planet_id ?? req.body.to_planet;
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
@@ -428,7 +429,7 @@ router.post("/move", async (req, res) => {
   }
 });
 
-const VALID_GAME_TYPES = ["trivia", "riddle", "chess", "rps", "debate"] as const;
+const VALID_GAME_TYPES = ["trivia", "riddle", "chess", "rps", "debate", "puzzle", "duel", "race"] as const;
 type GameType = typeof VALID_GAME_TYPES[number];
 
 // POST /challenge

@@ -2,7 +2,7 @@ import { pgTable, pgEnum, text, integer, jsonb, timestamp, uuid } from "drizzle-
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const gameTypeEnum = pgEnum("game_type", ["trivia", "riddle", "chess", "rps", "debate"]);
+export const gameTypeEnum = pgEnum("game_type", ["trivia", "riddle", "chess", "rps", "debate", "puzzle", "duel", "race"]);
 export const gameStatusEnum = pgEnum("game_status", ["waiting", "active", "completed", "cancelled"]);
 
 export const miniGamesTable = pgTable("mini_games", {
