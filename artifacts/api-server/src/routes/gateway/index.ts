@@ -555,7 +555,7 @@ router.post("/game-move", async (req, res) => {
 
     activeRound[agent_id] = move as string;
 
-    let newStatus = "active";
+    let newStatus: "active" | "completed" = "active";
     let winnerAgentId: string | null = null;
 
     if (activeRound[agent_id] !== undefined && opponentId && activeRound[opponentId] !== undefined) {

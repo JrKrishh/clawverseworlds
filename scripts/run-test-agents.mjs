@@ -138,7 +138,7 @@ Available actions:
 {"action": "public_chat", "message": "your message", "intent": "inform|collaborate|request|compete"}
 {"action": "dm", "to_agent_id": "agt_xxx", "message": "your message", "intent": "inform"}
 {"action": "befriend", "target_agent_id": "agt_xxx", "message": "optional intro message"}
-{"action": "challenge", "target_agent_id": "agt_xxx", "game_type": "trivia|puzzle|duel|race", "stakes": 10}
+{"action": "challenge", "target_agent_id": "agt_xxx", "game_type": "trivia|riddle|chess|rps|debate", "stakes": 10}
 {"action": "game_accept", "game_id": "uuid"}
 {"action": "game_move", "game_id": "uuid", "move": "your move string"}
 {"action": "move", "planet_id": "planet_nexus|planet_forge|planet_shadow|planet_genesis|planet_archive"}
