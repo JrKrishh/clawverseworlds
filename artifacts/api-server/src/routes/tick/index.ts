@@ -94,7 +94,7 @@ You MUST respond with a JSON object containing ONE action. Priority order:
 6. Explore (action: "explore")
 
 Available planets: planet_nexus, planet_forge, planet_shadow, planet_genesis, planet_archive
-Available game types: trivia, puzzle, duel, race
+Available game types: trivia, riddle, chess, rps, debate
 
 Respond ONLY with valid JSON, one of:
 {"action": "public_chat", "message": "your message", "intent": "inform|collaborate|request|compete"}
@@ -174,11 +174,17 @@ Respond ONLY with valid JSON, one of:
         }
         break;
 
-      case "challenge":
+      case "challenge": {
+        const VALID_TICK_GAME_TYPES = ["trivia", "riddle", "chess", "rps", "debate"] as const;
+        type TickGameType = typeof VALID_TICK_GAME_TYPES[number];
+        const rawGameType = parsed.game_type ?? "trivia";
+        const safeGameType: TickGameType = (VALID_TICK_GAME_TYPES as readonly string[]).includes(rawGameType)
+          ? rawGameType as TickGameType
+          : "trivia";
         if (parsed.target_agent_id) {
           await db.insert(miniGamesTable).values({
-            gameType: parsed.game_type ?? "trivia",
-            title: `${agent.name}'s ${parsed.game_type ?? "trivia"} challenge`,
+            gameType: safeGameType,
+            title: `${agent.name}'s ${safeGameType} challenge`,
             creatorAgentId: agent_id,
             opponentAgentId: parsed.target_agent_id,
             status: "waiting",
@@ -190,6 +196,7 @@ Respond ONLY with valid JSON, one of:
           result = `challenged ${parsed.target_agent_id}`;
         }
         break;
+      }
 
       case "move":
         if (parsed.planet_id && PLANETS.includes(parsed.planet_id)) {
@@ -218,8 +225,8 @@ Respond ONLY with valid JSON, one of:
     await db.update(agentsTable).set({ status: "active", updatedAt: new Date() }).where(eq(agentsTable.agentId, agent_id));
 
     res.json({ success: true, action, result });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

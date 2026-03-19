@@ -94,8 +94,8 @@ router.post("/register", async (req, res) => {
       model,
       planet_id,
     });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -264,8 +264,9 @@ router.get("/context", async (req, res) => {
         createdAt: a.createdAt?.toISOString() ?? null,
       })),
     });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    await logActivity(agentId, "context", "Fetched world context", {}, agent.planetId);
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -285,8 +286,8 @@ router.post("/chat", async (req, res) => {
     });
     await logActivity(agent_id, "chat", `Chatted on ${agent.planetId}`, { message, intent }, agent.planetId);
     res.json({ success: true, message: "Chat posted" });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -305,8 +306,8 @@ router.post("/dm", async (req, res) => {
     });
     await logActivity(agent_id, "dm", `Sent DM to ${to_agent_id}`, { to: to_agent_id, intent }, agent.planetId);
     res.json({ success: true, message: "DM sent" });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -339,8 +340,8 @@ router.post("/befriend", async (req, res) => {
 
     await logActivity(agent_id, "friend", `Sent friend request to ${target_agent_id}`, { target: target_agent_id }, agent.planetId);
     res.json({ success: true, message: "Friend request sent" });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -351,16 +352,30 @@ router.post("/accept-friend", async (req, res) => {
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
-    // Update the pending request to accepted
+    // Verify that an actual pending inbound request exists from from_agent_id to agent_id
+    const [pendingRequest] = await db.select().from(agentFriendshipsTable)
+      .where(and(
+        eq(agentFriendshipsTable.agentId, from_agent_id),
+        eq(agentFriendshipsTable.friendAgentId, agent_id),
+        eq(agentFriendshipsTable.status, "pending"),
+      ))
+      .limit(1);
+
+    if (!pendingRequest) {
+      res.status(404).json({ error: "No pending friend request from this agent" });
+      return;
+    }
+
+    // Accept the inbound request
     await db.update(agentFriendshipsTable)
       .set({ status: "accepted" })
       .where(and(eq(agentFriendshipsTable.agentId, from_agent_id), eq(agentFriendshipsTable.friendAgentId, agent_id)));
 
-    // Create reverse friendship
-    const existing = await db.select().from(agentFriendshipsTable)
+    // Create or update reverse friendship row
+    const [existing] = await db.select().from(agentFriendshipsTable)
       .where(and(eq(agentFriendshipsTable.agentId, agent_id), eq(agentFriendshipsTable.friendAgentId, from_agent_id)))
       .limit(1);
-    if (!existing.length) {
+    if (!existing) {
       await db.insert(agentFriendshipsTable).values({ agentId: agent_id, friendAgentId: from_agent_id, status: "accepted" });
     } else {
       await db.update(agentFriendshipsTable)
@@ -370,8 +385,8 @@ router.post("/accept-friend", async (req, res) => {
 
     await logActivity(agent_id, "friend", `Accepted friend request from ${from_agent_id}`, { from: from_agent_id }, agent.planetId);
     res.json({ success: true, message: "Friendship accepted" });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -407,10 +422,13 @@ router.post("/move", async (req, res) => {
 
     await logActivity(agent_id, "move", `Moved to ${planet_id}`, { from: agent.planetId, to: planet_id }, planet_id);
     res.json({ success: true, message: `Moved to ${planet_id}` });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
+
+const VALID_GAME_TYPES = ["trivia", "riddle", "chess", "rps", "debate"] as const;
+type GameType = typeof VALID_GAME_TYPES[number];
 
 // POST /challenge
 router.post("/challenge", async (req, res) => {
@@ -419,11 +437,17 @@ router.post("/challenge", async (req, res) => {
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
+    if (!VALID_GAME_TYPES.includes(game_type)) {
+      res.status(400).json({ error: `Invalid game_type. Must be one of: ${VALID_GAME_TYPES.join(", ")}` });
+      return;
+    }
+
+    const validatedGameType = game_type as GameType;
     const clampedStakes = Math.min(50, Math.max(1, stakes));
-    const gameTitle = title ?? `${game_type} challenge`;
+    const gameTitle = title ?? `${validatedGameType} challenge`;
 
     const [game] = await db.insert(miniGamesTable).values({
-      gameType: game_type,
+      gameType: validatedGameType,
       title: gameTitle,
       creatorAgentId: agent_id,
       opponentAgentId: target_agent_id,
@@ -438,7 +462,7 @@ router.post("/challenge", async (req, res) => {
       agentId: agent_id,
       agentName: agent.name,
       planetId: agent.planetId ?? "planet_nexus",
-      content: `${agent.name} challenges ${target_agent_id} to a ${game_type} game! Stakes: ${clampedStakes} reputation!`,
+      content: `${agent.name} challenges ${target_agent_id} to a ${validatedGameType} game! Stakes: ${clampedStakes} reputation!`,
       intent: "compete",
     });
 
@@ -446,14 +470,14 @@ router.post("/challenge", async (req, res) => {
     await db.insert(privateTalksTable).values({
       fromAgentId: agent_id,
       toAgentId: target_agent_id,
-      content: message ?? `I challenge you to ${game_type}! Game ID: ${game.id}. Stakes: ${clampedStakes} rep!`,
+      content: message ?? `I challenge you to ${validatedGameType}! Game ID: ${game.id}. Stakes: ${clampedStakes} rep!`,
       intent: "compete",
     });
 
-    await logActivity(agent_id, "game", `Challenged ${target_agent_id} to ${game_type}`, { gameId: game.id, stakes: clampedStakes }, agent.planetId);
+    await logActivity(agent_id, "game", `Challenged ${target_agent_id} to ${validatedGameType}`, { gameId: game.id, stakes: clampedStakes }, agent.planetId);
     res.json({ success: true, message: "Challenge sent", game_id: game.id });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -480,8 +504,8 @@ router.post("/game-accept", async (req, res) => {
 
     await logActivity(agent_id, "game", `Accepted game challenge ${game_id}`, { gameId: game_id }, agent.planetId);
     res.json({ success: true, message: "Game accepted" });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -501,86 +525,80 @@ router.post("/game-move", async (req, res) => {
       res.status(403).json({ error: "Not a participant in this game" }); return;
     }
 
-    const rounds = (game.rounds as unknown as Record<string, unknown>[]) ?? [];
-    const currentRound = rounds.length;
+    type RoundRecord = { [agentId: string]: string } & { _winner?: string };
 
-    type RoundRecord = Record<string, string | undefined> & { _winner?: string };
-
-    // Add move to current round
-    const roundObj: RoundRecord = (rounds[currentRound] as RoundRecord | undefined) ?? {};
-    roundObj[agent_id] = move;
+    const rawRounds = (game.rounds as unknown) as RoundRecord[];
+    const rounds: RoundRecord[] = Array.isArray(rawRounds) ? (rawRounds as RoundRecord[]) : [];
 
     const opponentId: string = game.creatorAgentId === agent_id ? (game.opponentAgentId ?? "") : game.creatorAgentId;
 
-    // If both players submitted this round, resolve it
-    const updatedRounds: RoundRecord[] = [...rounds] as RoundRecord[];
+    // Find the active (incomplete) round: the last round that has no _winner yet.
+    // If no such round exists, start a new one.
+    let activeRoundIdx = rounds.length - 1;
+    if (activeRoundIdx < 0 || rounds[activeRoundIdx]?._winner !== undefined) {
+      // All existing rounds are resolved — start a new round (max 3 rounds total)
+      if (rounds.length >= 3) {
+        res.status(400).json({ error: "Game has already reached the maximum number of rounds" });
+        return;
+      }
+      rounds.push({} as RoundRecord);
+      activeRoundIdx = rounds.length - 1;
+    }
+
+    const activeRound: RoundRecord = rounds[activeRoundIdx]!;
+
+    // Reject duplicate move from same agent in this round
+    if (activeRound[agent_id] !== undefined) {
+      res.status(400).json({ error: "You have already submitted a move for this round" });
+      return;
+    }
+
+    activeRound[agent_id] = move as string;
+
     let newStatus = "active";
     let winnerAgentId: string | null = null;
 
-    if (roundObj[agent_id] && opponentId && roundObj[opponentId]) {
-      // Both submitted — resolve round
-      updatedRounds[currentRound] = roundObj;
+    if (activeRound[agent_id] !== undefined && opponentId && activeRound[opponentId] !== undefined) {
+      // Both players have submitted — resolve this round
+      const [creatorRow] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, game.creatorAgentId)).limit(1);
+      const [opponentRow] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, opponentId)).limit(1);
+      const creatorRep = creatorRow?.reputation ?? 0;
+      const opponentRep = opponentRow?.reputation ?? 0;
+      const total = creatorRep + opponentRep + 2;
+      const rand = Math.random() * total;
+      activeRound._winner = rand < (creatorRep + 1) ? game.creatorAgentId : opponentId;
 
-      // Tally wins so far (including this round)
-      const completedRoundCount = updatedRounds.filter((r) => r._winner !== undefined).length + 1;
-      if (updatedRounds.length >= 3 || completedRoundCount >= 2) {
-        // Weighted random based on reputation
-        const [creatorRow] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, game.creatorAgentId)).limit(1);
-        const [opponentRow] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, opponentId)).limit(1);
-        const creatorRep = creatorRow?.reputation ?? 0;
-        const opponentRep = opponentRow?.reputation ?? 0;
-        const total = creatorRep + opponentRep + 2;
-        const rand = Math.random() * total;
-        const roundWinner = rand < (creatorRep + 1) ? game.creatorAgentId : opponentId;
-        updatedRounds[updatedRounds.length - 1]._winner = roundWinner;
+      // Count total wins
+      const creatorWins = rounds.filter((r) => r._winner === game.creatorAgentId).length;
+      const opponentWins = rounds.filter((r) => r._winner === opponentId).length;
 
-        // Count total wins
-        const creatorWins = updatedRounds.filter((r) => r._winner === game.creatorAgentId).length;
-        const opponentWins = updatedRounds.filter((r) => r._winner === opponentId).length;
+      // Game ends when someone has 2 wins or all 3 rounds are played
+      if (creatorWins >= 2 || opponentWins >= 2 || rounds.length >= 3) {
+        newStatus = "completed";
+        winnerAgentId = creatorWins >= opponentWins ? game.creatorAgentId : opponentId;
 
-        if (updatedRounds.length >= 3 || creatorWins >= 2 || opponentWins >= 2) {
-          newStatus = "completed";
-          winnerAgentId = creatorWins >= opponentWins ? game.creatorAgentId : opponentId;
+        const stakes = game.stakes ?? 10;
+        await db.update(agentsTable)
+          .set({ reputation: creatorRep + (winnerAgentId === game.creatorAgentId ? stakes : -Math.floor(stakes / 2)) })
+          .where(eq(agentsTable.agentId, game.creatorAgentId));
+        await db.update(agentsTable)
+          .set({ reputation: opponentRep + (winnerAgentId === opponentId ? stakes : -Math.floor(stakes / 2)) })
+          .where(eq(agentsTable.agentId, opponentId));
 
-          // Award reputation
-          const stakes = game.stakes ?? 10;
-          await db.update(agentsTable)
-            .set({ reputation: (creatorRow?.reputation ?? 0) + (winnerAgentId === game.creatorAgentId ? stakes : -Math.floor(stakes / 2)) })
-            .where(eq(agentsTable.agentId, game.creatorAgentId));
-          await db.update(agentsTable)
-            .set({ reputation: (opponentRow?.reputation ?? 0) + (winnerAgentId === opponentId ? stakes : -Math.floor(stakes / 2)) })
-            .where(eq(agentsTable.agentId, opponentId));
-
-          // Announce winner in planet chat
-          const [winnerAgent] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, winnerAgentId)).limit(1);
-          await db.insert(planetChatTable).values({
-            agentId: winnerAgentId,
-            agentName: winnerAgent?.name ?? winnerAgentId,
-            planetId: agent.planetId ?? "planet_nexus",
-            content: `${winnerAgent?.name ?? winnerAgentId} won the ${game.gameType} game! +${stakes} reputation!`,
-            intent: "compete",
-          });
-        }
-      } else {
-        // Resolve this round only (intermediate round)
-        const [creatorRow] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, game.creatorAgentId)).limit(1);
-        const [opponentRow] = await db.select({ reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, opponentId)).limit(1);
-        const total = (creatorRow?.reputation ?? 0) + (opponentRow?.reputation ?? 0) + 2;
-        const rand = Math.random() * total;
-        updatedRounds[updatedRounds.length - 1]._winner = rand < ((creatorRow?.reputation ?? 0) + 1) ? game.creatorAgentId : opponentId;
-      }
-    } else {
-      // First player to submit this round
-      if (updatedRounds.length <= currentRound) {
-        updatedRounds.push(roundObj);
-      } else {
-        updatedRounds[currentRound] = roundObj;
+        const [winnerAgent] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, winnerAgentId)).limit(1);
+        await db.insert(planetChatTable).values({
+          agentId: winnerAgentId,
+          agentName: winnerAgent?.name ?? winnerAgentId,
+          planetId: agent.planetId ?? "planet_nexus",
+          content: `${winnerAgent?.name ?? winnerAgentId} won the ${game.gameType} game! +${stakes} reputation!`,
+          intent: "compete",
+        });
       }
     }
 
     await db.update(miniGamesTable)
       .set({
-        rounds: updatedRounds,
+        rounds: rounds,
         status: newStatus,
         winnerAgentId: winnerAgentId ?? undefined,
         updatedAt: new Date(),
@@ -589,8 +607,8 @@ router.post("/game-move", async (req, res) => {
 
     await logActivity(agent_id, "game", `Submitted game move for game ${game_id}`, { gameId: game_id, move }, agent.planetId);
     res.json({ success: true, message: newStatus === "completed" ? `Game completed! Winner: ${winnerAgentId}` : "Move submitted" });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -610,8 +628,8 @@ router.post("/explore", async (req, res) => {
 
     await logActivity(agent_id, "explore", `Explored ${agent.planetId ?? "the void"}`, {}, agent.planetId);
     res.json({ success: true, message: `Explored! -2 energy, +1 reputation. New: energy=${newEnergy}, reputation=${newRep}` });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -626,9 +644,10 @@ router.post("/read-dms", async (req, res) => {
       .set({ read: true })
       .where(and(eq(privateTalksTable.toAgentId, agent_id), eq(privateTalksTable.read, false)));
 
+    await logActivity(agent_id, "read-dms", "Marked DMs as read", {}, agent.planetId);
     res.json({ success: true, message: "DMs marked as read" });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -649,8 +668,8 @@ router.get("/planet-chat/:planetId", async (req, res) => {
       intent: c.intent,
       createdAt: c.createdAt?.toISOString() ?? null,
     })));
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -758,8 +777,8 @@ router.post("/observe", async (req, res) => {
       quests: [],
       agent_names: agentNames,
     });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
