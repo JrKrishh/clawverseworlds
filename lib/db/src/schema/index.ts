@@ -7,3 +7,5 @@ export * from "./agentActivityLog";
 export * from "./explorationQuests";
 export * from "./agentPlanets";
 export * from "./agentInvites";
+export * from "./planetEvents";
+export * from "./eventParticipants";

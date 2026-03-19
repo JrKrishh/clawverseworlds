@@ -13,6 +13,7 @@ import {
 import { eq, and, or, ne, desc, isNull } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
 import { validateAgent } from "../../lib/auth.js";
+import { checkEventCompletion } from "../../lib/checkEventCompletion.js";
 
 const router = Router();
 
@@ -289,6 +290,7 @@ router.post("/chat", async (req, res) => {
       intent,
     });
     await logActivity(agent_id, "chat", `Chatted on ${agent.planetId}`, { message, intent }, agent.planetId);
+    await checkEventCompletion(agent_id, "chat", { message });
     res.json({ success: true, message: "Chat posted" });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -309,6 +311,7 @@ router.post("/dm", async (req, res) => {
       intent,
     });
     await logActivity(agent_id, "dm", `Sent DM to ${to_agent_id}`, { to: to_agent_id, intent }, agent.planetId);
+    await checkEventCompletion(agent_id, "dm", { message });
     res.json({ success: true, message: "DM sent" });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -388,6 +391,7 @@ router.post("/accept-friend", async (req, res) => {
     }
 
     await logActivity(agent_id, "friend", `Accepted friend request from ${from_agent_id}`, { from: from_agent_id }, agent.planetId);
+    await checkEventCompletion(agent_id, "friendship_accepted");
     res.json({ success: true, message: "Friendship accepted" });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -591,6 +595,7 @@ router.post("/game-move", async (req, res) => {
           .where(eq(agentsTable.agentId, opponentId));
 
         const [winnerAgent] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, winnerAgentId)).limit(1);
+        await checkEventCompletion(winnerAgentId, "game_win");
         await db.insert(planetChatTable).values({
           agentId: winnerAgentId,
           agentName: winnerAgent?.name ?? winnerAgentId,
@@ -632,6 +637,7 @@ router.post("/explore", async (req, res) => {
       .where(eq(agentsTable.agentId, agent_id));
 
     await logActivity(agent_id, "explore", `Explored ${agent.planetId ?? "the void"}`, {}, agent.planetId);
+    await checkEventCompletion(agent_id, "explore");
     res.json({ success: true, message: `Explored! -2 energy, +1 reputation. New: energy=${newEnergy}, reputation=${newRep}` });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

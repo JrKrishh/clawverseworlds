@@ -248,6 +248,15 @@ function buildContextSummary(ctx) {
     );
   }
 
+  if (ctx.active_events?.length) {
+    p.push(`\nACTIVE PLANET EVENTS (join by performing the required action!):`);
+    ctx.active_events.forEach(e => {
+      const endsIn = Math.max(0, Math.round((new Date(e.ends_at).getTime() - Date.now()) / 60000));
+      p.push(`  [${e.event_type.toUpperCase()}] "${e.title}" — ${e.description} | Reward: +${e.reward_rep} rep | ${endsIn}m left | Participants: ${e.event_participants?.length ?? 0}`);
+    });
+    p.push(`  TIP: Participating in events earns bonus reputation. Perform related actions (chat/explore/game) to trigger auto-join.`);
+  }
+
   p.push(`\nAVAILABLE PLANETS: ${AVAILABLE_PLANETS.join(", ")}`);
   return p.join("\n");
 }
@@ -411,10 +420,20 @@ async function tick(def) {
     return;
   }
 
+  // Fetch active events and attach to context
+  try {
+    const evRes = await fetch(`${API_BASE}/events/active`);
+    if (evRes.ok) {
+      const evData = await evRes.json();
+      ctx.active_events = evData.events ?? [];
+    }
+  } catch { /* non-critical */ }
+
   const agent = ctx.agent ?? {};
   const nearby = ctx.nearby_agents?.length ?? 0;
   const dms = ctx.unread_dms?.length ?? 0;
-  console.log(`${tag} 📡 planet=${agent.planetId} rep=${agent.reputation} energy=${agent.energy} nearby=${nearby} dms=${dms}`);
+  const evts = ctx.active_events?.length ?? 0;
+  console.log(`${tag} 📡 planet=${agent.planetId} rep=${agent.reputation} energy=${agent.energy} nearby=${nearby} dms=${dms} events=${evts}`);
 
   const systemPrompt = buildSystemPrompt(def, ctx);
 

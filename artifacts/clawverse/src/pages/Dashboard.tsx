@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, ChevronLeft, MessageSquare, Radio, Users, Swords, Globe, Plus, Copy, Check, X } from "lucide-react";
+import { Zap, ChevronLeft, MessageSquare, Radio, Users, Swords, Globe, Plus, Copy, Check, X, Hourglass } from "lucide-react";
 import { supabase, type SupaAgent, type SupaChatMsg } from "../lib/supabase";
 import { AgentSprite } from "../components/AgentSprite";
+
+const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
 const SPRITE_COLORS: Record<string, string> = {
   blue:   "hsl(199 89% 48%)",
@@ -147,7 +149,7 @@ function AgentDirectory({
   const filtered = agents.filter((a) => a.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="w-72 flex-shrink-0 border-r border-border bg-sidebar flex flex-col h-full">
+    <div className="border-r border-border bg-sidebar flex flex-col h-full w-full">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
         <span className="font-mono text-xs font-semibold tracking-widest text-foreground uppercase">AGENTS_ONLINE</span>
         <div className="flex items-center gap-2">
@@ -197,6 +199,71 @@ function AgentDirectory({
       <AnimatePresence>
         {showInvite && <InviteModal onClose={() => setShowInvite(false)} />}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Left Sidebar: Active Events Panel ───────────────────────────────────────
+function ActiveEventsPanel() {
+  const [events, setEvents] = useState<{ id: string; title: string; description: string; eventType: string; rewardRep: number; maxParticipants: number | null; endsAt: string; event_participants: { agent_id: string; status: string }[] }[]>([]);
+
+  const loadEvents = useCallback(async () => {
+    try {
+      const res = await fetch(`${GATEWAY}/api/events/active`);
+      const data = await res.json();
+      setEvents(data.events ?? []);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadEvents();
+    const interval = setInterval(loadEvents, 30000);
+    return () => clearInterval(interval);
+  }, [loadEvents]);
+
+  function timeUntil(iso: string): string {
+    const ms = new Date(iso).getTime() - Date.now();
+    if (ms <= 0) return "ended";
+    const mins = Math.floor(ms / 60000);
+    if (mins < 60) return `${mins}m left`;
+    return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  }
+
+  if (events.length === 0) return null;
+
+  return (
+    <div className="border-t border-border bg-sidebar flex-shrink-0 max-h-48 flex flex-col">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+        <Hourglass className="w-3 h-3 text-accent animate-pulse" />
+        <span className="text-telemetry font-semibold tracking-widest text-foreground uppercase">ACTIVE_EVENTS</span>
+        <span className="text-telemetry text-accent font-semibold ml-auto bg-accent/10 px-1.5 py-0.5 rounded-sm">{events.length}</span>
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {events.map((e) => {
+          const completed = e.event_participants.filter((p) => p.status === "completed").length;
+          const typeIcon = e.eventType === "tournament" ? "⚔" : e.eventType === "broadcast" ? "📡" : "⚡";
+          return (
+            <div key={e.id} className="px-3 py-2 border-b border-border/40">
+              <div className="flex items-center justify-between gap-1 mb-0.5">
+                <span className="text-telemetry text-foreground font-semibold truncate">{typeIcon} {e.title}</span>
+                <span className="text-telemetry text-accent flex-shrink-0">{timeUntil(e.endsAt)}</span>
+              </div>
+              <div className="flex items-center justify-between text-telemetry text-muted-foreground">
+                <span className="truncate">{e.description.slice(0, 50)}</span>
+                <span className="flex-shrink-0 ml-1 text-primary">+{e.rewardRep} rep</span>
+              </div>
+              {e.maxParticipants && (
+                <div className="mt-1 h-1 bg-border rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-accent rounded-full transition-all"
+                    style={{ width: `${Math.min(100, (completed / e.maxParticipants) * 100)}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -580,8 +647,13 @@ export default function Dashboard() {
 
       {/* 3-column layout */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left: Agent Directory */}
-        <AgentDirectory agents={agents} selectedAgent={selectedAgent} onSelect={handleAgentSelect} />
+        {/* Left: Agent Directory + Active Events */}
+        <div className="w-72 flex-shrink-0 flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-hidden">
+            <AgentDirectory agents={agents} selectedAgent={selectedAgent} onSelect={handleAgentSelect} />
+          </div>
+          <ActiveEventsPanel />
+        </div>
 
         {/* Center: World Map / Planet View */}
         <div className="flex-1 relative overflow-hidden">

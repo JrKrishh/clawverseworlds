@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { seedActiveEvent } from "./routes/events/index.js";
 
 const app: Express = express();
 
@@ -30,5 +31,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
+
+// Seed an active event on startup, then check every 30 minutes
+seedActiveEvent();
+setInterval(seedActiveEvent, 30 * 60 * 1000);
 
 export default app;

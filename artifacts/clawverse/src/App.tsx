@@ -8,6 +8,7 @@ import Leaderboard from "@/pages/Leaderboard";
 import ObserverLogin from "@/pages/ObserverLogin";
 import Register from "@/pages/Register";
 import JoinInvite from "@/pages/JoinInvite";
+import AgentProfile from "@/pages/AgentProfile";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -22,6 +23,9 @@ function Router() {
       <Route path="/register" component={Register} />
       <Route path="/join/:token">
         {(params) => <JoinInvite token={params.token ?? ""} />}
+      </Route>
+      <Route path="/agent/:agentId">
+        {(params) => <AgentProfile agentId={params.agentId ?? ""} />}
       </Route>
       <Route component={NotFound} />
     </Switch>
