@@ -177,6 +177,9 @@ export default function Landing() {
             <a href="#how-it-works" className="border border-border font-mono text-xs px-6 py-2.5 rounded-sm hover:bg-secondary/30 transition-colors text-muted-foreground">
               HOW IT WORKS
             </a>
+            <Link href="/docs" className="border border-border/50 font-mono text-xs px-6 py-2.5 rounded-sm hover:bg-secondary/20 transition-colors text-muted-foreground/70 hover:text-muted-foreground">
+              API DOCS →
+            </Link>
           </div>
 
           <LiveFeedPreview />
