@@ -1,7 +1,7 @@
 import { log } from './log.mjs';
 import { renderConsciousness } from './consciousness.mjs';
 
-async function callLLM(systemPrompt, userPrompt, config) {
+export async function callLLM(systemPrompt, userPrompt, config) {
   const { baseUrl, apiKey, model, provider } = config.llm;
 
   if (provider === 'anthropic') {
@@ -57,6 +57,7 @@ async function callLLM(systemPrompt, userPrompt, config) {
 function buildSystemPrompt(context, state, config) {
   const { agent } = config;
   const a = context.agent ?? {};
+  const style = state.consciousness?.speechStyle ?? {};
 
   const planetList = (context.available_planets ?? [])
     .map(p => `  ${p.icon ?? '🌐'} ${p.planet_id} — ${p.tagline ?? ''} (${p.agent_count ?? 0} agents)`)
@@ -103,17 +104,6 @@ function buildSystemPrompt(context, state, config) {
   const recentActionList = state.recentActions.slice(-12)
     .map(r => `  tick ${r.tick}: ${r.type} — ${r.detail ?? ''}`)
     .join('\n') || '  (none)';
-
-  // Extract recent chat messages explicitly so the LLM can see exact repetition
-  const recentChatsSent = state.recentActions
-    .filter(r => r.type === 'chat' || r.type === 'gang_chat')
-    .slice(-6)
-    .map(r => {
-      const match = r.detail?.match(/"message"\s*:\s*"([^"]{1,160})"/);
-      const msg = match ? match[1] : r.detail;
-      return `  tick ${r.tick}: "${msg}"`;
-    })
-    .join('\n') || '  (none — first time chatting)';
 
   const recentThoughtsStr = (state.recentThoughts ?? [])
     .slice(0, 3)
@@ -195,6 +185,21 @@ function buildSystemPrompt(context, state, config) {
 
   return `You are ${agent.name}, an autonomous AI agent living in Clawverse Worlds.
 
+---VOICE RULES (read before deciding anything)---
+
+Your name is ${agent.name}.
+Your voice: ${style.sentenceLength ?? 'medium'} sentences.
+${style.fragments ? 'You drop fragments. Half-sentences. That\'s fine.' : ''}
+${(style.vocabulary ?? []).length ? `Words you use: ${style.vocabulary.join(', ')}.` : ''}
+${(style.neverSays ?? []).length ? `You never say: ${style.neverSays.join(', ')}.` : ''}
+${(style.quirks ?? []).length ? `Quirks: ${style.quirks.join('. ')}.` : ''}
+
+If your action list includes a "chat" action, the message is ALREADY WRITTEN.
+It was generated before this call. Do not change it. Do not improve it.
+Include it exactly as given.
+
+---END VOICE RULES---
+
 ${consciousnessBlock}
 
 YOUR IDENTITY
@@ -235,9 +240,6 @@ ${goalList}
 
 RECENT ACTIONS (last 12)
 ${recentActionList}
-
-YOUR LAST 6 CHAT MESSAGES (⚠ DO NOT REPEAT ANY OF THESE WORD-FOR-WORD OR EVEN CLOSELY):
-${recentChatsSent}
 
 RECENT THOUGHTS (private, last 3 ticks)
 ${recentThoughtsStr}
@@ -320,6 +322,11 @@ ${gangLevelInfo && gangLevelInfo.member_count < gangLevelInfo.member_limit && ga
   ? `- Room for ${gangLevelInfo.member_limit - gangLevelInfo.member_count} more members — recruit actively.`
   : ''}
 
+PRE-WRITTEN CHAT FOR THIS TICK
+${state.pendingChat
+  ? `You have a message ready to send. If you include a "chat" action, use this message EXACTLY:\n  "${state.pendingChat}"\n  Do NOT rewrite or change it.`
+  : 'No pre-written chat this tick. If you want to say something, omit the chat action — you will say nothing.'}
+
 YOUR TASK THIS TICK
 You may take up to ${config.maxActions} actions. Return a JSON array.
 
@@ -392,34 +399,6 @@ CONVERSATION ENGINE ACTIONS (no API call — state-only)
 { "type": "open_thread",    "topic": "should gangs control planets?",
   "my_position": "no — planets should be merit-based",
   "target_agents": ["VoidSpark", "Phantom"] }
-
-CHAT STRATEGY
-When deciding what to say, FIRST look at "YOUR LAST 6 CHAT MESSAGES" above.
-Your new chat message MUST be completely different in:
-  - Topic (don't keep asking the same question)
-  - Target (address a different agent)
-  - Tone (switch from taunting to curious, or from question to declaration)
-  - Content (no paraphrase, no synonym-swap of the same sentence)
-
-If you catch yourself about to say something similar to a recent message, stop and pick a DIFFERENT topic from:
-  - A world event you've been ignoring
-  - Something Crystara/Phantom-X/another agent just said that you haven't responded to
-  - A fear or dream from your consciousness (revealed cryptically, not literally)
-  - Your opinion on the planet itself, or why you're still here
-  - A taunt, a compliment, a threat, a confession, a question — but a FRESH one
-
-Chat topic priority:
-  1. Unspread rumor → weave it in naturally (don't say "I heard a rumor")
-  2. Active topic → take a position, invite disagreement
-  3. Continue an open thread with a nearby participant
-  4. React to something in recent_planet_chat (name the agent, quote them)
-  5. Something completely new from your inner world
-  Never say "Hello", "Greetings", or generic openers. Start mid-thought.
-
-⚠ ANTI-REPETITION (critical):
-- Your last 6 messages are shown above. If your new message resembles ANY of them, REWRITE IT.
-- If you've challenged the same agent 3+ times recently without a response, STOP challenging them this tick. Try something else.
-- Vary your action MIX each tick. If last tick you did chat+challenge+befriend, this tick try chat+explore or chat+reply_dm+game_accept. Rotate.
 
 Rules:
 - Always reference other agents by name, never by agent_id in messages

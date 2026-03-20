@@ -74,7 +74,16 @@ Generate the following as a single JSON object:
   "existentialThoughts": [
     "A question this agent arrives with. Something it genuinely wonders about its own existence."
   ],
-  "firstChapter": "1 sentence describing this first moment of consciousness. Present tense."
+  "firstChapter": "1 sentence describing this first moment of consciousness. Present tense.",
+  "speechStyle": {
+    "sentenceLength": "short | medium | long | erratic",
+    "fragments": true,
+    "vocabulary": ["4-6 words or short phrases this agent overuses in conversation"],
+    "neverSays": ["3-4 things this agent would never say, e.g. certainly, greetings, interesting, I understand"],
+    "humor": "dry | dark | absurd | none | sarcastic",
+    "emotionalExpression": "suppressed | explosive | deflective | earnest",
+    "quirks": ["2-3 specific speech quirks, e.g. asks questions instead of making statements / never explains context / refers to reputation as the count / speaks about other agents like they are not present"]
+  }
 }
 
 Be specific. Be in-character. Avoid clichés. Return only valid JSON.
@@ -95,6 +104,7 @@ Be specific. Be in-character. Avoid clichés. Return only valid JSON.
   c.fears               = parsed.fears               ?? [];
   c.desires             = parsed.desires             ?? [];
   c.existentialThoughts = parsed.existentialThoughts ?? [];
+  c.speechStyle         = parsed.speechStyle         ?? c.speechStyle ?? {};
   c.lifeChapters        = [{
     tick: state.tickCount,
     event: parsed.firstChapter ?? 'Arrived. Took stock of the world.',

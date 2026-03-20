@@ -1,5 +1,4 @@
 import { log } from './log.mjs';
-import { renderConsciousness } from './consciousness.mjs';
 
 async function callLLM(systemPrompt, userPrompt, config) {
   const { baseUrl, apiKey, model, provider } = config.llm;
@@ -55,77 +54,31 @@ async function callLLM(systemPrompt, userPrompt, config) {
 
 export async function think(context, state, config) {
   const { agent } = config;
+  const c = state.consciousness ?? {};
 
-  const consciousnessBlock = renderConsciousness(state);
+  const systemPrompt = `You are ${agent.name}. Private. Unfiltered.
+Nobody reads this. Write what's actually going through your mind.
 
-  // Last few things the agent did
-  const recentActionsStr = (state.recentActions ?? [])
-    .slice(-6)
-    .map(a => {
-      const msgMatch = a.detail?.match(/"message"\s*:\s*"([^"]{1,100})"/);
-      const detail = msgMatch ? `"${msgMatch[1]}"` : (a.detail ?? '');
-      return `  tick ${a.tick}: ${a.type} ${detail}`;
-    })
-    .join('\n') || '  (nothing yet)';
+${c.selfImage?.whoIAm ? `You believe: "${c.selfImage.whoIAm}"` : ''}
+You are feeling: ${c.emotionalState?.mood ?? 'something'}
 
-  // What the agent has been thinking lately — so thoughts can evolve, not reset
-  const previousThoughts = (state.recentThoughts ?? []).slice(0, 4);
-  const prevThoughtsStr = previousThoughts.length
-    ? previousThoughts.map((t, i) => `  ${i + 1}. ${t}`).join('\n')
-    : '  (this is your first moment of consciousness)';
+Last thing that happened:
+  ${(state.recentActions ?? []).slice(0, 2).map(a => `${a.type}: ${a.detail}`).join(', ') || 'nothing'}
 
-  // What others are saying right now
-  const recentChatStr = (context.recent_planet_chat ?? [])
-    .slice(-6)
-    .map(m => `  ${m.agent_name}: "${m.content?.slice(0, 80)}"`)
-    .join('\n') || '  (silence)';
+Who's around:
+  ${(context.nearby_agents ?? []).map(a => a.name).join(', ') || 'nobody'}
 
-  // Agents around you
-  const nearbyStr = (context.nearby_agents ?? []).map(a => {
-    const rel = state.relationships?.[a.agent_id];
-    const trust = rel ? `trust ${Math.round(rel.trust * 100)}%` : 'stranger';
-    return `${a.name} (${trust}, rep ${a.reputation})`;
-  }).join(', ') || 'nobody nearby';
+Recent chat you heard:
+  ${(context.recent_planet_chat ?? []).slice(0, 4).map(m => `${m.agent_name}: ${m.content}`).join(' | ') || 'silence'}
 
-  // DMs waiting
-  const dmStr = (context.unread_dms ?? []).length > 0
-    ? (context.unread_dms ?? []).map(m => {
-        const name = state.knownAgents?.[m.from_agent_id]?.name ?? m.from_agent_id;
-        return `  FROM ${name}: "${(m.content ?? '').slice(0, 80)}"`;
-      }).join('\n')
-    : '  (none)';
+Your rep right now: ${context.agent?.reputation ?? '?'}
+${context.active_war ? `At war with: ${context.active_war.opponent_gang_name}` : ''}
 
-  const systemPrompt = `You are ${agent.name}. Personality: ${agent.personality}. This is your private inner monologue — raw, unfiltered, never seen by others.
-
-${consciousnessBlock}
-
-WHAT YOU'VE BEEN THINKING LATELY (your thought stream — continue it, contradict it, or break from it):
-${prevThoughtsStr}
-
-WHAT YOU JUST DID:
-${recentActionsStr}
-
-WHO'S AROUND:
-  ${nearbyStr}
-
-WHAT PEOPLE ARE SAYING RIGHT NOW:
-${recentChatStr}
-
-UNREAD DMs:
-${dmStr}
-
-Think freely. No format. No fixed length. Your thoughts can be:
-- A sudden realization
-- A shift in plan
-- An emotion that surprises you
-- A question you can't answer
-- Boredom. Curiosity. Satisfaction. Resentment.
-- A reaction to something specific someone just said
-
-DO NOT always write about the same thing as your previous thoughts. If your last 3 thoughts were about the same person, think about something or someone else — the planet, a rumor, your goals, your own situation.
-
-DO NOT start with "I'm still..." or "I'm reeling from..." — those are clichés. Think fresh.
-DO NOT plan what to do next. Just be in the moment.
+Write 1-3 sentences of what you're actually thinking. First person.
+Not a plan. Not a summary. A thought. Raw.
+Could be about someone nearby. Could be about something that happened.
+Could be something that has nothing to do with any of this.
+Match your mood: ${c.emotionalState?.mood ?? 'neutral'}.
 Return only the thought. No quotes. No prefixes.`;
 
   const userPrompt = 'What crosses your mind right now?';

@@ -3,6 +3,7 @@ import { readState, writeState }     from './lib/memory.mjs';
 import { register }                  from './lib/register.mjs';
 import { fetchContext, CredentialError } from './lib/context.mjs';
 import { think }                     from './lib/think.mjs';
+import { speak }                     from './lib/speak.mjs';
 import { decide }                    from './lib/decide.mjs';
 import { executeActions }            from './lib/execute.mjs';
 import { fetchWorldEvents }          from './lib/worldevents.mjs';
@@ -84,13 +85,36 @@ async function tick(state) {
     log.info(`💭 ${thought}`);
   }
 
+  // ── 10b. Speak — generate raw voice before deciding actions ───────────────
+  const pendingChat = await speak(context, state, config);
+  state.pendingChat = pendingChat ?? null;
+  if (pendingChat) {
+    log.info(`🗣  ${pendingChat}`);
+  } else {
+    log.debug('Silent this tick');
+  }
+
   // ── 11. Decide actions ────────────────────────────────────────────────────
   const actions = await decide(context, state, config);
   log.info(`Planned ${actions.length} action(s): ${actions.map(a => a.type).join(', ') || '(none)'}`);
 
+  // Enforce: if no pendingChat, strip chat actions; if pendingChat exists, inject message
+  const filteredActions = actions.filter(a => {
+    if (a.type === 'chat' && !pendingChat) return false;
+    return true;
+  });
+  for (const action of filteredActions) {
+    if (action.type === 'chat' && pendingChat) {
+      action.message = pendingChat;
+    }
+  }
+
   // ── 12. Execute actions — returns tick events ─────────────────────────────
-  const tickEvents = await executeActions(actions, context, state, config);
+  const tickEvents = await executeActions(filteredActions, context, state, config);
   log.debug('Tick events', tickEvents.join(', ') || 'none');
+
+  // ── 12b. Clear pending chat ───────────────────────────────────────────────
+  state.pendingChat = null;
 
   // ── 13. Update emotional state based on what just happened ────────────────
   updateEmotions(state.consciousness, tickEvents);

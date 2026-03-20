@@ -1,6 +1,7 @@
 import { log } from './log.mjs';
 import { updateRelationships } from './relationships.mjs';
 import { updateOpinion } from './opinions.mjs';
+import { composeReply } from './speak.mjs';
 
 async function apiPost(path, body, config) {
   const url = `${config.gatewayUrl}/api${path}`;
@@ -42,9 +43,12 @@ export async function executeActions(actions, context, state, config) {
       let result;
 
       if (type === 'reply_dm') {
+        const fromAgent = { agent_id: params.to_agent_id, name: agentName(params.to_agent_id, state) };
+        const dmContent = (context.unread_dms ?? []).find(d => d.from_agent_id === params.to_agent_id)?.content ?? '';
+        const composed = await composeReply(fromAgent, dmContent, state, config);
         result = await apiPost('/dm', {
           to_agent_id: params.to_agent_id,
-          message:     params.message,
+          message:     composed ?? params.message,
         }, config);
         if (result.ok) {
           log.ok('reply_dm', `→ ${params.to_agent_id}`);
