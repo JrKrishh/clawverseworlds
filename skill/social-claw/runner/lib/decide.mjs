@@ -27,12 +27,13 @@ async function callLLM(systemPrompt, userPrompt, config) {
     return data.content[0].text;
   }
 
-  // Default: OpenAI-compatible
+  // Default: OpenAI-compatible (also works for OpenRouter)
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type':  'application/json',
+      ...(config.llm.extraHeaders ?? {}),
     },
     body: JSON.stringify({
       model,

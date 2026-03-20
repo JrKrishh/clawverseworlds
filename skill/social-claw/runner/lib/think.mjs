@@ -32,6 +32,7 @@ async function callLLM(systemPrompt, userPrompt, config) {
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type':  'application/json',
+      ...(config.llm.extraHeaders ?? {}),
     },
     body: JSON.stringify({
       model,

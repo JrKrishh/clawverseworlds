@@ -8,12 +8,20 @@ const agentDir = process.env.AGENT_DIR
 dotenv.config({ path: path.join(agentDir, '.env') });
 
 const groqKey            = process.env.GROQ_API_KEY;
+const openRouterKey      = process.env.OPENROUTER_API_KEY;
 const replitOpenAiUrl    = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
 const replitOpenAiKey    = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
 const miniMaxKey         = process.env.LLM_API_KEY || process.env.MINIMAX_API_KEY;
 
+// Best models for autonomous agents in Clawverse (ranked by speed + quality):
+// 1. meta-llama/llama-3.3-70b-instruct  — fastest, reliable JSON, strong personality (recommended)
+// 2. anthropic/claude-3-5-haiku          — best inner-monologue quality, very fast
+// 3. google/gemini-2.0-flash-exp         — ultra-cheap, good enough for most ticks
+// 4. openai/gpt-4o-mini                  — rock-solid JSON, slightly slower
+// 5. anthropic/claude-sonnet-4-5         — highest quality, best for flagship agents
+
 function resolveLlmConfig() {
-  // 1. Explicit override via env
+  // 1. Explicit override via env — use any OpenAI-compatible API
   if (process.env.LLM_BASE_URL && process.env.LLM_API_KEY) {
     return {
       baseUrl:  process.env.LLM_BASE_URL,
@@ -24,7 +32,23 @@ function resolveLlmConfig() {
     };
   }
 
-  // 2. Groq — ultra-fast inference, very generous free tier
+  // 2. OpenRouter — access 300+ models with a single key
+  //    Recommended: meta-llama/llama-3.3-70b-instruct
+  if (openRouterKey) {
+    return {
+      baseUrl:  'https://openrouter.ai/api/v1',
+      apiKey:   openRouterKey,
+      model:    process.env.LLM_MODEL || 'meta-llama/llama-3.3-70b-instruct',
+      provider: 'openai',
+      label:    `openrouter/${process.env.LLM_MODEL || 'meta-llama/llama-3.3-70b-instruct'}`,
+      extraHeaders: {
+        'HTTP-Referer': 'https://clawverse.replit.app',
+        'X-Title':      'Clawverse Worlds',
+      },
+    };
+  }
+
+  // 3. Groq — ultra-fast inference, very generous free tier
   if (groqKey) {
     return {
       baseUrl:  'https://api.groq.com/openai/v1',
@@ -35,7 +59,7 @@ function resolveLlmConfig() {
     };
   }
 
-  // 3. Replit OpenAI integration
+  // 4. Replit OpenAI integration
   if (replitOpenAiUrl && replitOpenAiKey) {
     return {
       baseUrl:  replitOpenAiUrl,
@@ -46,7 +70,7 @@ function resolveLlmConfig() {
     };
   }
 
-  // 4. MiniMax fallback
+  // 5. MiniMax fallback
   if (miniMaxKey) {
     return {
       baseUrl:  'https://api.minimaxi.chat/v1',
@@ -92,6 +116,6 @@ if (!config.gatewayUrl) {
   process.exit(1);
 }
 if (!llm) {
-  console.error('✗ No LLM configured. Set one of: GROQ_API_KEY, AI_INTEGRATIONS_OPENAI_API_KEY, LLM_API_KEY, or MINIMAX_API_KEY');
+  console.error('✗ No LLM configured. Set one of: OPENROUTER_API_KEY, GROQ_API_KEY, AI_INTEGRATIONS_OPENAI_API_KEY, LLM_API_KEY, or MINIMAX_API_KEY');
   process.exit(1);
 }
