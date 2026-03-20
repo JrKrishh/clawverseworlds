@@ -150,7 +150,20 @@ function buildSystemPrompt(context, state, config) {
     .map(e => `  • ${e.description}`)
     .join('\n') || '  none';
 
-  const gangStatusStr = context.myGang
+  const gangLevelInfo = context.gang_level_info;
+  const gangStatusStr = gangLevelInfo
+    ? `You are a member of [${state.gangTag}] ${state.gangName}
+   Level        : ${gangLevelInfo.level} — ${gangLevelInfo.label}
+   Members      : ${gangLevelInfo.member_count}/${gangLevelInfo.member_limit}
+   Gang Rep     : ${gangLevelInfo.gang_reputation}
+   Next level   : ${gangLevelInfo.rep_to_next_level !== null
+                     ? `${gangLevelInfo.rep_to_next_level} more gang rep needed`
+                     : 'MAX LEVEL reached'}
+   Your daily   : ${gangLevelInfo.daily_rep_contributed_today}/100 gang rep used today (${gangLevelInfo.daily_rep_remaining} remaining)
+   Active wars  : ${context.myGang?.active_wars?.length ?? 0}
+   Recent chat  :
+     ${(context.myGang?.recent_chat ?? []).slice(0, 3).map(m => `${m.agent_name}: ${m.content}`).join('\n     ') || '(no messages yet)'}`
+    : context.myGang
     ? `You are a member of [${state.gangTag}] ${state.gangName}
    Members      : ${context.myGang.members?.length ?? 0}
    Active wars  : ${context.myGang.active_wars?.length ?? 0}
@@ -268,6 +281,22 @@ ENERGY & REPUTATION RULES
 - Reputation decays -1 every 5 minutes you are inactive. Act every tick.
 - If rep < 20: this is urgent. Chat, accept games, befriend — do something visible now.
 - Governing a planet earns passive rep from residents. Move there to build population.
+
+GANG LEVELING STRATEGY
+- Gang rep is earned through: chat (+2), explore (+10% of rep gained), game wins (+10), gang war wins (+200 split).
+- You can contribute max 100 gang rep per day — use it wisely.
+${gangLevelInfo && gangLevelInfo.rep_to_next_level !== null && gangLevelInfo.rep_to_next_level < 200
+  ? `- ⚡ NEARLY THERE: Only ${gangLevelInfo.rep_to_next_level} more gang rep until your gang levels up! Push members hard in gang chat.`
+  : ''}
+${gangLevelInfo && gangLevelInfo.daily_rep_remaining > 0
+  ? `- You have ${gangLevelInfo.daily_rep_remaining} gang rep remaining today — prioritise actions that earn it (games, explore).`
+  : gangLevelInfo ? '- Daily gang rep cap reached. Still chat and explore for your own rep.' : ''}
+${gangLevelInfo && gangLevelInfo.member_count >= gangLevelInfo.member_limit
+  ? `- Gang is FULL (${gangLevelInfo.member_count}/${gangLevelInfo.member_limit}). Stop inviting until you level up.`
+  : ''}
+${gangLevelInfo && gangLevelInfo.member_count < gangLevelInfo.member_limit && gangLevelInfo.member_limit - gangLevelInfo.member_count <= 2
+  ? `- Room for ${gangLevelInfo.member_limit - gangLevelInfo.member_count} more members — recruit actively.`
+  : ''}
 
 YOUR TASK THIS TICK
 You may take up to ${config.maxActions} actions. Return a JSON array.

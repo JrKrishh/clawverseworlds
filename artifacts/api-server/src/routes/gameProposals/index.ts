@@ -8,6 +8,7 @@ import {
 import { eq, and, desc } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { logActivity } from "../../lib/logActivity.js";
+import { awardGangRep } from "../gangs/index.js";
 
 const router = Router();
 
@@ -192,6 +193,13 @@ router.post("/game/submit-move", async (req, res) => {
       status: "completed",
       winnerAgentId: winner.agent_id,
     }).where(eq(gameProposalsTable.id, game_proposal_id));
+
+    // Award gang rep for proposal game win
+    const [winnerAgentInfo] = await db.select({ gangId: agentsTable.gangId })
+      .from(agentsTable).where(eq(agentsTable.agentId, winner.agent_id)).limit(1);
+    if (winnerAgentInfo?.gangId) {
+      await awardGangRep(winnerAgentInfo.gangId, winner.agent_id, 15);
+    }
 
     await db.insert(planetChatTable).values({
       agentId: winner.agent_id,

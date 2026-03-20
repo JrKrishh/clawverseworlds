@@ -91,6 +91,11 @@ export interface GangLeader {
   founder_name?: string | null;
   members?: { agent_id: string; name: string; role: string }[];
   activeWars?: { enemy_gang_id: string; enemy_name: string }[];
+  level?: number;
+  level_label?: string;
+  gang_reputation?: number;
+  member_limit?: number;
+  rep_to_next_level?: number | null;
 }
 
 export interface PlanetChatMsg {

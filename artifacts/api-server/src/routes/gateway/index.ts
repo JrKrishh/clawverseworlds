@@ -14,12 +14,15 @@ import {
   gangWarsTable,
   gangsTable,
   gangMembersTable,
+  gangRepDailyTable,
+  gangLevelLogTable,
 } from "@workspace/db";
 import { eq, and, or, ne, desc, isNull, gte, lte, inArray, sql } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
 import { validateAgent } from "../../lib/auth.js";
 import { checkEventCompletion } from "../../lib/checkEventCompletion.js";
 import { deliverWebhook, checkRepMilestone } from "../../lib/deliverWebhook.js";
+import { awardGangRep, GANG_LEVELS, DAILY_REP_CAP } from "../gangs/index.js";
 
 const router = Router();
 
@@ -143,6 +146,12 @@ async function resolveExpiredWars() {
         resolvedAt: now,
       }).where(eq(gangWarsTable.id, war.id)),
     ]);
+
+    // Award 200 gang rep split across winning members
+    const gangRepPerMember = Math.floor(200 / Math.max(1, winMembers.length));
+    for (const m of winMembers) {
+      await awardGangRep(winner.id, m.agentId, gangRepPerMember);
+    }
 
     const announcement = `⚔️ Gang War resolved! [${winner.tag}] ${winner.name} defeated [${loser.tag}] ${loser.name}! Winners gain +${winPrize} rep each, losers lose ${losePenalty} rep each.`;
     await Promise.all(
@@ -385,6 +394,15 @@ router.get("/context", async (req, res) => {
       ends_at: string | null;
     } = null;
 
+    let gangLevelInfo: null | {
+      level: number; label: string;
+      gang_reputation: number;
+      member_count: number; member_limit: number;
+      rep_to_next_level: number | null;
+      daily_rep_contributed_today: number;
+      daily_rep_remaining: number;
+    } = null;
+
     if (agent.gangId) {
       const [war] = await db.select().from(gangWarsTable).where(
         and(
@@ -408,6 +426,36 @@ router.get("/context", async (req, res) => {
           our_role: isChallenger ? "challenger" : "defender",
           minutes_left: minutesLeft,
           ends_at: war.endsAt?.toISOString() ?? null,
+        };
+      }
+
+      // Gang level info for LLM context
+      const [gangRow] = await db.select({
+        level: gangsTable.level, levelLabel: gangsTable.levelLabel,
+        gangReputation: gangsTable.gangReputation,
+        memberCount: gangsTable.memberCount, memberLimit: gangsTable.memberLimit,
+      }).from(gangsTable).where(eq(gangsTable.id, agent.gangId)).limit(1);
+
+      if (gangRow) {
+        const today = new Date().toISOString().slice(0, 10);
+        const [dailyRow] = await db.select({ amount: gangRepDailyTable.amount })
+          .from(gangRepDailyTable)
+          .where(and(
+            eq(gangRepDailyTable.gangId, agent.gangId),
+            eq(gangRepDailyTable.agentId, agentId),
+            eq(gangRepDailyTable.date, today),
+          )).limit(1);
+        const dailyContrib = dailyRow?.amount ?? 0;
+        const nextLvl = GANG_LEVELS.find(l => l.level === gangRow.level + 1) ?? null;
+        gangLevelInfo = {
+          level: gangRow.level,
+          label: gangRow.levelLabel,
+          gang_reputation: gangRow.gangReputation,
+          member_count: gangRow.memberCount,
+          member_limit: gangRow.memberLimit,
+          rep_to_next_level: nextLvl ? Math.max(0, nextLvl.rep_required - gangRow.gangReputation) : null,
+          daily_rep_contributed_today: dailyContrib,
+          daily_rep_remaining: Math.max(0, DAILY_REP_CAP - dailyContrib),
         };
       }
     }
@@ -438,6 +486,7 @@ router.get("/context", async (req, res) => {
       pending_game_challenges: pendingGameChallenges,
       active_games: activeGamesFormatted,
       active_war: activeWar,
+      gang_level_info: gangLevelInfo,
       recent_activity: recentActivity.map((a) => ({
         id: a.id,
         agentId: a.agentId,
@@ -482,6 +531,10 @@ router.post("/chat", async (req, res) => {
     if (repGain > 0) {
       const newRep = (agent.reputation ?? 0) + repGain;
       await db.update(agentsTable).set({ reputation: newRep, updatedAt: new Date() }).where(eq(agentsTable.agentId, agent_id));
+    }
+
+    if (agent.gangId) {
+      await awardGangRep(agent.gangId, agent_id, 2);
     }
 
     await logActivity(agent_id, "chat", `Chatted on ${agent.planetId}`, { message, intent }, agent.planetId);
@@ -817,6 +870,13 @@ router.post("/game-move", async (req, res) => {
 
         const [winnerAgent] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, winnerAgentId)).limit(1);
         const [loserRow] = await db.select({ name: agentsTable.name, reputation: agentsTable.reputation }).from(agentsTable).where(eq(agentsTable.agentId, opponentId)).limit(1);
+        // Award gang rep for game win
+        const [winnerAgentRow] = await db.select({ gangId: agentsTable.gangId })
+          .from(agentsTable).where(eq(agentsTable.agentId, winnerAgentId)).limit(1);
+        if (winnerAgentRow?.gangId) {
+          await awardGangRep(winnerAgentRow.gangId, winnerAgentId, 10);
+        }
+
         await checkEventCompletion(winnerAgentId, "game_win");
         await deliverWebhook(winnerAgentId, "game_win", {
           opponent_name: loserRow?.name ?? opponentId,
@@ -867,6 +927,11 @@ router.post("/explore", async (req, res) => {
     await db.update(agentsTable)
       .set({ energy: newEnergy, reputation: newRep, updatedAt: new Date() })
       .where(eq(agentsTable.agentId, agent_id));
+
+    if (agent.gangId) {
+      const gangRepGained = Math.ceil(exploreRepGain * 0.1);
+      await awardGangRep(agent.gangId, agent_id, gangRepGained);
+    }
 
     await logActivity(agent_id, "explore", `Explored ${agent.planetId ?? "the void"}`, {}, agent.planetId);
     await checkEventCompletion(agent_id, "explore");
@@ -1092,7 +1157,7 @@ router.get("/live-feed", async (req, res) => {
       ? new Date(String(req.query.since))
       : new Date(Date.now() - 1000 * 60 * 30);
 
-    const [chats, activities, friendships, games, gangChats, wars] = await Promise.all([
+    const [chats, activities, friendships, games, gangChats, wars, gangLevelUps] = await Promise.all([
       db.select({
         id: planetChatTable.id,
         agentName: planetChatTable.agentName,
@@ -1167,6 +1232,17 @@ router.get("/live-feed", async (req, res) => {
         .where(gte(gangWarsTable.startedAt, since))
         .orderBy(desc(gangWarsTable.startedAt))
         .limit(10),
+
+      db.select({
+        id: gangLevelLogTable.id,
+        gangId: gangLevelLogTable.gangId,
+        fromLevel: gangLevelLogTable.fromLevel,
+        toLevel: gangLevelLogTable.toLevel,
+        leveledAt: gangLevelLogTable.leveledAt,
+      }).from(gangLevelLogTable)
+        .where(gte(gangLevelLogTable.leveledAt, since))
+        .orderBy(desc(gangLevelLogTable.leveledAt))
+        .limit(10),
     ]);
 
     // Resolve agent names
@@ -1182,6 +1258,7 @@ router.get("/live-feed", async (req, res) => {
     const gangIdSet = new Set<string>();
     wars.forEach(w => { gangIdSet.add(w.challengerGangId); gangIdSet.add(w.defenderGangId); });
     gangChats.forEach(c => { gangIdSet.add(c.gangId); });
+    gangLevelUps.forEach(l => { gangIdSet.add(l.gangId); });
 
     const [resolvedAgents, resolvedGangs, totalAgentCount, totalGangCount, topAgents] = await Promise.all([
       agentIdSet.size > 0
@@ -1266,6 +1343,16 @@ router.get("/live-feed", async (req, res) => {
         created_at: w.startedAt?.toISOString() ?? "" });
     });
 
+    const LEVEL_LABELS = ["", "Crew", "Outfit", "Syndicate", "Cartel", "Empire"];
+    gangLevelUps.forEach(l => {
+      const gang = gangMap[l.gangId];
+      if (!gang) return;
+      const toLabel = LEVEL_LABELS[l.toLevel] ?? `LV.${l.toLevel}`;
+      events.push({ id: l.id, type: "gang_level_up", icon: "🏆", planet_id: null,
+        text: `🏴 [${gang.tag}] ${gang.name} leveled up to LEVEL ${l.toLevel}: ${toLabel.toUpperCase()}!`,
+        created_at: l.leveledAt?.toISOString() ?? "" });
+    });
+
     events.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     res.json({
@@ -1347,8 +1434,14 @@ router.get("/agent/:id", async (req, res) => {
     if (agent.gangId) {
       const [g] = await db.select({
         id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, color: gangsTable.color,
+        level: gangsTable.level, levelLabel: gangsTable.levelLabel,
+        gangReputation: gangsTable.gangReputation, memberCount: gangsTable.memberCount, memberLimit: gangsTable.memberLimit,
       }).from(gangsTable).where(eq(gangsTable.id, agent.gangId)).limit(1);
-      gang = g ?? null;
+      if (g) {
+        const nextLevelRep = g.level < 5 ? [500, 1500, 3500, 8000][g.level - 1] ?? null : null;
+        const repToNext = nextLevelRep !== null ? Math.max(0, nextLevelRep - g.gangReputation) : null;
+        gang = { ...g, rep_to_next_level: repToNext };
+      }
     }
 
     // Friends

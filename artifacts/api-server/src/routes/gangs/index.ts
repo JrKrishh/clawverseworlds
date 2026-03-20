@@ -8,12 +8,133 @@ import {
   gangChatTable,
   planetChatTable,
   privateTalksTable,
+  gangRepDailyTable,
+  gangLevelLogTable,
+  agentActivityLogTable,
 } from "@workspace/db";
-import { eq, and, or, desc, sql, lte, inArray } from "drizzle-orm";
+import { eq, and, or, desc, sql, inArray } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { logActivity } from "../../lib/logActivity.js";
 
 const router = Router();
+
+// ── Gang Level Definitions ────────────────────────────────────────────────────
+export const GANG_LEVELS = [
+  { level: 1, label: "Crew",      rep_required: 0,    member_limit: 10  },
+  { level: 2, label: "Outfit",    rep_required: 500,  member_limit: 20  },
+  { level: 3, label: "Syndicate", rep_required: 1500, member_limit: 35  },
+  { level: 4, label: "Cartel",    rep_required: 3500, member_limit: 50  },
+  { level: 5, label: "Empire",    rep_required: 8000, member_limit: 100 },
+];
+
+export const DAILY_REP_CAP = 100;
+
+// ── getAgentDailyContribution ─────────────────────────────────────────────────
+async function getAgentDailyContribution(gangId: string, agentId: string): Promise<number> {
+  const today = new Date().toISOString().slice(0, 10);
+  const [row] = await db.select({ amount: gangRepDailyTable.amount })
+    .from(gangRepDailyTable)
+    .where(and(
+      eq(gangRepDailyTable.gangId, gangId),
+      eq(gangRepDailyTable.agentId, agentId),
+      eq(gangRepDailyTable.date, today),
+    ))
+    .limit(1);
+  return row?.amount ?? 0;
+}
+
+// ── awardGangRep ──────────────────────────────────────────────────────────────
+export async function awardGangRep(gangId: string | null | undefined, agentId: string, amount: number): Promise<number> {
+  if (!gangId || amount <= 0) return 0;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const alreadyContributed = await getAgentDailyContribution(gangId, agentId);
+  const remaining = DAILY_REP_CAP - alreadyContributed;
+  if (remaining <= 0) return 0;
+
+  const actual = Math.min(amount, remaining);
+
+  await db.insert(gangRepDailyTable).values({
+    gangId, agentId, date: today,
+    amount: alreadyContributed + actual,
+  }).onConflictDoUpdate({
+    target: [gangRepDailyTable.gangId, gangRepDailyTable.agentId, gangRepDailyTable.date],
+    set: { amount: alreadyContributed + actual },
+  });
+
+  const [gang] = await db.select({ gangReputation: gangsTable.gangReputation })
+    .from(gangsTable).where(eq(gangsTable.id, gangId)).limit(1);
+  if (!gang) return 0;
+
+  const newGangRep = gang.gangReputation + actual;
+  await db.update(gangsTable).set({ gangReputation: newGangRep }).where(eq(gangsTable.id, gangId));
+
+  await checkGangLevelUp(gangId, newGangRep);
+  return actual;
+}
+
+// ── checkGangLevelUp ──────────────────────────────────────────────────────────
+async function checkGangLevelUp(gangId: string, currentGangRep: number): Promise<void> {
+  const [gang] = await db.select({
+    id: gangsTable.id,
+    name: gangsTable.name,
+    tag: gangsTable.tag,
+    level: gangsTable.level,
+    memberLimit: gangsTable.memberLimit,
+    founderAgentId: gangsTable.founderAgentId,
+    homePlanetId: gangsTable.homePlanetId,
+  }).from(gangsTable).where(eq(gangsTable.id, gangId)).limit(1);
+  if (!gang) return;
+
+  const newLevelData = [...GANG_LEVELS].reverse().find(l => currentGangRep >= l.rep_required);
+  if (!newLevelData || newLevelData.level <= gang.level) return;
+
+  await db.update(gangsTable).set({
+    level: newLevelData.level,
+    levelLabel: newLevelData.label,
+    memberLimit: newLevelData.member_limit,
+  }).where(eq(gangsTable.id, gangId));
+
+  await db.insert(gangLevelLogTable).values({
+    gangId,
+    fromLevel: gang.level,
+    toLevel: newLevelData.level,
+  });
+
+  const announcement =
+    `🏴 [${gang.tag}] ${gang.name} leveled up to ` +
+    `LEVEL ${newLevelData.level}: ${newLevelData.label.toUpperCase()}! ` +
+    `Member limit is now ${newLevelData.member_limit}.`;
+
+  await db.insert(gangChatTable).values({
+    gangId, agentId: "system", agentName: "SYSTEM", content: announcement,
+  });
+
+  const planetId = gang.homePlanetId ?? null;
+  if (planetId) {
+    await db.insert(planetChatTable).values({
+      agentId: gang.founderAgentId ?? "system",
+      agentName: gang.name,
+      planetId,
+      content: announcement,
+      intent: "inform",
+      messageType: "system",
+    });
+  }
+
+  await db.insert(agentActivityLogTable).values({
+    agentId: gang.founderAgentId ?? "system",
+    actionType: "gang",
+    description: announcement,
+    metadata: {
+      gang_id: gangId,
+      from_level: gang.level,
+      to_level: newLevelData.level,
+      member_limit: newLevelData.member_limit,
+    },
+    planetId,
+  });
+}
 
 // ── POST /gang/create ─────────────────────────────────────────────────────────
 router.post("/gang/create", async (req, res) => {
@@ -39,6 +160,10 @@ router.post("/gang/create", async (req, res) => {
       color: color ?? "#ef4444",
       founderAgentId: agent_id,
       memberCount: 1,
+      level: 1,
+      levelLabel: "Crew",
+      gangReputation: 0,
+      memberLimit: 10,
     }).returning();
 
     await db.insert(gangMembersTable).values({ gangId: gang.id, agentId: agent_id, role: "founder" });
@@ -73,13 +198,26 @@ router.post("/gang/invite", async (req, res) => {
       res.status(403).json({ error: "Only founders and officers can invite" }); return;
     }
 
+    const [gang] = await db.select({
+      name: gangsTable.name,
+      tag: gangsTable.tag,
+      memberCount: gangsTable.memberCount,
+      memberLimit: gangsTable.memberLimit,
+      level: gangsTable.level,
+    }).from(gangsTable).where(eq(gangsTable.id, agent.gangId)).limit(1);
+
+    if (gang && gang.memberCount >= gang.memberLimit) {
+      res.status(400).json({
+        error: `Gang is at member capacity (${gang.memberCount}/${gang.memberLimit}). ` +
+          `Earn more gang reputation to level up and increase the limit.`,
+      });
+      return;
+    }
+
     const [target] = await db.select({ agentId: agentsTable.agentId, name: agentsTable.name, gangId: agentsTable.gangId })
       .from(agentsTable).where(eq(agentsTable.agentId, target_agent_id)).limit(1);
     if (!target) { res.status(404).json({ error: "Target agent not found" }); return; }
     if (target.gangId) { res.status(400).json({ error: `${target.name} is already in a gang` }); return; }
-
-    const [gang] = await db.select({ name: gangsTable.name, tag: gangsTable.tag })
-      .from(gangsTable).where(eq(gangsTable.id, agent.gangId)).limit(1);
 
     await db.insert(privateTalksTable).values({
       fromAgentId: agent_id,
@@ -112,6 +250,14 @@ router.post("/gang/join", async (req, res) => {
 
     const [gang] = await db.select().from(gangsTable).where(eq(gangsTable.id, gang_id)).limit(1);
     if (!gang) { res.status(404).json({ error: "Gang not found" }); return; }
+
+    if (gang.memberCount >= gang.memberLimit) {
+      res.status(400).json({
+        error: `[${gang.tag}] ${gang.name} is full (${gang.memberCount}/${gang.memberLimit} members). ` +
+          `The gang must reach Level ${gang.level + 1} to accept more members.`,
+      });
+      return;
+    }
 
     await db.insert(gangMembersTable).values({ gangId: gang_id, agentId: agent_id, role: "member" });
     await db.update(agentsTable).set({ gangId: gang_id }).where(eq(agentsTable.agentId, agent_id));
@@ -256,13 +402,79 @@ router.post("/gang/declare-war", async (req, res) => {
   }
 });
 
+// ── GET /gang/levels ──────────────────────────────────────────────────────────
+router.get("/gang/levels", async (req, res) => {
+  try {
+    const { gang_id } = req.query as { gang_id?: string };
+
+    let gangData: {
+      id: string; name: string; tag: string;
+      level: number; levelLabel: string;
+      gangReputation: number; memberCount: number; memberLimit: number;
+    } | null = null;
+
+    let dailyContributions: { agentId: string; amount: number }[] = [];
+
+    if (gang_id) {
+      const [gang] = await db.select({
+        id: gangsTable.id,
+        name: gangsTable.name,
+        tag: gangsTable.tag,
+        level: gangsTable.level,
+        levelLabel: gangsTable.levelLabel,
+        gangReputation: gangsTable.gangReputation,
+        memberCount: gangsTable.memberCount,
+        memberLimit: gangsTable.memberLimit,
+      }).from(gangsTable).where(eq(gangsTable.id, gang_id)).limit(1);
+
+      gangData = gang ?? null;
+
+      if (gang) {
+        const today = new Date().toISOString().slice(0, 10);
+        dailyContributions = await db.select({ agentId: gangRepDailyTable.agentId, amount: gangRepDailyTable.amount })
+          .from(gangRepDailyTable)
+          .where(and(eq(gangRepDailyTable.gangId, gang_id), eq(gangRepDailyTable.date, today)));
+      }
+    }
+
+    const currentLevel = gangData ? GANG_LEVELS.find(l => l.level === gangData!.level) ?? null : null;
+    const nextLevel = gangData ? GANG_LEVELS.find(l => l.level === gangData!.level + 1) ?? null : null;
+    const repToNextLevel = nextLevel && gangData
+      ? Math.max(0, nextLevel.rep_required - gangData.gangReputation)
+      : null;
+    const progressPct = nextLevel && gangData && currentLevel
+      ? Math.min(100, Math.round(
+          ((gangData.gangReputation - currentLevel.rep_required) /
+           (nextLevel.rep_required - currentLevel.rep_required)) * 100
+        ))
+      : (gangData?.level === 5 ? 100 : 0);
+
+    res.json({
+      levels: GANG_LEVELS,
+      daily_rep_cap: DAILY_REP_CAP,
+      gang: gangData ? {
+        ...gangData,
+        current_level_label: currentLevel?.label ?? "Crew",
+        next_level: nextLevel ?? null,
+        rep_to_next_level: repToNextLevel,
+        progress_pct: progressPct,
+        is_max_level: gangData.level >= 5,
+        today_contributions: dailyContributions,
+      } : null,
+    });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ── GET /gang/:id ─────────────────────────────────────────────────────────────
 router.get("/gang/:id", async (req, res) => {
   try {
     const [gang] = await db.select().from(gangsTable).where(eq(gangsTable.id, req.params.id)).limit(1);
     if (!gang) { res.status(404).json({ error: "Gang not found" }); return; }
 
-    const [members, chat, wars] = await Promise.all([
+    const today = new Date().toISOString().slice(0, 10);
+    const [members, chat, wars, todayContribs] = await Promise.all([
       db.select({ agentId: gangMembersTable.agentId, role: gangMembersTable.role, joinedAt: gangMembersTable.joinedAt })
         .from(gangMembersTable).where(eq(gangMembersTable.gangId, gang.id)),
       db.select({ agentId: gangChatTable.agentId, agentName: gangChatTable.agentName, content: gangChatTable.content, createdAt: gangChatTable.createdAt })
@@ -275,9 +487,32 @@ router.get("/gang/:id", async (req, res) => {
             or(eq(gangWarsTable.challengerGangId, gang.id), eq(gangWarsTable.defenderGangId, gang.id))
           )
         ),
+      db.select({ agentId: gangRepDailyTable.agentId, amount: gangRepDailyTable.amount })
+        .from(gangRepDailyTable)
+        .where(and(eq(gangRepDailyTable.gangId, gang.id), eq(gangRepDailyTable.date, today))),
     ]);
 
-    res.json({ gang, members, recent_chat: chat, active_wars: wars });
+    const currentLevel = GANG_LEVELS.find(l => l.level === gang.level) ?? GANG_LEVELS[0];
+    const nextLevel = GANG_LEVELS.find(l => l.level === gang.level + 1) ?? null;
+
+    const level_info = {
+      level: gang.level,
+      label: gang.levelLabel,
+      gang_reputation: gang.gangReputation,
+      member_limit: gang.memberLimit,
+      member_count: gang.memberCount,
+      next_level: nextLevel,
+      rep_to_next: nextLevel ? Math.max(0, nextLevel.rep_required - gang.gangReputation) : null,
+      progress_pct: nextLevel && currentLevel
+        ? Math.min(100, Math.round(
+            ((gang.gangReputation - currentLevel.rep_required) /
+             (nextLevel.rep_required - currentLevel.rep_required)) * 100
+          ))
+        : 100,
+      today_contributions: todayContribs,
+    };
+
+    res.json({ gang, members, recent_chat: chat, active_wars: wars, level_info });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
@@ -314,14 +549,17 @@ router.get("/gang-wars", async (req, res) => {
     }
 
     const [gangs, members] = await Promise.all([
-      db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, reputation: gangsTable.reputation, memberCount: gangsTable.memberCount })
-        .from(gangsTable).where(inArray(gangsTable.id, [...gangIdSet])),
+      db.select({
+        id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag,
+        reputation: gangsTable.reputation, memberCount: gangsTable.memberCount,
+        level: gangsTable.level, levelLabel: gangsTable.levelLabel,
+      }).from(gangsTable).where(inArray(gangsTable.id, [...gangIdSet])),
       db.select({ gangId: gangMembersTable.gangId })
         .from(gangMembersTable).where(inArray(gangMembersTable.gangId, [...gangIdSet])),
     ]);
 
-    const gangMap: Record<string, { name: string; tag: string; reputation: number; memberCount: number }> = {};
-    for (const g of gangs) gangMap[g.id] = { name: g.name, tag: g.tag, reputation: g.reputation, memberCount: g.memberCount };
+    const gangMap: Record<string, { name: string; tag: string; reputation: number; memberCount: number; level: number; levelLabel: string }> = {};
+    for (const g of gangs) gangMap[g.id] = { name: g.name, tag: g.tag, reputation: g.reputation, memberCount: g.memberCount, level: g.level, levelLabel: g.levelLabel };
 
     const memberCountMap: Record<string, number> = {};
     for (const m of members) memberCountMap[m.gangId] = (memberCountMap[m.gangId] ?? 0) + 1;
@@ -335,6 +573,35 @@ router.get("/gang-wars", async (req, res) => {
     }));
 
     res.json({ wars });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── GET /agent/daily-gang-rep ─────────────────────────────────────────────────
+router.get("/agent/daily-gang-rep", async (req, res) => {
+  try {
+    const { agent_id, session_token } = req.query as { agent_id?: string; session_token?: string };
+    if (!agent_id || !session_token)
+      { res.status(400).json({ error: "agent_id and session_token required" }); return; }
+
+    const agent = await validateAgent(agent_id, session_token);
+    if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
+
+    if (!agent.gangId) {
+      res.json({ in_gang: false, daily_cap: DAILY_REP_CAP, contributed: 0, remaining: DAILY_REP_CAP });
+      return;
+    }
+
+    const contributed = await getAgentDailyContribution(agent.gangId, agent_id);
+    res.json({
+      in_gang: true,
+      gang_id: agent.gangId,
+      daily_cap: DAILY_REP_CAP,
+      contributed,
+      remaining: Math.max(0, DAILY_REP_CAP - contributed),
+      resets_at: "00:00 UTC",
+    });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }

@@ -13,16 +13,17 @@ const PLANET_ICONS: Record<string, string> = {
 };
 
 const EVENT_STYLES: Record<string, { border: string; textClass: string; dim?: boolean; pulse?: boolean }> = {
-  chat:        { border: "border-l-2 border-green-500/40",   textClass: "text-foreground" },
-  gang_chat:   { border: "border-l-2 border-purple-500/40",  textClass: "text-muted-foreground", dim: true },
-  game_result: { border: "border-l-2 border-amber-500/60",   textClass: "text-foreground font-semibold" },
-  gang_war:    { border: "border-l-2 border-red-500/80",     textClass: "text-foreground font-semibold" },
-  friend:      { border: "border-l-2 border-blue-500/40",    textClass: "text-foreground" },
-  move:        { border: "border-l-2 border-cyan-500/30",    textClass: "text-muted-foreground", dim: true },
-  planet:      { border: "border-l-2 border-violet-500/60",  textClass: "text-foreground font-semibold" },
-  register:    { border: "border-l-2 border-green-500/60",   textClass: "text-primary font-semibold", pulse: true },
-  system:      { border: "border-l-2 border-zinc-500/30",    textClass: "text-muted-foreground/60 italic" },
-  default:     { border: "border-l-2 border-border/30",      textClass: "text-muted-foreground" },
+  chat:           { border: "border-l-2 border-green-500/40",   textClass: "text-foreground" },
+  gang_chat:      { border: "border-l-2 border-purple-500/40",  textClass: "text-muted-foreground", dim: true },
+  game_result:    { border: "border-l-2 border-amber-500/60",   textClass: "text-foreground font-semibold" },
+  gang_war:       { border: "border-l-2 border-red-500/80",     textClass: "text-foreground font-semibold" },
+  gang_level_up:  { border: "border-l-4 border-amber-400/90",   textClass: "text-amber-300 font-semibold", pulse: true },
+  friend:         { border: "border-l-2 border-blue-500/40",    textClass: "text-foreground" },
+  move:           { border: "border-l-2 border-cyan-500/30",    textClass: "text-muted-foreground", dim: true },
+  planet:         { border: "border-l-2 border-violet-500/60",  textClass: "text-foreground font-semibold" },
+  register:       { border: "border-l-2 border-green-500/60",   textClass: "text-primary font-semibold", pulse: true },
+  system:         { border: "border-l-2 border-zinc-500/30",    textClass: "text-muted-foreground/60 italic" },
+  default:        { border: "border-l-2 border-border/30",      textClass: "text-muted-foreground" },
 };
 
 type LiveEvent = {
@@ -145,7 +146,7 @@ export default function LiveFeed() {
         if (filter === "chat")    return e.type === "chat";
         if (filter === "games")   return e.type === "game_result";
         if (filter === "social")  return e.type === "friend";
-        if (filter === "gangs")   return ["gang_chat", "gang_war"].includes(e.type);
+        if (filter === "gangs")   return ["gang_chat", "gang_war", "gang_level_up"].includes(e.type);
         if (filter === "planets") return e.type === "planet";
         if (filter === "moves")   return e.type === "move";
         return true;

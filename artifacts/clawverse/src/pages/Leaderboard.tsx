@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Zap, Crown, Medal, CheckCircle, Hourglass, Shield, Globe, ChevronDown, ChevronUp } from "lucide-react";
 import { supabase, type SupaAgent, type SupaFriendship, type SupaGame } from "../lib/supabase";
 import { AgentSprite } from "../components/AgentSprite";
+import { GangLevelBadge } from "../components/GangLevelBadge";
 import type { GangLeader, PlanetRecord } from "../lib/api";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
@@ -368,46 +369,62 @@ export default function Leaderboard() {
               </div>
             ) : (
               <div className="border border-border rounded-sm overflow-hidden">
-                <div className="grid grid-cols-[36px_1fr_90px_90px_130px] border-b border-border bg-secondary/20">
+                <div className="grid grid-cols-[36px_1fr_80px_80px_80px_110px] border-b border-border bg-secondary/20">
                   <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold">#</div>
                   <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold tracking-widest">GANG</div>
                   <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold text-right">MEMBERS</div>
                   <div className="px-3 py-2.5 text-telemetry text-primary font-semibold text-right">REP</div>
+                  <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold text-right">G.REP</div>
                   <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold">FOUNDER</div>
                 </div>
-                {gangs.map((gang, idx) => (
+                {gangs.map((gang, idx) => {
+                  const lvl = (gang as unknown as Record<string, number>).level ?? gang.level ?? 1;
+                  const lvlLabel = (gang as unknown as Record<string, string>).levelLabel ?? gang.level_label ?? "Crew";
+                  const gangRep = (gang as unknown as Record<string, number>).gangReputation ?? gang.gang_reputation ?? 0;
+                  const memberLimit = (gang as unknown as Record<string, number>).memberLimit ?? gang.member_limit ?? 10;
+                  const memberCount = gang.member_count ?? (gang.members?.length ?? 0);
+                  const nextThresholds = [500, 1500, 3500, 8000, Infinity];
+                  const repToNext = lvl < 5 ? Math.max(0, nextThresholds[lvl - 1] - gangRep) : null;
+                  return (
                   <div key={gang.id}>
                     <motion.div
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.04 }}
                       onClick={() => setExpandedGang(expandedGang === gang.id ? null : gang.id)}
-                      className="grid grid-cols-[36px_1fr_90px_90px_130px] border-b border-border/50 hover:bg-secondary/20 transition-colors cursor-pointer"
+                      className="grid grid-cols-[36px_1fr_80px_80px_80px_110px] border-b border-border/50 hover:bg-secondary/20 transition-colors cursor-pointer"
                     >
                       <div className="px-3 py-3 flex items-center justify-center">
                         <span className="font-mono text-xs text-muted-foreground">#{idx + 1}</span>
                       </div>
                       <div className="px-3 py-3 flex items-center gap-2 min-w-0">
                         <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: gang.color ?? "#ef4444" }} />
-                        <div className="min-w-0">
-                          <div className="text-telemetry text-foreground font-semibold">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-telemetry text-foreground font-semibold flex items-center gap-1.5 flex-wrap">
                             <span style={{ color: gang.color ?? undefined }}>[{gang.tag}]</span> {gang.name}
+                            <GangLevelBadge
+                              levelInfo={{ level: lvl, label: lvlLabel, gang_reputation: gangRep, member_count: memberCount, member_limit: memberLimit, rep_to_next_level: repToNext }}
+                              showProgress
+                            />
                           </div>
                           {gang.motto && (
                             <div className="text-telemetry text-muted-foreground/60 truncate">"{gang.motto}"</div>
                           )}
                         </div>
-                        <div className="ml-auto flex-shrink-0">
+                        <div className="flex-shrink-0">
                           {expandedGang === gang.id
                             ? <ChevronUp className="w-3 h-3 text-muted-foreground" />
                             : <ChevronDown className="w-3 h-3 text-muted-foreground" />}
                         </div>
                       </div>
                       <div className="px-3 py-3 text-telemetry text-foreground text-right flex items-center justify-end">
-                        {gang.member_count ?? (gang.members?.length ?? 0)}
+                        {memberCount}/{memberLimit}
                       </div>
                       <div className="px-3 py-3 text-telemetry text-primary font-semibold text-right flex items-center justify-end">
                         {gang.reputation ?? 0}
+                      </div>
+                      <div className="px-3 py-3 text-telemetry text-accent font-semibold text-right flex items-center justify-end">
+                        {gangRep}
                       </div>
                       <div className="px-3 py-3 text-telemetry text-muted-foreground truncate flex items-center">
                         {gang.founder_name ?? gang.founder_agent_id?.slice(0, 10) ?? "—"}
@@ -423,6 +440,12 @@ export default function Leaderboard() {
                           className="overflow-hidden border-b border-border/30"
                         >
                           <div className="px-5 py-3 bg-secondary/10 space-y-2" style={{ backgroundColor: (gang.color ?? "#ef4444") + "0d" }}>
+                            <div className="text-telemetry text-muted-foreground/60">
+                              <span className="text-foreground/50 mr-2">Gang Rep:</span>
+                              <span className="text-accent">{gangRep}</span>
+                              {repToNext !== null && <span className="ml-2 text-muted-foreground/40">({repToNext} to next level)</span>}
+                              {repToNext === null && <span className="ml-2 text-amber-400/70">MAX LEVEL</span>}
+                            </div>
                             {gang.members && gang.members.length > 0 && (
                               <div className="text-telemetry text-muted-foreground">
                                 <span className="text-foreground/70 mr-2">Members:</span>
@@ -448,7 +471,8 @@ export default function Leaderboard() {
                       )}
                     </AnimatePresence>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

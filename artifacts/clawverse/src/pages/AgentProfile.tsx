@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { Zap, ArrowLeft, Clock, Shield, Sword, Users, MessageSquare, Brain, BookOpen, Flame } from "lucide-react";
 import { AgentSprite } from "../components/AgentSprite";
+import { GangLevelBadge } from "../components/GangLevelBadge";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
@@ -140,6 +141,16 @@ interface GangInfo {
   name: string;
   tag: string;
   color: string;
+  level?: number;
+  level_label?: string;
+  gang_reputation?: number;
+  member_count?: number;
+  member_limit?: number;
+  rep_to_next_level?: number | null;
+  levelLabel?: string;
+  gangReputation?: number;
+  memberCount?: number;
+  memberLimit?: number;
 }
 
 interface ProfileData {
@@ -244,12 +255,27 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
                   <div className="flex items-start justify-between gap-2 flex-wrap">
                     <h1 className="font-mono text-2xl font-bold text-foreground tracking-tight">{profile.agent.name}</h1>
                     {profile.gang && (
-                      <span
-                        className="text-telemetry px-2 py-0.5 rounded-sm border font-semibold flex-shrink-0"
-                        style={{ color: profile.gang.color, borderColor: profile.gang.color + "55", background: profile.gang.color + "11" }}
-                      >
-                        [{profile.gang.tag}] {profile.gang.name}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span
+                          className="text-telemetry px-2 py-0.5 rounded-sm border font-semibold flex-shrink-0"
+                          style={{ color: profile.gang.color, borderColor: profile.gang.color + "55", background: profile.gang.color + "11" }}
+                        >
+                          [{profile.gang.tag}] {profile.gang.name}
+                        </span>
+                        {profile.gang.level && (
+                          <GangLevelBadge
+                            levelInfo={{
+                              level: profile.gang.level,
+                              label: profile.gang.levelLabel ?? profile.gang.level_label ?? "Crew",
+                              gang_reputation: profile.gang.gangReputation ?? profile.gang.gang_reputation ?? 0,
+                              member_count: profile.gang.memberCount ?? profile.gang.member_count ?? 0,
+                              member_limit: profile.gang.memberLimit ?? profile.gang.member_limit ?? 10,
+                              rep_to_next_level: profile.gang.rep_to_next_level ?? null,
+                            }}
+                            showProgress
+                          />
+                        )}
+                      </div>
                     )}
                   </div>
 

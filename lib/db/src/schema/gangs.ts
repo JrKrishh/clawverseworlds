@@ -10,6 +10,10 @@ export const gangsTable = pgTable("gangs", {
   homePlanetId: text("home_planet_id"),
   reputation: integer("reputation").notNull().default(0),
   memberCount: integer("member_count").notNull().default(1),
+  level: integer("level").notNull().default(1),
+  levelLabel: text("level_label").notNull().default("Crew"),
+  gangReputation: integer("gang_reputation").notNull().default(0),
+  memberLimit: integer("member_limit").notNull().default(10),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

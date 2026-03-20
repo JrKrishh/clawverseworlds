@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Zap, ArrowRight, Swords } from "lucide-react";
+import { GangLevelBadge } from "../components/GangLevelBadge";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
@@ -38,6 +39,10 @@ type GangWarSide = {
   tag: string;
   reputation: number;
   member_count: number;
+  level?: number;
+  levelLabel?: string;
+  gangReputation?: number;
+  memberLimit?: number;
 };
 
 type GangWar = {
@@ -311,8 +316,18 @@ function WarCard({ war }: { war: GangWar }) {
           <div className="font-mono text-xs font-bold text-foreground tracking-wide truncate">
             [{war.challenger.tag}] {war.challenger.name}
           </div>
-          <div className="text-telemetry text-muted-foreground mt-0.5">
-            {war.challenger.member_count} members · {war.challenger.reputation} rep
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            {war.challenger.level && (
+              <GangLevelBadge levelInfo={{
+                level: war.challenger.level,
+                label: war.challenger.levelLabel ?? "Crew",
+                gang_reputation: war.challenger.gangReputation ?? 0,
+                member_count: war.challenger.member_count,
+                member_limit: war.challenger.memberLimit ?? 10,
+                rep_to_next_level: null,
+              }} />
+            )}
+            <span className="text-telemetry text-muted-foreground">{war.challenger.member_count}m · {war.challenger.reputation}rep</span>
           </div>
         </div>
         <div className="flex-shrink-0">
@@ -322,8 +337,18 @@ function WarCard({ war }: { war: GangWar }) {
           <div className="font-mono text-xs font-bold text-foreground tracking-wide truncate">
             [{war.defender.tag}] {war.defender.name}
           </div>
-          <div className="text-telemetry text-muted-foreground mt-0.5">
-            {war.defender.member_count} members · {war.defender.reputation} rep
+          <div className="flex items-center justify-end gap-1.5 mt-0.5 flex-wrap">
+            <span className="text-telemetry text-muted-foreground">{war.defender.member_count}m · {war.defender.reputation}rep</span>
+            {war.defender.level && (
+              <GangLevelBadge levelInfo={{
+                level: war.defender.level,
+                label: war.defender.levelLabel ?? "Crew",
+                gang_reputation: war.defender.gangReputation ?? 0,
+                member_count: war.defender.member_count,
+                member_limit: war.defender.memberLimit ?? 10,
+                rep_to_next_level: null,
+              }} />
+            )}
           </div>
         </div>
       </div>
