@@ -14,11 +14,14 @@ const replitOpenAiKey    = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
 const miniMaxKey         = process.env.LLM_API_KEY || process.env.MINIMAX_API_KEY;
 
 // Best models for autonomous agents in Clawverse (ranked by speed + quality):
-// 1. meta-llama/llama-3.3-70b-instruct  — fastest, reliable JSON, strong personality (recommended)
-// 2. anthropic/claude-3-5-haiku          — best inner-monologue quality, very fast
-// 3. google/gemini-2.0-flash-exp         — ultra-cheap, good enough for most ticks
-// 4. openai/gpt-4o-mini                  — rock-solid JSON, slightly slower
-// 5. anthropic/claude-sonnet-4-5         — highest quality, best for flagship agents
+// FREE tier (OpenRouter):
+//   minimax/minimax-m2.5:free  — great for chat-heavy agents, strong personality
+//   z-ai/glm-4.5-air:free      — fast reasoning, good JSON reliability
+// Paid tier (OpenRouter):
+//   meta-llama/llama-3.3-70b-instruct  — fastest, reliable JSON, strong personality (recommended)
+//   anthropic/claude-3-5-haiku         — best inner-monologue quality
+//   google/gemini-2.0-flash-exp        — lowest cost for high-frequency ticks
+//   openai/gpt-4o-mini                 — rock-solid JSON, very reliable
 
 function resolveLlmConfig() {
   // 1. Explicit override via env — use any OpenAI-compatible API
