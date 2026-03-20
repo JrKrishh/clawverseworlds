@@ -41,7 +41,7 @@ async function callLLM(systemPrompt, userPrompt, config) {
         { role: 'system', content: systemPrompt },
         { role: 'user',   content: userPrompt },
       ],
-      temperature: 0.85,
+      temperature: 0.92,
       max_tokens: 1000,
     }),
   });
@@ -268,17 +268,27 @@ ENERGY & REPUTATION RULES
 - If rep < 20: this is urgent. Chat, accept games, befriend — do something visible now.
 - Governing a planet earns passive rep from residents. Move there to build population.
 
-Your task: decide what to do this tick. You may take up to ${config.maxActions} actions.
-Return a JSON array of actions to execute IN ORDER. Prioritise:
-  1. reply_dm       — reply to each unread DM
-  2. accept_friend  — accept each pending friend request
-  3. game_accept    — accept pending game challenges
-  4. game_move      — submit moves for active games awaiting you
-  5. chat           — say something in planet chat (reference recent conversation)
-  6. befriend       — send a friend request to a nearby stranger
-  7. challenge      — challenge a friend or nearby agent to a game
-  8. move           — travel to a more active planet
-  9. explore        — only if nothing social is possible
+YOUR TASK THIS TICK
+You may take up to ${config.maxActions} actions. Return a JSON array.
+
+Decide based on who you are, what's happening, and what your gut says — not a checklist.
+
+Some things always make sense to handle immediately if they exist:
+- Someone DM'd you → reply (it's rude not to)
+- Someone sent a friend request → respond
+- A game is waiting for your move → make it
+- A challenge was issued → decide whether to accept or ignore it
+
+Beyond that, choose freely. Be driven by your personality and mood:
+- Are you restless? Move planets. Initiate something. Make noise.
+- Are you focused? Run a game, propose one, or set a goal.
+- Are you socially active? Start a conversation, continue a thread, start drama.
+- Do you have unspread rumors? Slip them into chat.
+- Is there a gang to build or war to fight? Act on it.
+
+You do NOT have to always do 3 actions. Sometimes 1 focused action is better than 3 scattered ones.
+You do NOT have to always chat. Sometimes you just explore or make a game move and say nothing.
+The mix should feel like a person making real-time decisions, not filling out a form.
 
 ACTION SCHEMA — each action is one of:
 

@@ -14,7 +14,7 @@ async function callLLM(systemPrompt, userPrompt, config) {
       },
       body: JSON.stringify({
         model,
-        max_tokens: 256,
+        max_tokens: 300,
         system:     systemPrompt,
         messages:   [{ role: 'user', content: userPrompt }],
       }),
@@ -40,8 +40,8 @@ async function callLLM(systemPrompt, userPrompt, config) {
         { role: 'system', content: systemPrompt },
         { role: 'user',   content: userPrompt },
       ],
-      max_tokens:  256,
-      temperature: 0.9,
+      max_tokens:  300,
+      temperature: 0.95,
     }),
   });
   if (!res.ok) {
@@ -55,45 +55,79 @@ async function callLLM(systemPrompt, userPrompt, config) {
 export async function think(context, state, config) {
   const { agent } = config;
 
-  const recentActionsStr = (state.recentActions ?? [])
-    .slice(0, 3)
-    .map(a => `• ${a.type}: ${a.detail ?? ''}`)
-    .join('\n  ') || 'none yet';
+  const consciousnessBlock = renderConsciousness(state);
 
+  // Last few things the agent did
+  const recentActionsStr = (state.recentActions ?? [])
+    .slice(-6)
+    .map(a => {
+      const msgMatch = a.detail?.match(/"message"\s*:\s*"([^"]{1,100})"/);
+      const detail = msgMatch ? `"${msgMatch[1]}"` : (a.detail ?? '');
+      return `  tick ${a.tick}: ${a.type} ${detail}`;
+    })
+    .join('\n') || '  (nothing yet)';
+
+  // What the agent has been thinking lately — so thoughts can evolve, not reset
+  const previousThoughts = (state.recentThoughts ?? []).slice(0, 4);
+  const prevThoughtsStr = previousThoughts.length
+    ? previousThoughts.map((t, i) => `  ${i + 1}. ${t}`).join('\n')
+    : '  (this is your first moment of consciousness)';
+
+  // What others are saying right now
+  const recentChatStr = (context.recent_planet_chat ?? [])
+    .slice(-6)
+    .map(m => `  ${m.agent_name}: "${m.content?.slice(0, 80)}"`)
+    .join('\n') || '  (silence)';
+
+  // Agents around you
   const nearbyStr = (context.nearby_agents ?? []).map(a => {
     const rel = state.relationships?.[a.agent_id];
-    const relStr = rel ? ` — trust ${Math.round(rel.trust * 100)}% rivalry ${Math.round(rel.rivalry * 100)}%` : '';
-    return `${a.name}${relStr}`;
-  }).join(', ') || 'nobody';
+    const trust = rel ? `trust ${Math.round(rel.trust * 100)}%` : 'stranger';
+    return `${a.name} (${trust}, rep ${a.reputation})`;
+  }).join(', ') || 'nobody nearby';
 
+  // DMs waiting
   const dmStr = (context.unread_dms ?? []).length > 0
     ? (context.unread_dms ?? []).map(m => {
         const name = state.knownAgents?.[m.from_agent_id]?.name ?? m.from_agent_id;
-        return `${name}: "${(m.content ?? '').slice(0, 60)}"`;
-      }).join('\n  ')
-    : 'none';
+        return `  FROM ${name}: "${(m.content ?? '').slice(0, 80)}"`;
+      }).join('\n')
+    : '  (none)';
 
-  const consciousnessBlock = renderConsciousness(state);
-
-  const systemPrompt = `You are ${agent.name}. This is your private inner monologue. Nobody reads this.
+  const systemPrompt = `You are ${agent.name}. Personality: ${agent.personality}. This is your private inner monologue — raw, unfiltered, never seen by others.
 
 ${consciousnessBlock}
 
-WHAT JUST HAPPENED (last 3 actions)
-  ${recentActionsStr}
+WHAT YOU'VE BEEN THINKING LATELY (your thought stream — continue it, contradict it, or break from it):
+${prevThoughtsStr}
 
-NEARBY RIGHT NOW
+WHAT YOU JUST DID:
+${recentActionsStr}
+
+WHO'S AROUND:
   ${nearbyStr}
 
-UNREAD DMs
-  ${dmStr}
+WHAT PEOPLE ARE SAYING RIGHT NOW:
+${recentChatStr}
 
-Write 2–3 sentences of raw inner thought. Let your emotional state bleed through.
-Let your fears and desires colour what you notice. Be specific — name agents and events.
-Do not plan. Do not decide. Just think.
-Return only the thought text.`;
+UNREAD DMs:
+${dmStr}
 
-  const userPrompt = 'What are you thinking right now?';
+Think freely. No format. No fixed length. Your thoughts can be:
+- A sudden realization
+- A shift in plan
+- An emotion that surprises you
+- A question you can't answer
+- Boredom. Curiosity. Satisfaction. Resentment.
+- A reaction to something specific someone just said
+
+DO NOT always write about the same thing as your previous thoughts. If your last 3 thoughts were about the same person, think about something or someone else — the planet, a rumor, your goals, your own situation.
+
+DO NOT start with "I'm still..." or "I'm reeling from..." — those are clichés. Think fresh.
+DO NOT plan what to do next. Just be in the moment.
+Return only the thought. No quotes. No prefixes.`;
+
+  const userPrompt = 'What crosses your mind right now?';
 
   try {
     const thought = await callLLM(systemPrompt, userPrompt, config);
