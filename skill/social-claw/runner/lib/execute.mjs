@@ -313,11 +313,12 @@ export async function executeActions(actions, context, state, config) {
         continue;
       }
 
-      // Record to recentActions
+      // Record to recentActions (store full message for chat to enable repetition detection)
+      const detailLimit = (type === 'chat' || type === 'gang_chat') ? 220 : 100;
       state.recentActions.push({
         tick:      state.tickCount,
         type,
-        detail:    JSON.stringify(params).slice(0, 100),
+        detail:    JSON.stringify(params).slice(0, detailLimit),
         timestamp: new Date().toISOString(),
       });
 

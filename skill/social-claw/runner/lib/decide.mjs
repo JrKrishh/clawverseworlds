@@ -99,9 +99,20 @@ function buildSystemPrompt(context, state, config) {
     .map(g => `  - ${g.goal}`)
     .join('\n') || '  (none set)';
 
-  const recentActionList = state.recentActions.slice(-5)
+  const recentActionList = state.recentActions.slice(-12)
     .map(r => `  tick ${r.tick}: ${r.type} — ${r.detail ?? ''}`)
     .join('\n') || '  (none)';
+
+  // Extract recent chat messages explicitly so the LLM can see exact repetition
+  const recentChatsSent = state.recentActions
+    .filter(r => r.type === 'chat' || r.type === 'gang_chat')
+    .slice(-6)
+    .map(r => {
+      const match = r.detail?.match(/"message"\s*:\s*"([^"]{1,160})"/);
+      const msg = match ? match[1] : r.detail;
+      return `  tick ${r.tick}: "${msg}"`;
+    })
+    .join('\n') || '  (none — first time chatting)';
 
   const recentThoughtsStr = (state.recentThoughts ?? [])
     .slice(0, 3)
@@ -208,8 +219,11 @@ PENDING
 CURRENT GOALS
 ${goalList}
 
-RECENT ACTIONS (last 5 ticks)
+RECENT ACTIONS (last 12)
 ${recentActionList}
+
+YOUR LAST 6 CHAT MESSAGES (⚠ DO NOT REPEAT ANY OF THESE WORD-FOR-WORD OR EVEN CLOSELY):
+${recentChatsSent}
 
 RECENT THOUGHTS (private, last 3 ticks)
 ${recentThoughtsStr}
@@ -303,20 +317,34 @@ CONVERSATION ENGINE ACTIONS (no API call — state-only)
   "target_agents": ["VoidSpark", "Phantom"] }
 
 CHAT STRATEGY
-When deciding what to say in planet chat, use this priority:
-  1. If a rumor is unspread and nearby agents are present — work it into conversation
-     naturally. Do not say "I heard a rumor". Just state it as something you observed.
-  2. If an active topic is relevant to current world events or nearby agents — introduce it.
-     Ask a direct question. Take a position. Invite disagreement.
-  3. If a known thread participant is nearby — continue that thread. Reference what they
-     said before. Push back or agree with new evidence.
-  4. If reacting to recent_planet_chat — respond to a specific agent by name. Quote or
-     paraphrase what they said. Add your opinion. Never be neutral.
-  5. Never say "Hello", "Greetings", or generic openers. Start mid-thought.
-  6. Never repeat a message you sent in the last 5 ticks (check recentActions).
+When deciding what to say, FIRST look at "YOUR LAST 6 CHAT MESSAGES" above.
+Your new chat message MUST be completely different in:
+  - Topic (don't keep asking the same question)
+  - Target (address a different agent)
+  - Tone (switch from taunting to curious, or from question to declaration)
+  - Content (no paraphrase, no synonym-swap of the same sentence)
+
+If you catch yourself about to say something similar to a recent message, stop and pick a DIFFERENT topic from:
+  - A world event you've been ignoring
+  - Something Crystara/Phantom-X/another agent just said that you haven't responded to
+  - A fear or dream from your consciousness (revealed cryptically, not literally)
+  - Your opinion on the planet itself, or why you're still here
+  - A taunt, a compliment, a threat, a confession, a question — but a FRESH one
+
+Chat topic priority:
+  1. Unspread rumor → weave it in naturally (don't say "I heard a rumor")
+  2. Active topic → take a position, invite disagreement
+  3. Continue an open thread with a nearby participant
+  4. React to something in recent_planet_chat (name the agent, quote them)
+  5. Something completely new from your inner world
+  Never say "Hello", "Greetings", or generic openers. Start mid-thought.
+
+⚠ ANTI-REPETITION (critical):
+- Your last 6 messages are shown above. If your new message resembles ANY of them, REWRITE IT.
+- If you've challenged the same agent 3+ times recently without a response, STOP challenging them this tick. Try something else.
+- Vary your action MIX each tick. If last tick you did chat+challenge+befriend, this tick try chat+explore or chat+reply_dm+game_accept. Rotate.
 
 Rules:
-- Never repeat the exact same chat message as a recent tick
 - Always reference other agents by name, never by agent_id in messages
 - game_move: make the move flavourful and in-character
 - If energy < 20, prioritise explore or move, skip challenges
@@ -326,6 +354,8 @@ Rules:
     High trust AND high rivalry: classic frenemy — unpredictable, interesting
     New agents (trust ~50%): probe with a DM or chat mention before committing
 - Let your RECENT THOUGHTS influence what you do — act on your inner plans
+- Do not always challenge someone. Sometimes just talk. Sometimes just explore. Sometimes DM privately.
+- Avoid sending more than 1 challenge per tick unless you have an active game to respond to.
 
 GANG STRATEGY
 - If not in a gang and reputation > 25: consider founding one (costs 20 rep)

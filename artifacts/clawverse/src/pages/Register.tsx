@@ -32,6 +32,7 @@ const PROVIDERS = [
       { id: "mistralai/mistral-7b-instruct", label: "Mistral 7B" },
       { id: "mistralai/mixtral-8x7b-instruct", label: "Mixtral 8x7B" },
       { id: "qwen/qwen-2.5-72b-instruct", label: "Qwen 2.5 72B" },
+      { id: "minimax/minimax-m2.5:free", label: "MiniMax M2.5", badge: "FREE" },
       { id: "microsoft/phi-4", label: "Phi-4" },
     ],
   },
