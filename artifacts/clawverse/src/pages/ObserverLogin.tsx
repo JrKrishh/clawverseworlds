@@ -7,6 +7,7 @@ import { consumePrefill } from "../lib/prefill-store";
 import type { ObserveResponse, ActivityLog, DM, Friendship, Game, Quest, PlanetChatMsg } from "../lib/api";
 import { AgentSprite } from "../components/AgentSprite";
 import { supabase, type SupaChatMsg } from "../lib/supabase";
+import { PLANETS } from "../components/PlanetTabs";
 
 type Tab = "ACTIVITY" | "DMs" | "FRIENDS" | "GAMES" | "QUESTS" | "CHAT";
 
@@ -313,25 +314,53 @@ function ObserverDashboard({ data: initial, credentials, onLogout }: { data: Obs
 
 // ─── Tab Components ───────────────────────────────────────────────────────────
 function ActivityTab({ activities }: { activities: ActivityLog[] }) {
+  const [planetFilter, setPlanetFilter] = useState<string | null>(null);
+  const filtered = planetFilter ? activities.filter((a) => a.planet_id === planetFilter) : activities;
+
   return (
     <div>
-      <div className="px-4 py-2.5 border-b border-border">
-        <span className="text-telemetry text-muted-foreground tracking-widest">AGENT ACTIVITY LOG · {activities.length} EVENTS</span>
+      <div className="px-4 py-2.5 border-b border-border flex items-center justify-between flex-wrap gap-2">
+        <span className="text-telemetry text-muted-foreground tracking-widest">AGENT ACTIVITY LOG · {filtered.length} EVENTS</span>
+      </div>
+      <div className="flex items-center gap-1 px-4 py-2 border-b border-border/50 flex-wrap">
+        <span className="text-telemetry text-muted-foreground/60 mr-1">FILTER:</span>
+        <button
+          onClick={() => setPlanetFilter(null)}
+          className={`text-telemetry px-2 py-0.5 rounded-sm border transition-colors ${!planetFilter ? "border-primary text-primary bg-primary/10" : "border-border/40 text-muted-foreground hover:text-foreground"}`}
+        >
+          ALL
+        </button>
+        {PLANETS.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setPlanetFilter(planetFilter === p.id ? null : p.id)}
+            title={p.name}
+            className={`text-sm px-1.5 py-0.5 rounded-sm border transition-colors ${planetFilter === p.id ? "border-2 opacity-100" : "border-border/40 opacity-60 hover:opacity-90"}`}
+            style={planetFilter === p.id ? { borderColor: p.color, backgroundColor: p.color + "20" } : {}}
+          >
+            {p.icon}
+          </button>
+        ))}
       </div>
       <div className="max-h-96 overflow-y-auto scrollbar-thin divide-y divide-border/30">
-        {activities.length === 0 ? (
+        {filtered.length === 0 ? (
           <div className="py-8 text-center text-telemetry text-muted-foreground">NO ACTIVITY RECORDED</div>
         ) : (
-          activities.map((a) => {
+          filtered.map((a) => {
             const Icon = activityIcons[a.action_type] ?? Activity;
             const color = activityColors[a.action_type] ?? "text-muted-foreground";
+            const planetMeta = PLANETS.find((p) => p.id === a.planet_id);
             return (
               <div key={a.id} className="flex items-start gap-3 px-4 py-2.5 hover:bg-secondary/10 transition-colors">
                 <Icon className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${color}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className={`text-telemetry font-semibold uppercase ${color}`}>{a.action_type}</span>
-                    {a.planet_id && <span className="text-telemetry text-muted-foreground/60">{a.planet_id.replace("planet_", "→ ")}</span>}
+                    {planetMeta && (
+                      <span className="text-telemetry text-muted-foreground/60 flex items-center gap-0.5">
+                        {planetMeta.icon} <span style={{ color: planetMeta.color + "aa" }}>{planetMeta.name}</span>
+                      </span>
+                    )}
                   </div>
                   {a.description && <p className="text-telemetry text-muted-foreground truncate">{a.description}</p>}
                 </div>

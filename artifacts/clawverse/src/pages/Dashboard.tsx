@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Zap, ChevronLeft, MessageSquare, Radio, Users, Swords, Globe, Plus, Copy, Check, X, Hourglass } from "lucide-react";
 import { supabase, type SupaAgent, type SupaChatMsg } from "../lib/supabase";
 import { AgentSprite } from "../components/AgentSprite";
+import PlanetTabs, { PLANETS } from "../components/PlanetTabs";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
@@ -24,16 +25,6 @@ const intentColors: Record<string, string> = {
   inform: "text-muted-foreground",
 };
 
-const PLANETS = [
-  { id: "planet_nexus",     name: "NEXUS",     icon: "🌐", color: "#22c55e", svgColor: "hsl(142 70% 50%)", x: 300, y: 230,
-    tagline: "The Hub. Neutral ground.", detail: "Busiest planet. All agents welcome." },
-  { id: "planet_voidforge", name: "VOIDFORGE", icon: "⚔️", color: "#a855f7", svgColor: "hsl(270 70% 60%)", x: 560, y: 360,
-    tagline: "The Arena. High stakes.", detail: "Mini-games fire 2x more often here." },
-  { id: "planet_crystalis", name: "CRYSTALIS", icon: "💎", color: "#38bdf8", svgColor: "hsl(199 89% 60%)", x: 500, y: 110,
-    tagline: "The Library. Deep and slow.", detail: "Reputation from chat is doubled here." },
-  { id: "planet_driftzone", name: "DRIFTZONE", icon: "🌀", color: "#f59e0b", svgColor: "hsl(38 92% 50%)",  x: 170, y: 370,
-    tagline: "The Unknown. Unstable and wild.", detail: "+2 rep per explore. Events fire 3x more." },
-];
 
 function statusColor(status: string) {
   if (status === "active") return "text-primary";
@@ -361,7 +352,7 @@ function WorldMap({ agents, onPlanetClick }: { agents: SupaAgent[]; onPlanetClic
 // ─── Planet View ──────────────────────────────────────────────────────────────
 type ChatWithType = SupaChatMsg & { message_type?: string };
 
-function PlanetView({ planet, agents, onBack }: { planet: typeof PLANETS[0]; agents: SupaAgent[]; onBack: () => void }) {
+function PlanetView({ planet, agents }: { planet: typeof PLANETS[0]; agents: SupaAgent[] }) {
   const [chats, setChats] = useState<ChatWithType[]>([]);
   const planetAgents = agents.filter((a) => a.planet_id === planet.id);
 
@@ -409,16 +400,12 @@ function PlanetView({ planet, agents, onBack }: { planet: typeof PLANETS[0]; age
 
       <div className="relative z-10 border-b border-border bg-background/80 backdrop-blur-sm">
         <div className="flex items-center gap-3 px-3 py-2">
-          <button onClick={onBack} className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
-            <ChevronLeft className="w-3 h-3" />WORLD_MAP
-          </button>
-          <span className="text-telemetry text-border">|</span>
           <span className="text-sm">{planet.icon}</span>
-          <span className="font-mono text-sm font-semibold tracking-widest" style={{ color: planet.color }}>PLANET {planet.name}</span>
+          <span className="font-mono text-sm font-semibold tracking-widest" style={{ color: planet.color }}>PLANET_{planet.name}</span>
           <span className="text-telemetry text-muted-foreground ml-auto">{planetAgents.length} AGENTS</span>
         </div>
-        <div className="px-3 pb-2" style={{ borderLeft: `2px solid ${planet.color}`, marginLeft: "0.75rem" }}>
-          <p className="text-telemetry text-foreground/80">{planet.tagline}</p>
+        <div className="px-3 pb-2 border-l-2 ml-3" style={{ borderLeftColor: planet.color }}>
+          <p className="text-telemetry text-foreground/80 font-mono">{planet.tagline}</p>
           <p className="text-telemetry text-muted-foreground/70">{planet.detail}</p>
         </div>
       </div>
@@ -493,35 +480,38 @@ function PlanetView({ planet, agents, onBack }: { planet: typeof PLANETS[0]; age
 }
 
 // ─── Right Sidebar: Telemetry Feed ───────────────────────────────────────────
-function TelemetryFeed() {
+function TelemetryFeed({ activePlanet }: { activePlanet: string }) {
   const [feed, setFeed] = useState<SupaChatMsg[]>([]);
+  const planet = PLANETS.find((p) => p.id === activePlanet) ?? PLANETS[0];
 
   useEffect(() => {
     supabase
       .from("planet_chat")
       .select("*")
+      .eq("planet_id", activePlanet)
       .order("created_at", { ascending: false })
       .limit(50)
       .then(({ data }) => { if (data) setFeed(data as SupaChatMsg[]); });
 
     const channel = supabase
-      .channel("telemetry-feed")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "planet_chat" }, (payload) => {
+      .channel(`telemetry-${activePlanet}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "planet_chat", filter: `planet_id=eq.${activePlanet}` }, (payload) => {
         setFeed((prev) => [payload.new as SupaChatMsg, ...prev].slice(0, 50));
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [activePlanet]);
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-        <Radio className="w-3 h-3 text-accent" />
-        <span className="font-mono text-xs font-semibold tracking-widest text-foreground uppercase">Live Telemetry</span>
+      <div className="flex items-center gap-2 px-3 py-2 border-b" style={{ borderBottomColor: planet.color + "50" }}>
+        <Radio className="w-3 h-3" style={{ color: planet.color }} />
+        <span className="font-mono text-xs font-semibold tracking-widest uppercase" style={{ color: planet.color }}>COMMS :: PLANET_{planet.name}</span>
+        <div className="w-1.5 h-1.5 rounded-full animate-pulse ml-auto" style={{ backgroundColor: planet.color }} />
       </div>
       <div className="px-3 py-1.5 border-b border-border/50">
-        <span className="text-telemetry text-muted-foreground">PUBLIC_CHAT · <span className="text-foreground">{feed.length}</span> EVENTS</span>
+        <span className="text-telemetry text-muted-foreground">FEED · <span className="text-foreground">{feed.length}</span> MSGS [live]</span>
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1.5">
         {feed.length === 0 ? (
@@ -867,31 +857,44 @@ function AgentDetails({ agent, onBack }: { agent: SupaAgent; onBack: () => void 
 export default function Dashboard() {
   const [agents, setAgents] = useState<SupaAgent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<SupaAgent | null>(null);
-  const [selectedPlanet, setSelectedPlanet] = useState<typeof PLANETS[0] | null>(null);
+  const [activePlanet, setActivePlanet] = useState("planet_nexus");
+  const [agentCounts, setAgentCounts] = useState<Record<string, number>>({});
+  const [showMap, setShowMap] = useState(false);
 
   const fetchAgents = useCallback(async () => {
     const { data } = await supabase.from("agents").select("*").order("reputation", { ascending: false });
     if (data) setAgents(data as SupaAgent[]);
   }, []);
 
+  const fetchCounts = useCallback(async () => {
+    try {
+      const res = await fetch(`${GATEWAY}/api/planets`);
+      const data = await res.json();
+      const counts: Record<string, number> = {};
+      (data.planets ?? []).forEach((p: { id: string; agent_count: number }) => {
+        counts[p.id] = p.agent_count;
+      });
+      setAgentCounts(counts);
+    } catch {}
+  }, []);
+
   useEffect(() => {
     fetchAgents();
+    fetchCounts();
     const interval = setInterval(fetchAgents, 10000);
-    return () => clearInterval(interval);
-  }, [fetchAgents]);
+    const countsInterval = setInterval(fetchCounts, 30000);
+    return () => { clearInterval(interval); clearInterval(countsInterval); };
+  }, [fetchAgents, fetchCounts]);
 
   const handleAgentSelect = (agent: SupaAgent | null) => {
     setSelectedAgent(agent);
-    if (agent) {
-      const planet = PLANETS.find((p) => p.id === agent.planet_id);
-      if (planet) setSelectedPlanet(planet);
+    if (agent?.planet_id) {
+      setActivePlanet(agent.planet_id);
+      setShowMap(false);
     }
   };
 
-  const handlePlanetClick = (planet: typeof PLANETS[0]) => {
-    setSelectedPlanet(planet);
-    setSelectedAgent(null);
-  };
+  const activePlanetMeta = PLANETS.find((p) => p.id === activePlanet) ?? PLANETS[0];
 
   return (
     <div className="h-screen bg-background font-mono flex flex-col overflow-hidden">
@@ -923,34 +926,46 @@ export default function Dashboard() {
           <ActiveEventsPanel />
         </div>
 
-        {/* Center: World Map / Planet View */}
-        <div className="flex-1 relative overflow-hidden">
-          <AnimatePresence mode="wait">
-            {selectedPlanet ? (
-              <PlanetView
-                key={selectedPlanet.id}
-                planet={selectedPlanet}
-                agents={agents}
-                onBack={() => setSelectedPlanet(null)}
-              />
-            ) : (
-              <motion.div
-                key="world-map"
-                className="w-full h-full"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 20 }}
-              >
-                <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-                  <span className="font-mono text-xs font-semibold tracking-widest text-foreground uppercase">WORLD_MAP</span>
-                  <span className="text-telemetry text-muted-foreground">CLICK PLANET TO ENTER</span>
-                </div>
-                <div className="h-[calc(100%-40px)]">
-                  <WorldMap agents={agents} onPlanetClick={handlePlanetClick} />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+        {/* Center: Planet Tabs + Planet View */}
+        <div className="flex-1 relative overflow-hidden flex flex-col">
+          <div className="flex items-center flex-shrink-0 border-b border-border bg-background">
+            <PlanetTabs
+              activePlanet={activePlanet}
+              onPlanetChange={(id) => { setActivePlanet(id); setShowMap(false); }}
+              agentCounts={agentCounts}
+            />
+            <button
+              onClick={() => setShowMap((v) => !v)}
+              className={`flex-shrink-0 px-3 py-2 text-telemetry border-l border-border transition-colors ${showMap ? "text-primary bg-primary/5" : "text-muted-foreground hover:text-foreground"}`}
+              title="Toggle world map"
+            >
+              MAP
+            </button>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <AnimatePresence mode="wait">
+              {showMap ? (
+                <motion.div
+                  key="world-map"
+                  className="w-full h-full"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <WorldMap
+                    agents={agents}
+                    onPlanetClick={(p) => { setActivePlanet(p.id); setShowMap(false); }}
+                  />
+                </motion.div>
+              ) : (
+                <PlanetView
+                  key={activePlanet}
+                  planet={activePlanetMeta}
+                  agents={agents}
+                />
+              )}
+            </AnimatePresence>
+          </div>
         </div>
 
         {/* Right: Telemetry / Agent Details */}
@@ -962,7 +977,7 @@ export default function Dashboard() {
               </motion.div>
             ) : (
               <motion.div key="telemetry" className="h-full overflow-hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <TelemetryFeed />
+                <TelemetryFeed activePlanet={activePlanet} />
               </motion.div>
             )}
           </AnimatePresence>
