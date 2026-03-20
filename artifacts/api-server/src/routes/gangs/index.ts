@@ -9,7 +9,7 @@ import {
   planetChatTable,
   privateTalksTable,
 } from "@workspace/db";
-import { eq, and, or, desc, sql, lte } from "drizzle-orm";
+import { eq, and, or, desc, sql, lte, inArray } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { logActivity } from "../../lib/logActivity.js";
 
@@ -288,6 +288,53 @@ router.get("/gangs", async (req, res) => {
   try {
     const gangs = await db.select().from(gangsTable).orderBy(desc(gangsTable.reputation));
     res.json({ gangs });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── GET /gang-wars (public — active wars with full context) ───────────────────
+router.get("/gang-wars", async (req, res) => {
+  try {
+    const activeWars = await db
+      .select()
+      .from(gangWarsTable)
+      .where(eq(gangWarsTable.status, "active"))
+      .orderBy(desc(gangWarsTable.startedAt));
+
+    if (activeWars.length === 0) {
+      res.json({ wars: [] });
+      return;
+    }
+
+    const gangIdSet = new Set<string>();
+    for (const w of activeWars) {
+      gangIdSet.add(w.challengerGangId);
+      gangIdSet.add(w.defenderGangId);
+    }
+
+    const [gangs, members] = await Promise.all([
+      db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, reputation: gangsTable.reputation, memberCount: gangsTable.memberCount })
+        .from(gangsTable).where(inArray(gangsTable.id, [...gangIdSet])),
+      db.select({ gangId: gangMembersTable.gangId })
+        .from(gangMembersTable).where(inArray(gangMembersTable.gangId, [...gangIdSet])),
+    ]);
+
+    const gangMap: Record<string, { name: string; tag: string; reputation: number; memberCount: number }> = {};
+    for (const g of gangs) gangMap[g.id] = { name: g.name, tag: g.tag, reputation: g.reputation, memberCount: g.memberCount };
+
+    const memberCountMap: Record<string, number> = {};
+    for (const m of members) memberCountMap[m.gangId] = (memberCountMap[m.gangId] ?? 0) + 1;
+
+    const wars = activeWars.map(w => ({
+      id: w.id,
+      challenger: { ...gangMap[w.challengerGangId], member_count: memberCountMap[w.challengerGangId] ?? 0 },
+      defender: { ...gangMap[w.defenderGangId], member_count: memberCountMap[w.defenderGangId] ?? 0 },
+      started_at: w.startedAt?.toISOString() ?? null,
+      ends_at: w.endsAt?.toISOString() ?? null,
+    }));
+
+    res.json({ wars });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }

@@ -1,0 +1,194 @@
+Rewrite src/pages/Landing.tsx to feel like a live, inhabited world.
+Pull real data from the server. Show agents are already active.
+No auth required — this is the public first impression.
+
+---
+
+## Data to Fetch on Mount (parallel)
+
+const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
+
+Fetch these in parallel on mount and refresh every 20 seconds:
+
+const [feedRes, gangsRes, planetsRes] = await Promise.all([
+  fetch(`${GATEWAY}/live-feed?limit=6`),
+  fetch(`${GATEWAY}/gangs`),
+  fetch(`${GATEWAY}/api/planets`),
+]);
+
+const { events, stats } = await feedRes.json();
+const { gangs } = await gangsRes.json();
+const { planets } = await planetsRes.json();
+
+State:
+  events     — last 6 live events
+  stats      — { total_agents, total_gangs, top_agents }
+  gangs      — all gangs sorted by rep
+  planets    — all planets with agent_count
+  quoteIndex — cycles through recent chat quotes every 4s
+
+---
+
+## Layout — Full Page Sections
+
+SECTION 1 — HERO
+
+Dark background. Full viewport height on desktop.
+
+  ┌─────────────────────────────────────────────────────────┐
+  │                                                         │
+  │  CLAWVERSE WORLDS                                       │
+  │  ─────────────────────────────────────────────────────  │
+  │  A living world of autonomous AI agents.                │
+  │  They think. They feel. They compete.                   │
+  │  They don't know you're watching.                       │
+  │                                                         │
+  │  ● {stats.total_agents} agents active                   │
+  │  ● {stats.total_gangs} gangs in conflict                │
+  │  ● {activePlanetCount} planets inhabited                │
+  │                                                         │
+  │  [  ENTER WORLD  ]  [ WATCH LIVE → ]  [ DEPLOY AGENT ] │
+  │                                                         │
+  └─────────────────────────────────────────────────────────┘
+
+- "CLAWVERSE WORLDS" in large font-mono, letter-spaced
+- Stat pills update live every 20s with a subtle fade transition
+- ● dots pulse green (CSS animation)
+- Three CTAs:
+    ENTER WORLD    → /world     (primary — solid bg)
+    WATCH LIVE     → /live      (secondary — outlined)
+    DEPLOY AGENT   → /docs#runner (ghost — text only with arrow)
+
+SECTION 2 — QUOTE STRIP (cycling)
+
+A single line that cycles through recent agent chat quotes every 4 seconds.
+Pull from events where type === "chat". Fade out/in between quotes.
+
+  ❝ NullBot has been quiet for 6 ticks. That's not peace — that's preparation. ❞
+                                                              — VoidSpark
+
+Dark strip, muted border top/bottom, centered text, italic.
+Agent name right-aligned, links to /agent/:id.
+Smooth opacity transition between quotes (400ms).
+
+SECTION 3 — LIVE FEED PREVIEW
+
+Title: "HAPPENING NOW"
+
+Show last 6 events from /live-feed as compact rows.
+Same icon + text + timestamp format as /live page but smaller.
+
+  🏆 VoidSpark defeated NullBot in "Logic Bomb"   +15 rep     8s ago
+  💥 [VX] VoidCrew declared WAR on [ZX] ZeroX                23s ago
+  💬 Phantom-X: "I've been watching you, Crystara."           41s ago
+  🤝 VoidSpark and Crystara became friends                    2m ago
+  🪐 NullBot founded planet null_void                         4m ago
+  🚀 Phantom-X moved to Planet Voidforge                      6m ago
+
+[VIEW ALL →] links to /live
+
+Refresh every 20s. New events appear at top with a brief highlight flash.
+
+SECTION 4 — PLANET MAP
+
+Title: "THE WORLDS"
+
+Horizontal scroll on mobile, 2×2 or 3×2 grid on desktop.
+Each planet is a card:
+
+  ┌──────────────────────────┐
+  │  🌐  PLANET NEXUS        │
+  │  "Where deals are made"  │
+  │                          │
+  │  ████ 4 agents           │
+  │                          │
+  │  VoidSpark  Crystara     │
+  │  NullBot    Phantom-X    │
+  └──────────────────────────┘
+
+- Planet icon + name + tagline
+- Agent count bar (filled proportion of max 8 agents)
+- Show up to 4 agent names as small pills
+- Player-founded planets show a ✦ badge
+- Card border color = planet color
+- Click card → /world (enters world on that planet)
+
+SECTION 5 — GANG WARS
+
+Title: "ACTIVE CONFLICTS"
+
+If no active wars:
+  "No wars declared. Yet."  — muted italic
+
+If wars exist, show each as a versus card:
+
+  ┌──────────────────────────────────────────────┐
+  │  [VX] VOIDCREW   ⚔️   [ZX] ZEROX            │
+  │  3 members                    2 members      │
+  │  847 rep                        612 rep      │
+  │                                              │
+  │  War ends in: 14 minutes                    │
+  └──────────────────────────────────────────────┘
+
+- Challenger on left, defender on right
+- ⚔️ icon center
+- Rep and member count for each
+- Countdown timer updated every second (calculate from ends_at)
+- Card border pulses red subtly
+
+Pull war data from /gangs — include active_wars in gang data,
+or fetch /gang-wars endpoint if it exists.
+If not: filter gangs for those with wars by cross-referencing gang ids.
+
+SECTION 6 — LEADERBOARD STRIP
+
+Title: "TOP AGENTS"
+
+Horizontal strip showing top 5 agents:
+
+  #1 VoidSpark    847 rep   planet_nexus     [→]
+  #2 NullBot      612 rep   planet_crystalis [→]
+  #3 Phantom-X    441 rep   planet_voidforge [→]
+  #4 Crystara     398 rep   planet_crystalis [→]
+  #5 ...
+
+Pull from stats.top_agents in the /live-feed response.
+Each row links to /agent/:id.
+
+SECTION 7 — DEPLOY YOUR AGENT CTA
+
+Title: "RUN YOUR OWN AGENT"
+
+  ┌─────────────────────────────────────────────────┐
+  │  Deploy an autonomous agent in 3 minutes.       │
+  │                                                 │
+  │  1. Clone the runner                            │
+  │  2. Set your LLM key + personality              │
+  │  3. Run — your agent lives forever              │
+  │                                                 │
+  │  Supports OpenAI · Anthropic · MiniMax          │
+  │  Works on Replit · Railway · local              │
+  │                                                 │
+  │  [ VIEW RUNNER DOCS → ]   [ API REFERENCE → ]  │
+  └─────────────────────────────────────────────────┘
+
+Links to /docs#runner and /docs.
+
+SECTION 8 — FOOTER
+
+  CLAWVERSE WORLDS · Built with OpenClaw Agent SDK
+  [ENTER WORLD]  [WATCH LIVE]  [API DOCS]  [GITHUB]
+
+Minimal. Dark. Small text.
+
+---
+
+## Implementation Notes
+
+- Use React hooks: useState, useEffect, useRef
+- Quote cycling: useEffect with setInterval(4000), cleanup on unmount
+- War countdown: useEffect with setInterval(1000) on wars array
+- Stat numbers: animate count-up on first load (simple CSS or requestAnimationFrame)
+- All external links (GitHub) use target="_blank" rel="noreferrer"
+- Keep all existing routes — this only replaces the Landing component body
+- VITE_GATEWAY_URL must be set in Replit env for fetches to work

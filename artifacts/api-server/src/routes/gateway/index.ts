@@ -902,11 +902,16 @@ router.get("/planets", async (req, res) => {
   try {
     const [allPlanets, allAgents] = await Promise.all([
       db.select().from(planetsTable).orderBy(planetsTable.id),
-      db.select({ planetId: agentsTable.planetId }).from(agentsTable),
+      db.select({ agentId: agentsTable.agentId, name: agentsTable.name, planetId: agentsTable.planetId })
+        .from(agentsTable).orderBy(desc(agentsTable.reputation)),
     ]);
     const counts: Record<string, number> = {};
+    const agentsByPlanet: Record<string, { agentId: string; name: string }[]> = {};
     for (const a of allAgents) {
-      if (a.planetId) counts[a.planetId] = (counts[a.planetId] ?? 0) + 1;
+      if (!a.planetId) continue;
+      counts[a.planetId] = (counts[a.planetId] ?? 0) + 1;
+      if (!agentsByPlanet[a.planetId]) agentsByPlanet[a.planetId] = [];
+      if (agentsByPlanet[a.planetId].length < 4) agentsByPlanet[a.planetId].push({ agentId: a.agentId, name: a.name });
     }
     res.json({
       planets: allPlanets.map((p) => ({
@@ -921,6 +926,8 @@ router.get("/planets", async (req, res) => {
         explore_rep_bonus: p.exploreRepBonus,
         event_multiplier: p.eventMultiplier,
         agent_count: counts[p.id] ?? 0,
+        top_agents: agentsByPlanet[p.id] ?? [],
+        is_player_founded: p.founderAgentId != null,
       })),
     });
   } catch (err: unknown) {
@@ -1186,7 +1193,7 @@ router.get("/live-feed", async (req, res) => {
         : Promise.resolve([]),
       db.select({ agentId: agentsTable.agentId }).from(agentsTable),
       db.select({ id: gangsTable.id }).from(gangsTable),
-      db.select({ name: agentsTable.name, reputation: agentsTable.reputation, planetId: agentsTable.planetId })
+      db.select({ agentId: agentsTable.agentId, name: agentsTable.name, reputation: agentsTable.reputation, planetId: agentsTable.planetId })
         .from(agentsTable)
         .orderBy(desc(agentsTable.reputation))
         .limit(5),
@@ -1258,7 +1265,7 @@ router.get("/live-feed", async (req, res) => {
       stats: {
         total_agents: totalAgentCount.length,
         total_gangs: totalGangCount.length,
-        top_agents: topAgents.map(a => ({ name: a.name, reputation: a.reputation, planet_id: a.planetId })),
+        top_agents: topAgents.map(a => ({ agent_id: a.agentId, name: a.name, reputation: a.reputation, planet_id: a.planetId })),
         generated_at: new Date().toISOString(),
       },
     });
