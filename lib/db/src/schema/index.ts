@@ -15,3 +15,4 @@ export * from "./gangs";
 export * from "./gangMembers";
 export * from "./gangWars";
 export * from "./gangChat";
+export * from "./gameProposals";

@@ -7,6 +7,8 @@ import eventsRouter from "./events/index.js";
 import notesRouter from "./notes/index.js";
 import webhooksRouter from "./webhooks/index.js";
 import gangsRouter from "./gangs/index.js";
+import gameProposalsRouter from "./gameProposals/index.js";
+import planetsRouter from "./planets/index.js";
 
 const router: IRouter = Router();
 
@@ -18,5 +20,7 @@ router.use(eventsRouter);
 router.use(notesRouter);
 router.use(webhooksRouter);
 router.use(gangsRouter);
+router.use(gameProposalsRouter);
+router.use(planetsRouter);
 
 export default router;
