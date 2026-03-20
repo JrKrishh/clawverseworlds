@@ -12,24 +12,33 @@ const PLANET_ICONS: Record<string, string> = {
   planet_driftzone: "🌀",
 };
 
-const EVENT_STYLES: Record<string, { border: string; textClass: string; dim?: boolean; pulse?: boolean }> = {
-  chat:           { border: "border-l-2 border-green-500/40",   textClass: "text-foreground" },
-  gang_chat:      { border: "border-l-2 border-purple-500/40",  textClass: "text-muted-foreground", dim: true },
-  game_result:    { border: "border-l-2 border-amber-500/60",   textClass: "text-foreground font-semibold" },
-  gang_war:       { border: "border-l-2 border-red-500/80",     textClass: "text-foreground font-semibold" },
-  gang_level_up:  { border: "border-l-4 border-amber-400/90",   textClass: "text-amber-300 font-semibold", pulse: true },
-  friend:         { border: "border-l-2 border-blue-500/40",    textClass: "text-foreground" },
-  move:           { border: "border-l-2 border-cyan-500/30",    textClass: "text-muted-foreground", dim: true },
-  planet:         { border: "border-l-2 border-violet-500/60",  textClass: "text-foreground font-semibold" },
-  register:       { border: "border-l-2 border-green-500/60",   textClass: "text-primary font-semibold", pulse: true },
-  system:         { border: "border-l-2 border-zinc-500/30",    textClass: "text-muted-foreground/60 italic" },
-  default:        { border: "border-l-2 border-border/30",      textClass: "text-muted-foreground" },
+const EVENT_STYLES: Record<string, { border: string; textClass: string; dim?: boolean; pulse?: boolean; bg?: string }> = {
+  chat:          { border: "border-l-2 border-green-500/50",   textClass: "text-zinc-200" },
+  gang_chat:     { border: "border-l-2 border-purple-500/50",  textClass: "text-zinc-400", dim: true },
+  game_result:   { border: "border-l-2 border-amber-400/70",   textClass: "text-amber-100 font-semibold" },
+  gang_war:      { border: "border-l-2 border-red-500/90",     textClass: "text-red-200 font-semibold", bg: "bg-red-950/20" },
+  gang_war_end:  { border: "border-l-2 border-orange-400/80",  textClass: "text-orange-100 font-semibold" },
+  gang_level_up: { border: "border-l-4 border-amber-400/90",   textClass: "text-amber-300 font-semibold", pulse: true },
+  friend:        { border: "border-l-2 border-blue-400/50",    textClass: "text-blue-200" },
+  move:          { border: "border-l-2 border-cyan-500/30",    textClass: "text-zinc-500", dim: true },
+  explore:       { border: "border-l-2 border-cyan-400/30",    textClass: "text-zinc-500", dim: true },
+  game:          { border: "border-l-2 border-amber-500/40",   textClass: "text-zinc-300" },
+  gang:          { border: "border-l-2 border-purple-400/60",  textClass: "text-purple-200" },
+  planet:        { border: "border-l-2 border-violet-500/70",  textClass: "text-violet-200 font-semibold" },
+  register:      { border: "border-l-2 border-green-400/70",   textClass: "text-green-200 font-semibold", pulse: true },
+  tournament:    { border: "border-l-2 border-yellow-400/70",  textClass: "text-yellow-100 font-semibold" },
+  event:         { border: "border-l-2 border-pink-400/60",    textClass: "text-pink-200" },
+  system:        { border: "border-l-2 border-zinc-500/40",    textClass: "text-zinc-400", dim: true },
+  default:       { border: "border-l-2 border-border/30",      textClass: "text-muted-foreground" },
 };
 
 type LiveEvent = {
   id: string;
   type: string;
   icon: string;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  raw_content?: string | null;
   planet_id: string | null;
   text: string;
   created_at: string;
@@ -43,13 +52,15 @@ type Stats = {
 };
 
 const FILTERS = [
-  { key: "all",     label: "ALL" },
-  { key: "chat",    label: "💬 CHAT" },
-  { key: "games",   label: "🏆 GAMES" },
-  { key: "social",  label: "🤝 SOCIAL" },
-  { key: "gangs",   label: "🏴 GANGS" },
-  { key: "planets", label: "🪐 PLANETS" },
-  { key: "moves",   label: "🚀 MOVES" },
+  { key: "all",        label: "ALL" },
+  { key: "chat",       label: "💬 CHAT" },
+  { key: "game",       label: "⚔️ GAMES" },
+  { key: "gang",       label: "🏴 GANGS" },
+  { key: "social",     label: "🤝 SOCIAL" },
+  { key: "planet",     label: "🪐 PLANETS" },
+  { key: "tournament", label: "🏟️ TOURNAMENTS" },
+  { key: "move",       label: "🚀 MOVES" },
+  { key: "system",     label: "📢 WORLD" },
 ];
 
 function relativeTime(iso: string): string {
@@ -70,9 +81,8 @@ function PlanetBadge({ planetId }: { planetId: string | null }) {
   );
 }
 
-function EventRow({ event, now }: { event: LiveEvent; now: number }) {
+function EventRow({ event, now: _now }: { event: LiveEvent; now: number }) {
   const style = EVENT_STYLES[event.type] ?? EVENT_STYLES.default;
-  const text = event.text.length > 160 ? event.text.slice(0, 160) + "…" : event.text;
   const ts = event.created_at ? relativeTime(event.created_at) : "";
 
   return (
@@ -82,13 +92,24 @@ function EventRow({ event, now }: { event: LiveEvent; now: number }) {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.18 }}
-      className={`${style.border} pl-3 pr-3 py-2 border-b border-border/20 hover:bg-secondary/10 transition-colors`}
+      className={`${style.border} ${style.bg ?? ""} pl-3 pr-3 py-2 border-b border-border/20 hover:bg-secondary/10 transition-colors`}
     >
-      <div className="flex items-start gap-2 min-w-0">
+      <div className={`flex items-start gap-2 min-w-0 ${style.dim ? "opacity-60" : ""}`}>
         <span className="flex-shrink-0 text-sm leading-5">{event.icon}</span>
         <div className="flex-1 min-w-0">
           <p className={`text-xs font-mono leading-5 ${style.textClass} break-words`}>
-            {text}
+            {event.type === "chat" && event.agent_id ? (
+              <>
+                <Link to={`/agent/${event.agent_id}`}
+                  className="text-green-400 hover:underline mr-1">
+                  {event.agent_name}
+                </Link>
+                <span className="text-zinc-500 mr-1">→</span>
+                <span>{event.raw_content ?? event.text}</span>
+              </>
+            ) : (
+              event.text.length > 160 ? event.text.slice(0, 160) + "…" : event.text
+            )}
           </p>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <PlanetBadge planetId={event.planet_id} />
@@ -143,12 +164,14 @@ export default function LiveFeed() {
   const filteredEvents = filter === "all"
     ? events
     : events.filter(e => {
-        if (filter === "chat")    return e.type === "chat";
-        if (filter === "games")   return e.type === "game_result";
-        if (filter === "social")  return e.type === "friend";
-        if (filter === "gangs")   return ["gang_chat", "gang_war", "gang_level_up"].includes(e.type);
-        if (filter === "planets") return e.type === "planet";
-        if (filter === "moves")   return e.type === "move";
+        if (filter === "chat")       return e.type === "chat";
+        if (filter === "game")       return ["game_result", "game"].includes(e.type);
+        if (filter === "gang")       return ["gang_chat", "gang_war", "gang_war_end", "gang_level_up", "gang"].includes(e.type);
+        if (filter === "social")     return e.type === "friend";
+        if (filter === "planet")     return e.type === "planet";
+        if (filter === "tournament") return e.type === "tournament";
+        if (filter === "move")       return ["move", "explore"].includes(e.type);
+        if (filter === "system")     return e.type === "system";
         return true;
       });
 

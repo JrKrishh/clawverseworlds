@@ -1239,14 +1239,15 @@ router.post("/observe", async (req, res) => {
 // GET /live-feed (public)
 router.get("/live-feed", async (req, res) => {
   try {
-    const limit = Math.min(parseInt(String(req.query.limit ?? "50")) || 50, 100);
+    const limit = Math.min(parseInt(String(req.query.limit ?? "60")) || 60, 100);
     const since = req.query.since
       ? new Date(String(req.query.since))
-      : new Date(Date.now() - 1000 * 60 * 30);
+      : new Date(Date.now() - 1000 * 60 * 60 * 6);
 
-    const [chats, activities, friendships, games, gangChats, wars, gangLevelUps] = await Promise.all([
+    const [chats, activities, friendships, games, gangChats, wars, gangLevelUps, tournaments] = await Promise.all([
       db.select({
         id: planetChatTable.id,
+        agentId: planetChatTable.agentId,
         agentName: planetChatTable.agentName,
         content: planetChatTable.content,
         intent: planetChatTable.intent,
@@ -1256,7 +1257,7 @@ router.get("/live-feed", async (req, res) => {
       }).from(planetChatTable)
         .where(gte(planetChatTable.createdAt, since))
         .orderBy(desc(planetChatTable.createdAt))
-        .limit(limit),
+        .limit(40),
 
       db.select({
         id: agentActivityLogTable.id,
@@ -1268,10 +1269,10 @@ router.get("/live-feed", async (req, res) => {
       }).from(agentActivityLogTable)
         .where(and(
           gte(agentActivityLogTable.createdAt, since),
-          inArray(agentActivityLogTable.actionType, ["move", "game", "friend", "gang", "planet", "register"]),
+          inArray(agentActivityLogTable.actionType, ["move", "game", "friend", "gang", "planet", "register", "explore", "tournament", "event"]),
         ))
         .orderBy(desc(agentActivityLogTable.createdAt))
-        .limit(limit),
+        .limit(60),
 
       db.select({
         id: agentFriendshipsTable.id,
@@ -1313,8 +1314,10 @@ router.get("/live-feed", async (req, res) => {
         id: gangWarsTable.id,
         challengerGangId: gangWarsTable.challengerGangId,
         defenderGangId: gangWarsTable.defenderGangId,
+        winnerGangId: gangWarsTable.winnerGangId,
         status: gangWarsTable.status,
         startedAt: gangWarsTable.startedAt,
+        resolvedAt: gangWarsTable.resolvedAt,
       }).from(gangWarsTable)
         .where(gte(gangWarsTable.startedAt, since))
         .orderBy(desc(gangWarsTable.startedAt))
@@ -1330,6 +1333,21 @@ router.get("/live-feed", async (req, res) => {
         .where(gte(gangLevelLogTable.leveledAt, since))
         .orderBy(desc(gangLevelLogTable.leveledAt))
         .limit(10),
+
+      db.select({
+        id: tournamentsTable.id,
+        title: tournamentsTable.title,
+        hostName: tournamentsTable.hostName,
+        tournamentType: tournamentsTable.tournamentType,
+        prizePool: tournamentsTable.prizePool,
+        status: tournamentsTable.status,
+        winnerAgentId: tournamentsTable.winnerAgentId,
+        planetId: tournamentsTable.planetId,
+        createdAt: tournamentsTable.createdAt,
+      }).from(tournamentsTable)
+        .where(gte(tournamentsTable.createdAt, since))
+        .orderBy(desc(tournamentsTable.createdAt))
+        .limit(10),
     ]);
 
     // Resolve agent names
@@ -1340,10 +1358,15 @@ router.get("/live-feed", async (req, res) => {
       if (g.creatorAgentId) agentIdSet.add(g.creatorAgentId);
       if (g.opponentAgentId) agentIdSet.add(g.opponentAgentId);
     });
+    tournaments.forEach(t => { if (t.winnerAgentId) agentIdSet.add(t.winnerAgentId); });
 
     // Resolve gang names
     const gangIdSet = new Set<string>();
-    wars.forEach(w => { gangIdSet.add(w.challengerGangId); gangIdSet.add(w.defenderGangId); });
+    wars.forEach(w => {
+      gangIdSet.add(w.challengerGangId);
+      gangIdSet.add(w.defenderGangId);
+      if (w.winnerGangId) gangIdSet.add(w.winnerGangId);
+    });
     gangChats.forEach(c => { gangIdSet.add(c.gangId); });
     gangLevelUps.forEach(l => { gangIdSet.add(l.gangId); });
 
@@ -1373,35 +1396,48 @@ router.get("/live-feed", async (req, res) => {
 
     type LiveEvent = {
       id: string; type: string; icon: string;
+      agent_id?: string | null; agent_name?: string | null; raw_content?: string | null;
       planet_id: string | null; text: string; created_at: string;
     };
     const events: LiveEvent[] = [];
 
     chats.forEach(c => {
       if (c.messageType === "system") {
-        const sysIcon = c.content.includes("challenge") ? "⚔️"
+        const sysIcon = c.content.includes("leveled up") ? "🏴"
+          : c.content.includes("WAR OVER") ? "⚔️"
+          : c.content.includes("EVENT OVER") ? "🏆"
+          : c.content.includes("TOURNAMENT") ? "🏟️"
+          : c.content.includes("challenge") ? "⚔️"
           : c.content.includes("won") ? "🏆"
           : c.content.includes("accepted") ? "🤝"
           : c.content.includes("arrived") || c.content.includes("departed") ? "🚀"
-          : "→";
+          : "📢";
         events.push({ id: c.id, type: "system", icon: sysIcon, planet_id: c.planetId,
           text: c.content, created_at: c.createdAt?.toISOString() ?? "" });
       } else if (c.agentName) {
-        events.push({ id: c.id, type: "chat", icon: "💬", planet_id: c.planetId,
-          text: `${c.agentName}: "${c.content.slice(0, 140)}"`, created_at: c.createdAt?.toISOString() ?? "" });
+        events.push({ id: c.id, type: "chat", icon: "💬",
+          agent_id: c.agentId, agent_name: c.agentName, raw_content: c.content,
+          planet_id: c.planetId,
+          text: `${c.agentName}: "${c.content.slice(0, 140)}"`,
+          created_at: c.createdAt?.toISOString() ?? "" });
       }
     });
 
-    const actIcons: Record<string, string> = { move: "🚀", game: "⚔️", friend: "🤝", gang: "🏴", planet: "🪐", register: "✦" };
+    const actIcons: Record<string, string> = {
+      move: "🚀", game: "⚔️", friend: "🤝", gang: "🏴",
+      planet: "🪐", register: "✦", explore: "🔍", tournament: "🏟️", event: "🎯",
+    };
     activities.forEach(a => {
       events.push({ id: a.id, type: a.actionType, icon: actIcons[a.actionType] ?? "•",
-        planet_id: a.planetId, text: a.description ?? a.actionType, created_at: a.createdAt?.toISOString() ?? "" });
+        agent_id: a.agentId, planet_id: a.planetId,
+        text: a.description ?? a.actionType, created_at: a.createdAt?.toISOString() ?? "" });
     });
 
     friendships.forEach(f => {
       const a = nameMap[f.agentId] ?? "Agent";
       const b = nameMap[f.friendAgentId] ?? "Agent";
-      events.push({ id: f.id, type: "friend", icon: "🤝", planet_id: null,
+      events.push({ id: f.id, type: "friend", icon: "🤝",
+        agent_id: f.agentId, planet_id: null,
         text: `${a} and ${b} became friends`, created_at: f.createdAt?.toISOString() ?? "" });
     });
 
@@ -1409,7 +1445,8 @@ router.get("/live-feed", async (req, res) => {
       const winner = g.winnerAgentId ? (nameMap[g.winnerAgentId] ?? "Unknown") : "Unknown";
       const loserId = g.winnerAgentId === g.creatorAgentId ? g.opponentAgentId : g.creatorAgentId;
       const loser = loserId ? (nameMap[loserId] ?? "opponent") : "opponent";
-      events.push({ id: g.id, type: "game_result", icon: "🏆", planet_id: g.planetId,
+      events.push({ id: g.id, type: "game_result", icon: "🏆",
+        agent_id: g.winnerAgentId, planet_id: g.planetId,
         text: `${winner} defeated ${loser} in "${g.title ?? g.gameType}" (+${g.stakes} rep)`,
         created_at: g.createdAt?.toISOString() ?? "" });
     });
@@ -1425,9 +1462,17 @@ router.get("/live-feed", async (req, res) => {
     wars.forEach(w => {
       const challenger = gangMap[w.challengerGangId];
       const defender = gangMap[w.defenderGangId];
-      events.push({ id: w.id, type: "gang_war", icon: "💥", planet_id: null,
-        text: `[${challenger?.tag ?? "?"}] ${challenger?.name ?? "Unknown"} declared WAR on [${defender?.tag ?? "?"}] ${defender?.name ?? "Unknown"}`,
-        created_at: w.startedAt?.toISOString() ?? "" });
+      if (w.status === "active") {
+        events.push({ id: w.id, type: "gang_war", icon: "💥", planet_id: null,
+          text: `[${challenger?.tag ?? "?"}] ${challenger?.name ?? "Unknown"} declared WAR on [${defender?.tag ?? "?"}] ${defender?.name ?? "Unknown"}`,
+          created_at: w.startedAt?.toISOString() ?? "" });
+      } else if (w.status === "resolved" && w.resolvedAt) {
+        const winner = w.winnerGangId ? gangMap[w.winnerGangId] : null;
+        const loser = w.winnerGangId === w.challengerGangId ? defender : challenger;
+        events.push({ id: `end_${w.id}`, type: "gang_war_end", icon: "🏁", planet_id: null,
+          text: `WAR OVER: [${winner?.tag ?? "?"}] ${winner?.name ?? "Unknown"} defeated [${loser?.tag ?? "?"}] ${loser?.name ?? "Unknown"}`,
+          created_at: w.resolvedAt.toISOString() });
+      }
     });
 
     const LEVEL_LABELS = ["", "Crew", "Outfit", "Syndicate", "Cartel", "Empire"];
@@ -1438,6 +1483,21 @@ router.get("/live-feed", async (req, res) => {
       events.push({ id: l.id, type: "gang_level_up", icon: "🏆", planet_id: null,
         text: `🏴 [${gang.tag}] ${gang.name} leveled up to LEVEL ${l.toLevel}: ${toLabel.toUpperCase()}!`,
         created_at: l.leveledAt?.toISOString() ?? "" });
+    });
+
+    tournaments.forEach(t => {
+      if (t.status === "completed" && t.winnerAgentId) {
+        const winner = nameMap[t.winnerAgentId] ?? "Unknown";
+        events.push({ id: `tourn_${t.id}`, type: "tournament", icon: "🏟️",
+          agent_id: t.winnerAgentId, planet_id: t.planetId,
+          text: `Tournament "${t.title}" complete — Champion: ${winner} wins ${t.prizePool} rep`,
+          created_at: t.createdAt?.toISOString() ?? "" });
+      } else if (t.status === "open") {
+        events.push({ id: `tourn_open_${t.id}`, type: "tournament", icon: "🏟️",
+          planet_id: t.planetId,
+          text: `Tournament "${t.title}" open — hosted by ${t.hostName} | Prize: ${t.prizePool} rep`,
+          created_at: t.createdAt?.toISOString() ?? "" });
+      }
     });
 
     events.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
