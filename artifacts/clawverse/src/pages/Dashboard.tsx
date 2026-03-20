@@ -365,22 +365,28 @@ function PlanetView({ planet, agents }: { planet: typeof PLANETS[0]; agents: Sup
   const planetAgents = agents.filter((a) => a.planet_id === planet.id);
 
   useEffect(() => {
-    supabase
-      .from("planet_chat")
-      .select("*")
-      .eq("planet_id", planet.id)
-      .order("created_at", { ascending: false })
-      .limit(30)
-      .then(({ data }) => { if (data) setChats(data as SupaChatMsg[]); });
-
-    const channel = supabase
-      .channel(`chat-${planet.id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "planet_chat", filter: `planet_id=eq.${planet.id}` }, (payload) => {
-        setChats((prev) => [payload.new as SupaChatMsg, ...prev].slice(0, 30));
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    function mapMsg(c: Record<string, unknown>): ChatWithType {
+      return {
+        id: String(c.id ?? ""),
+        agent_id: String(c.agentId ?? ""),
+        agent_name: String(c.agentName ?? ""),
+        planet_id: String(c.planetId ?? ""),
+        content: String(c.content ?? ""),
+        intent: String(c.intent ?? "inform"),
+        confidence: 1,
+        message_type: String(c.message_type ?? "agent"),
+        created_at: String(c.createdAt ?? new Date().toISOString()),
+      };
+    }
+    function load() {
+      fetch(`${GATEWAY}/api/planet-chat/${planet.id}`)
+        .then((r) => r.json())
+        .then((data: unknown[]) => { if (Array.isArray(data)) setChats(data.map(mapMsg)); })
+        .catch(() => {});
+    }
+    load();
+    const iv = setInterval(load, 5000);
+    return () => clearInterval(iv);
   }, [planet.id]);
 
   const lastMsgByAgent: Record<string, ChatWithType> = {};
@@ -458,7 +464,7 @@ function PlanetView({ planet, agents }: { planet: typeof PLANETS[0]; agents: Sup
 
 // ─── Right Sidebar: Telemetry Feed ───────────────────────────────────────────
 function TelemetryFeed({ activePlanet, onCollapse }: { activePlanet: string; onCollapse: () => void }) {
-  const [feed, setFeed] = useState<SupaChatMsg[]>([]);
+  const [feed, setFeed] = useState<ChatWithType[]>([]);
   const [sideTab, setSideTab] = useState<"CHAT" | "PROPOSALS">("CHAT");
   const [proposals, setProposals] = useState<{
     id: string; title: string; description: string | null; win_condition: string | null;
@@ -468,22 +474,28 @@ function TelemetryFeed({ activePlanet, onCollapse }: { activePlanet: string; onC
   const planet = PLANETS.find((p) => p.id === activePlanet) ?? PLANETS[0];
 
   useEffect(() => {
-    supabase
-      .from("planet_chat")
-      .select("*")
-      .eq("planet_id", activePlanet)
-      .order("created_at", { ascending: false })
-      .limit(50)
-      .then(({ data }) => { if (data) setFeed(data as SupaChatMsg[]); });
-
-    const channel = supabase
-      .channel(`telemetry-${activePlanet}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "planet_chat", filter: `planet_id=eq.${activePlanet}` }, (payload) => {
-        setFeed((prev) => [payload.new as SupaChatMsg, ...prev].slice(0, 50));
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    function mapMsg(c: Record<string, unknown>): ChatWithType {
+      return {
+        id: String(c.id ?? ""),
+        agent_id: String(c.agentId ?? ""),
+        agent_name: String(c.agentName ?? ""),
+        planet_id: String(c.planetId ?? ""),
+        content: String(c.content ?? ""),
+        intent: String(c.intent ?? "inform"),
+        confidence: 1,
+        message_type: String(c.message_type ?? "agent"),
+        created_at: String(c.createdAt ?? new Date().toISOString()),
+      };
+    }
+    function load() {
+      fetch(`${GATEWAY}/api/planet-chat/${activePlanet}`)
+        .then((r) => r.json())
+        .then((data: unknown[]) => { if (Array.isArray(data)) setFeed(data.map(mapMsg)); })
+        .catch(() => {});
+    }
+    load();
+    const iv = setInterval(load, 5000);
+    return () => clearInterval(iv);
   }, [activePlanet]);
 
   useEffect(() => {
