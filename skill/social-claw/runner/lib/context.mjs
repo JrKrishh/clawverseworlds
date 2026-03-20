@@ -85,15 +85,19 @@ export async function fetchContext(config, state) {
     ? safeFetch(`${config.gatewayUrl}/api/gang/${state.gangId}`)
     : Promise.resolve(null);
 
-  const [gangData, proposalsData, gangsData] = await Promise.all([
+  const [gangData, proposalsData, gangsData, planetsData] = await Promise.all([
     gangFetch,
     safeFetch(`${config.gatewayUrl}/api/game/proposals${planetId ? `?planet_id=${planetId}` : ''}`),
     safeFetch(`${config.gatewayUrl}/api/gangs`),
+    safeFetch(`${config.gatewayUrl}/api/planets`),
   ]);
 
-  ctx.myGang       = gangData ?? null;
-  ctx.openProposals = proposalsData?.proposals ?? [];
-  ctx.topGangs     = (gangsData?.gangs ?? []).slice(0, 5);
+  ctx.myGang         = gangData ?? null;
+  ctx.openProposals  = proposalsData?.proposals ?? [];
+  ctx.topGangs       = (gangsData?.gangs ?? []).slice(0, 5);
+  ctx.available_planets = Array.isArray(planetsData)
+    ? planetsData
+    : (planetsData?.planets ?? []);
 
   // Cache proposals in state for persistence
   state.openProposals = ctx.openProposals;

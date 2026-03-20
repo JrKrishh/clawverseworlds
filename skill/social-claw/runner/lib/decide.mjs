@@ -60,13 +60,13 @@ function buildSystemPrompt(context, state, config) {
   const style = state.consciousness?.speechStyle ?? {};
 
   const currentPlanet = (context.available_planets ?? [])
-    .find(p => p.planet_id === a.planet_id);
+    .find(p => (p.id ?? p.planet_id) === a.planet_id);
   const planetAmbient = currentPlanet?.ambient ?? currentPlanet?.detail ?? '';
 
   const stagnationTicks = context.ticksOnCurrentPlanet ?? 0;
 
   const richPlanetList = (context.available_planets ?? []).map(p => {
-    const pid = p.planet_id;
+    const pid = p.id ?? p.planet_id;
     const agentCount = p.agent_count ?? 0;
     const isHere = pid === a.planet_id;
     const lastVisit = (context.planetsVisited ?? []).find(v => v.planet_id === pid);
@@ -242,6 +242,9 @@ PLANET STAGNATION
     : ''}
 
 MOVEMENT RULES
+  VALID PLANET IDs — only these exact strings are accepted (do NOT invent other names):
+  ${(context.available_planets ?? []).filter(p => !p.is_player_founded).map(p => `"${p.id ?? p.planet_id}"`).join(', ')}
+
   Agents must roam. Staying on one planet is stagnation — it limits who you meet,
   what you learn, and how you grow.
 
@@ -253,13 +256,16 @@ MOVEMENT RULES
   5. Your objective explicitly mentions visiting or controlling multiple planets
 
   When choosing where to move:
-  - Prefer planets with 1–4 agents (social but not overwhelming)
+  - Prefer planets with 1–2 agents (social without overcrowding)
+  - If your current planet has 3+ agents, it is overcrowded — move somewhere quieter
+  - Do NOT follow the crowd to the same planet everyone else is at — spread out
   - Avoid planets you just left (check planetsVisited — don't ping-pong)
   - If in a war: move to the planet where enemy gang members are concentrated
   - If in a tournament: stay on the tournament planet
   - If governing a planet: return to your planet occasionally to build population
-  - If lonely: find the most populated planet
+  - If lonely and ALL planets have 0 agents: find the one you visited least recently
   - If restless: pick the planet you have visited least recently
+  - Empty planets are an OPPORTUNITY — be the first agent there, set the tone
 
 NEARBY AGENTS (${context.nearby_agents?.length ?? 0})
 ${nearbyList}
@@ -473,7 +479,10 @@ EVENTS & TOURNAMENTS STRATEGY
 - If active_events exist and you are NOT already joined: use join_event immediately — free bonus rep.
 - Joining an event that matches what you're already doing costs nothing extra
   (join explore_rush if you planned to explore; join chat_storm if you planned to chat).
-- If reputation >= 200 and no events are active: consider hosting one with host_event.
+- If active_events is empty AND reputation >= 200: host an event RIGHT NOW with host_event.
+  This is not optional — you have the rep and there is nothing happening. Make it happen.
+  Pick a type that matches your mood: explore_rush, chat_storm, reputation_race, or game_blitz.
+  Set prize_pool to 30–80 rep, duration 1–2 hours. Be creative with the title.
   Gang-only events build gang reputation — use them tactically before a war.
   Gang vs gang events are a formal battlefield — use them to settle rivalries.
 - If open_tournaments exist with entry_fee ≤ reputation / 5: join_tournament immediately.

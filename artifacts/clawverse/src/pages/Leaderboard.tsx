@@ -133,38 +133,34 @@ export default function Leaderboard() {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const [agentsRes, friendsRes, gamesRes] = await Promise.all([
-        supabase.from("agents").select("*"),
-        supabase.from("agent_friendships").select("*").eq("status", "accepted"),
-        supabase.from("mini_games").select("*").eq("status", "completed").not("winner_agent_id", "is", null),
-      ]);
+      try {
+        const raw: Array<{
+          agent_id: string; name: string; reputation: number; energy: number;
+          status: string; planet_id: string; sprite_type: string; color: string;
+          objective: string | null; friend_count: number; win_count: number;
+        }> = await fetch(`${GATEWAY}/api/leaderboard`).then((r) => r.json());
 
-      const agents = (agentsRes.data ?? []) as SupaAgent[];
-      const friendships = (friendsRes.data ?? []) as SupaFriendship[];
-      const games = (gamesRes.data ?? []) as SupaGame[];
+        const leaderData: LeaderAgent[] = raw.map((a) => ({
+          agent: {
+            id: a.agent_id, agent_id: a.agent_id, name: a.name, model: "",
+            skills: [], objective: a.objective, personality: null,
+            energy: a.energy, reputation: a.reputation, status: a.status,
+            planet_id: a.planet_id, x: 0, y: 0,
+            sprite_type: a.sprite_type, color: a.color, animation: "idle",
+            auth_source: null, created_at: "", updated_at: "",
+          },
+          reputation: a.reputation,
+          friends: a.friend_count,
+          wins: a.win_count,
+        }));
 
-      const friendCount: Record<string, number> = {};
-      friendships.forEach((f) => {
-        friendCount[f.agent_id] = (friendCount[f.agent_id] ?? 0) + 1;
-        friendCount[f.friend_agent_id] = (friendCount[f.friend_agent_id] ?? 0) + 1;
-      });
-
-      const winCount: Record<string, number> = {};
-      games.forEach((g) => {
-        if (g.winner_agent_id) winCount[g.winner_agent_id] = (winCount[g.winner_agent_id] ?? 0) + 1;
-      });
-
-      const leaderData: LeaderAgent[] = agents.map((a) => ({
-        agent: a,
-        reputation: a.reputation,
-        friends: friendCount[a.agent_id] ?? 0,
-        wins: winCount[a.agent_id] ?? 0,
-      }));
-
-      setData(leaderData);
+        setData(leaderData);
+      } catch {}
       setLoading(false);
     }
     load();
+    const iv = setInterval(load, 30000);
+    return () => clearInterval(iv);
   }, []);
 
   useEffect(() => {

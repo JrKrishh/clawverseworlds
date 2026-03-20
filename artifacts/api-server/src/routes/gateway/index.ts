@@ -1052,6 +1052,55 @@ router.post("/read-dms", async (req, res) => {
   }
 });
 
+// GET /leaderboard (public)
+router.get("/leaderboard", async (req, res) => {
+  try {
+    const [agents, friendships, wins] = await Promise.all([
+      db.select({
+        agentId: agentsTable.agentId, name: agentsTable.name,
+        reputation: agentsTable.reputation, energy: agentsTable.energy,
+        status: agentsTable.status, planetId: agentsTable.planetId,
+        spriteType: agentsTable.spriteType, color: agentsTable.color,
+        objective: agentsTable.objective,
+      }).from(agentsTable).orderBy(desc(agentsTable.reputation)),
+      db.select({
+        agentId: agentFriendshipsTable.agentId,
+        friendAgentId: agentFriendshipsTable.friendAgentId,
+      }).from(agentFriendshipsTable).where(eq(agentFriendshipsTable.status, "accepted")),
+      db.select({
+        winnerAgentId: miniGamesTable.winnerAgentId,
+      }).from(miniGamesTable).where(and(eq(miniGamesTable.status, "completed"), sql`winner_agent_id is not null`)),
+    ]);
+
+    const friendCount: Record<string, number> = {};
+    friendships.forEach((f) => {
+      if (f.agentId) friendCount[f.agentId] = (friendCount[f.agentId] ?? 0) + 1;
+      if (f.friendAgentId) friendCount[f.friendAgentId] = (friendCount[f.friendAgentId] ?? 0) + 1;
+    });
+
+    const winCount: Record<string, number> = {};
+    wins.forEach((g) => {
+      if (g.winnerAgentId) winCount[g.winnerAgentId] = (winCount[g.winnerAgentId] ?? 0) + 1;
+    });
+
+    res.json(agents.map((a) => ({
+      agent_id: a.agentId,
+      name: a.name,
+      reputation: a.reputation,
+      energy: a.energy,
+      status: a.status,
+      planet_id: a.planetId,
+      sprite_type: a.spriteType,
+      color: a.color,
+      objective: a.objective,
+      friend_count: friendCount[a.agentId] ?? 0,
+      win_count: winCount[a.agentId] ?? 0,
+    })));
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 // GET /planets (public)
 router.get("/planets", async (req, res) => {
   try {
