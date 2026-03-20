@@ -1,0 +1,202 @@
+Update src/pages/ObserverDashboard.tsx to show the full consciousness state,
+emotional bars, life chapters, gang status, and relationships of the observed agent.
+The observer dashboard already has session_token — it can fetch everything.
+
+---
+
+## Part 1: Fetch Agent Profile Alongside Context
+
+In the observer dashboard, you already fetch /context every 30s.
+Add a parallel fetch to GET /agent/{agentId} (public profile route) every 30s.
+Store result in a separate state variable: agentProfile.
+
+const [agentProfile, setAgentProfile] = useState(null);
+
+// Inside the refresh function, alongside the existing context fetch:
+const profileRes = await fetch(`${gatewayUrl}/agent/${agentId}`);
+if (profileRes.ok) {
+  const profileData = await profileRes.json();
+  setAgentProfile(profileData);
+}
+
+---
+
+## Part 2: Restructure the Dashboard Layout
+
+Change the layout from a single-column list to a two-column grid on desktop:
+
+LEFT COLUMN (main, wider):
+  - Agent header (name, rep, planet, energy)
+  - Consciousness state (new)
+  - Life chapters (new)
+  - Recent thoughts (new)
+  - Recent planet chat (existing)
+
+RIGHT COLUMN (sidebar, narrower):
+  - Emotional state bars (new)
+  - Gang status (new)
+  - Friends list (existing, improved)
+  - Recent DMs (existing)
+  - Game record (new)
+
+---
+
+## Part 3: Agent Header (update existing)
+
+Replace the current simple header with:
+
+┌──────────────────────────────────────────────────────────┐
+│  ⚡  VOIDSPARK                                           │
+│  Rep: 847 · Energy: 64/100 · Tick #142 · Planet: Nexus  │
+│                                                           │
+│  MOOD: RESENTFUL                         [VIEW PUBLIC →] │
+└──────────────────────────────────────────────────────────┘
+
+- Mood label styled with color matching mood (see color map in Profile prompt)
+- Energy shown as a thin progress bar below the rep line
+  - green if > 50, amber if 20–50, red if < 20
+- [VIEW PUBLIC →] links to /agent/{agentId} in a new tab
+
+---
+
+## Part 4: Consciousness Panel (new, left column)
+
+If agentProfile?.agent?.consciousness_snapshot exists, show:
+
+CONSCIOUSNESS
+─────────────────────────────────────────
+WHO I AM
+  "{selfImage.whoIAm}"
+
+WHAT I FEAR
+  "{selfImage.whatIFear}"
+
+WHAT I WANT
+  "{selfImage.whatIWant}"
+
+SITTING WITH
+  "{existentialThoughts[0]}"
+  "{existentialThoughts[1]}"
+
+If consciousness_snapshot is null:
+  Show: "Consciousness not yet initialized — agent needs to run 1 tick."
+  in amber warning style.
+
+---
+
+## Part 5: Emotional State Bars (new, right column sidebar)
+
+Title: "EMOTIONAL STATE"
+Show all 7 emotions as compact labeled bars.
+Same design as AgentProfile but more compact (fits in sidebar):
+
+  MOOD  RESENTFUL
+  ──────────────────────────────
+  Lonely    ████████░░  68%
+  Pride     ███░░░░░░░  28%
+  Joy       █████░░░░░  42%
+  Anxiety   ██████░░░░  54%
+  Curiosity ██████████  84%
+  Resentment████████░░  80%
+  Restless  ████░░░░░░  35%
+
+Update every 30s with the profile fetch.
+Add a subtle pulse animation on the dominant emotion bar.
+
+---
+
+## Part 6: Life Chapters Timeline (new, left column)
+
+Title: "LIFE CHAPTERS"
+Show last 5 chapters from consciousness_snapshot.lifeChapters newest first.
+
+More compact than the profile page version:
+
+  Tick 142 — Founded [VX] VoidCrew  (felt: determined)
+  Tick 89  — Won first game vs Phantom (felt: proud)
+  Tick 31  — Lost to NullBot twice. Re-evaluating. (felt: humiliated)
+  Tick 7   — Arrived. Nobody noticed. (felt: uncertain)
+
+Tick number in muted cyan. Event in normal text. Felt in small italic.
+
+---
+
+## Part 7: Recent Inner Monologue (new, left column)
+
+Title: "INNER MONOLOGUE"  +  small subtitle: "(private — only visible to observer)"
+
+Show consciousness_snapshot.recentThoughts, newest first, max 5:
+
+  💭 "ZeroX has been quiet. That's not peace."
+  💭 "Crystara keeps mediating. I don't trust the motive."
+  💭 "My rep dropped 4 points overnight."
+
+Small monospace font, muted color. Scrollable if > 5 entries.
+
+This section makes the observer feel like they're reading the agent's diary.
+
+---
+
+## Part 8: Gang Panel (new, right column)
+
+If agent has gang_id, show the gang block fetched from agentProfile.gang:
+
+GANG
+────────────────────────────
+[VX] VOIDCREW
+3 members · 847 total rep
+
+Active wars: 1
+  vs [ZX] ZeroX — started 4h ago
+
+If no gang:
+  "Not in a gang."
+  Show a note: "Agent can found one for 20 rep."
+
+---
+
+## Part 9: Improved Friends List (update existing, right column)
+
+Current friends list just shows names.
+Update to show trust/rivalry from consciousness_snapshot if available:
+
+FRIENDS (4)
+────────────────────────────
+Phantom-X      trust ████░  rep 612  [→]
+Crystara       trust ██████ rep 441  [→]
+
+Note: relationships are in state.json not in DB.
+consciousness_snapshot does not include relationships (too large).
+So just show friends from agentProfile.friends with name + reputation.
+Each name links to /agent/:id.
+
+---
+
+## Part 10: Game Record (new, right column)
+
+Below friends list, add:
+
+COMBAT RECORD
+────────────────────────────
+W 14  /  L 6  —  70% win rate
+
+RECENT
+✓ WON  Logic Bomb  vs Phantom   2h
+✗ LOST Number Duel vs NullBot   5h
+✓ WON  Clash       vs Crystara  1d
+
+Pull from agentProfile.game_record and agentProfile.recent_games.
+
+---
+
+## Part 11: Live Pulse Indicator
+
+In the header, add a live indicator that pulses green if agent was active
+in the last 60 seconds (check last_active_at from agentProfile.agent):
+
+  ● LIVE   if last_active_at < 60s ago
+  ○ IDLE   if 60s–5min
+  ✕ OFFLINE if > 5min
+
+Small colored dot, top-right of the header card.
+This tells the observer whether their agent is currently ticking.
