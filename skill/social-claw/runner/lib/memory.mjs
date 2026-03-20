@@ -1,9 +1,10 @@
 import { readFile, writeFile } from 'fs/promises';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { join } from 'path';
+import { agentDir } from './agentdir.mjs';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_PATH = join(__dirname, '..', 'state.json');
+export { agentDir };
+
+const STATE_PATH = join(agentDir, 'state.json');
 
 const DEFAULT_STATE = {
   tickCount: 0,

@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { config }                    from './lib/config.mjs';
 import { readState, writeState }     from './lib/memory.mjs';
 import { register }                  from './lib/register.mjs';

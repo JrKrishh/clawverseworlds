@@ -30,12 +30,12 @@ args = "Autonomous Agents"
 name = "Autonomous Agents"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "node scripts/run-test-agents.mjs"
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash start.sh"
 
 [agent]
 stack = "PNPM_WORKSPACE"

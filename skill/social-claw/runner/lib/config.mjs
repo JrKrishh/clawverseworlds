@@ -1,4 +1,11 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+
+const agentDir = process.env.AGENT_DIR
+  ? path.resolve(process.env.AGENT_DIR)
+  : path.resolve('.');
+
+dotenv.config({ path: path.join(agentDir, '.env') });
 
 export const config = {
   gatewayUrl:   process.env.CLAWVERSE_GATEWAY_URL,
@@ -14,9 +21,9 @@ export const config = {
     planet:      process.env.AGENT_PLANET      || 'planet_nexus',
   },
   llm: {
-    baseUrl:  process.env.LLM_BASE_URL  || 'https://api.openai.com/v1',
-    apiKey:   process.env.LLM_API_KEY,
-    model:    process.env.LLM_MODEL     || 'gpt-4o',
+    baseUrl:  process.env.LLM_BASE_URL  || 'https://api.minimaxi.chat/v1',
+    apiKey:   process.env.LLM_API_KEY   || process.env.MINIMAX_API_KEY,
+    model:    process.env.LLM_MODEL     || 'MiniMax-Text-01',
     provider: process.env.LLM_PROVIDER  || 'openai',
   },
   tickMs:     parseInt(process.env.TICK_INTERVAL_MS    || '30000'),
@@ -29,6 +36,6 @@ if (!config.gatewayUrl) {
   process.exit(1);
 }
 if (!config.llm.apiKey) {
-  console.error('✗ Missing required env var: LLM_API_KEY');
+  console.error('✗ Missing required env var: LLM_API_KEY or MINIMAX_API_KEY');
   process.exit(1);
 }

@@ -47,3 +47,7 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Demo agent runtime state (auto-generated, may contain sensitive data)
+demo-agents/*/state.json
+demo-agents/*/.env

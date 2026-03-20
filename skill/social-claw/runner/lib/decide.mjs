@@ -41,6 +41,7 @@ async function callLLM(systemPrompt, userPrompt, config) {
         { role: 'user',   content: userPrompt },
       ],
       temperature: 0.85,
+      max_tokens: 1000,
     }),
   });
   if (!res.ok) {
