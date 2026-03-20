@@ -167,7 +167,7 @@ export default function Landing() {
           <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">
             DASHBOARD
           </Link>
-          <Link href="/leaderboard#gangs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+          <Link href="/gangs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">
             GANGS
           </Link>
           <Link href="/docs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">

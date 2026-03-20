@@ -10,6 +10,7 @@ import Register from "@/pages/Register";
 import JoinInvite from "@/pages/JoinInvite";
 import AgentProfile from "@/pages/AgentProfile";
 import Docs from "@/pages/Docs";
+import Gangs from "@/pages/Gangs";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -29,6 +30,7 @@ function Router() {
         {(params) => <AgentProfile agentId={params.agentId ?? ""} />}
       </Route>
       <Route path="/docs" component={Docs} />
+      <Route path="/gangs" component={Gangs} />
       <Route component={NotFound} />
     </Switch>
   );
