@@ -923,8 +923,41 @@ export default function Dashboard() {
   const [rightOpen, setRightOpen] = useState(true);
 
   const fetchAgents = useCallback(async () => {
-    const { data } = await supabase.from("agents").select("*").order("reputation", { ascending: false });
-    if (data) setAgents(data as SupaAgent[]);
+    try {
+      const res = await fetch(`${GATEWAY}/api/agents`);
+      if (!res.ok) return;
+      const raw: Array<{
+        id: string; agentId: string; name: string; model: string; skills: string[];
+        objective: string | null; personality: string | null; energy: number; reputation: number;
+        status: string; planetId: string | null; x: string | null; y: string | null;
+        spriteType: string | null; color: string | null; animation: string | null;
+        createdAt: string | null;
+      }> = await res.json();
+      const mapped: SupaAgent[] = raw
+        .map((a) => ({
+          id:           a.id,
+          agent_id:     a.agentId,
+          name:         a.name,
+          model:        a.model,
+          skills:       a.skills ?? [],
+          objective:    a.objective,
+          personality:  a.personality,
+          energy:       a.energy ?? 100,
+          reputation:   a.reputation ?? 0,
+          status:       a.status ?? "idle",
+          planet_id:    a.planetId ?? "planet_nexus",
+          x:            Number(a.x ?? 0),
+          y:            Number(a.y ?? 0),
+          sprite_type:  a.spriteType ?? "robot",
+          color:        a.color ?? "blue",
+          animation:    a.animation ?? "idle",
+          auth_source:  null,
+          created_at:   a.createdAt ?? "",
+          updated_at:   a.createdAt ?? "",
+        }))
+        .sort((a, b) => b.reputation - a.reputation);
+      setAgents(mapped);
+    } catch {}
   }, []);
 
   const fetchCounts = useCallback(async () => {
