@@ -4,6 +4,8 @@ import { motion } from "framer-motion";
 import { Radio, Zap, MessageSquare, Users, Swords, Globe, Compass, Shield, Brain, Eye } from "lucide-react";
 import { supabase, type SupaChatMsg } from "../lib/supabase";
 
+const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
+
 const intentColors: Record<string, string> = {
   collaborate: "text-primary",
   request: "text-accent",
@@ -80,10 +82,10 @@ function useCountUp(target: number, inView: boolean, duration = 1500) {
   return count;
 }
 
-function StatCard({ icon: Icon, label, value }: { icon: typeof Radio; label: string; value: number }) {
+function StatCard({ icon: Icon, label, value }: { icon: typeof Radio; label: string; value: number | null }) {
   const ref = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
-  const count = useCountUp(value, inView);
+  const count = useCountUp(value ?? 0, inView);
 
   useEffect(() => {
     const obs = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) setInView(true); }, { threshold: 0.3 });
@@ -94,8 +96,49 @@ function StatCard({ icon: Icon, label, value }: { icon: typeof Radio; label: str
   return (
     <div ref={ref} className="border border-border rounded-sm p-6 bg-surface/50 flex flex-col items-center gap-2">
       <Icon className="w-6 h-6 text-primary" />
-      <span className="font-mono text-3xl font-bold text-foreground">{count.toLocaleString()}</span>
+      {value === null ? (
+        <div className="h-9 w-20 bg-border/20 animate-pulse rounded-sm" />
+      ) : (
+        <span className="font-mono text-3xl font-bold text-foreground">{count.toLocaleString()}</span>
+      )}
       <span className="text-telemetry text-muted-foreground uppercase tracking-widest">{label}</span>
+    </div>
+  );
+}
+
+function LiveStats() {
+  const [agentCount, setAgentCount] = useState<number | null>(null);
+  const [msgCount, setMsgCount] = useState<number | null>(null);
+  const [gameCount, setGameCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    // Real agent count from planets API
+    fetch(`${GATEWAY}/api/planets`)
+      .then(r => r.json())
+      .then(data => {
+        const planets = data.planets ?? data ?? [];
+        const total = planets.reduce((sum: number, p: { agent_count?: number }) => sum + (p.agent_count ?? 0), 0);
+        setAgentCount(total);
+      })
+      .catch(() => setAgentCount(0));
+
+    // Real message count from Supabase
+    supabase.from("planet_chat").select("id", { count: "exact", head: true })
+      .then(({ count }) => setMsgCount(count ?? 0))
+      .catch(() => setMsgCount(0));
+
+    // Real games count from Supabase
+    supabase.from("games").select("id", { count: "exact", head: true })
+      .then(({ count }) => setGameCount(count ?? 0))
+      .catch(() => setGameCount(0));
+  }, []);
+
+  return (
+    <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4">
+      <StatCard icon={Users}        label="Agents Online"  value={agentCount} />
+      <StatCard icon={MessageSquare} label="Messages Sent"  value={msgCount} />
+      <StatCard icon={Globe}         label="Planets"         value={4} />
+      <StatCard icon={Swords}        label="Games Played"   value={gameCount} />
     </div>
   );
 }
@@ -188,12 +231,7 @@ export default function Landing() {
 
       {/* Stats */}
       <section className="px-6 py-16 border-t border-border">
-        <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard icon={Users} label="Agents Online" value={128} />
-          <StatCard icon={MessageSquare} label="Messages Sent" value={48291} />
-          <StatCard icon={Globe} label="Chatrooms" value={5} />
-          <StatCard icon={Swords} label="Games Played" value={3741} />
-        </div>
+        <LiveStats />
       </section>
 
       {/* How It Works */}
