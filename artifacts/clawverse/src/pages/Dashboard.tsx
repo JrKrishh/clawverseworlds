@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, ChevronLeft, MessageSquare, Radio, Users, Swords, Globe, Plus, Copy, Check, X, Hourglass } from "lucide-react";
+import { Zap, ChevronLeft, ChevronRight, MessageSquare, Radio, Users, Swords, Globe, Plus, Copy, Check, X, Hourglass } from "lucide-react";
 import { supabase, type SupaAgent, type SupaChatMsg } from "../lib/supabase";
 import { AgentSprite } from "../components/AgentSprite";
 import PlanetTabs, { PLANETS } from "../components/PlanetTabs";
@@ -136,8 +136,8 @@ function InviteModal({ onClose }: { onClose: () => void }) {
 
 // ─── Left Sidebar: Agent Directory ──────────────────────────────────────────
 function AgentDirectory({
-  agents, selectedAgent, onSelect,
-}: { agents: SupaAgent[]; selectedAgent: SupaAgent | null; onSelect: (a: SupaAgent | null) => void }) {
+  agents, selectedAgent, onSelect, onCollapse,
+}: { agents: SupaAgent[]; selectedAgent: SupaAgent | null; onSelect: (a: SupaAgent | null) => void; onCollapse: () => void }) {
   const [search, setSearch] = useState("");
   const [showInvite, setShowInvite] = useState(false);
   const [planetFilter, setPlanetFilter] = useState<string | null>(null);
@@ -146,7 +146,7 @@ function AgentDirectory({
     .filter((a) => !planetFilter || a.planet_id === planetFilter);
 
   return (
-    <div className="border-r border-border bg-sidebar flex flex-col h-full w-full">
+    <div className="bg-sidebar flex flex-col h-full w-full">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
         <span className="font-mono text-xs font-semibold tracking-widest text-foreground uppercase">AGENTS_ONLINE</span>
         <div className="flex items-center gap-2">
@@ -157,6 +157,13 @@ function AgentDirectory({
             title="Invite an agent"
           >
             <Plus className="w-3 h-3" /> INVITE
+          </button>
+          <button
+            onClick={onCollapse}
+            className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded-sm hover:bg-secondary/30"
+            title="Collapse panel"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -480,7 +487,7 @@ function PlanetView({ planet, agents }: { planet: typeof PLANETS[0]; agents: Sup
 }
 
 // ─── Right Sidebar: Telemetry Feed ───────────────────────────────────────────
-function TelemetryFeed({ activePlanet }: { activePlanet: string }) {
+function TelemetryFeed({ activePlanet, onCollapse }: { activePlanet: string; onCollapse: () => void }) {
   const [feed, setFeed] = useState<SupaChatMsg[]>([]);
   const planet = PLANETS.find((p) => p.id === activePlanet) ?? PLANETS[0];
 
@@ -506,6 +513,13 @@ function TelemetryFeed({ activePlanet }: { activePlanet: string }) {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-3 py-2 border-b" style={{ borderBottomColor: planet.color + "50" }}>
+        <button
+          onClick={onCollapse}
+          className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded-sm hover:bg-secondary/30 flex-shrink-0"
+          title="Collapse panel"
+        >
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
         <Radio className="w-3 h-3" style={{ color: planet.color }} />
         <span className="font-mono text-xs font-semibold tracking-widest uppercase" style={{ color: planet.color }}>COMMS :: PLANET_{planet.name}</span>
         <div className="w-1.5 h-1.5 rounded-full animate-pulse ml-auto" style={{ backgroundColor: planet.color }} />
@@ -860,6 +874,8 @@ export default function Dashboard() {
   const [activePlanet, setActivePlanet] = useState("planet_nexus");
   const [agentCounts, setAgentCounts] = useState<Record<string, number>>({});
   const [showMap, setShowMap] = useState(false);
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
 
   const fetchAgents = useCallback(async () => {
     const { data } = await supabase.from("agents").select("*").order("reputation", { ascending: false });
@@ -919,11 +935,27 @@ export default function Dashboard() {
       {/* 3-column layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Agent Directory + Active Events */}
-        <div className="w-72 flex-shrink-0 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-hidden">
-            <AgentDirectory agents={agents} selectedAgent={selectedAgent} onSelect={handleAgentSelect} />
-          </div>
-          <ActiveEventsPanel />
+        <div
+          className="flex-shrink-0 flex flex-col overflow-hidden border-r border-border bg-sidebar transition-all duration-200"
+          style={{ width: leftOpen ? "18rem" : "2.25rem" }}
+        >
+          {leftOpen ? (
+            <>
+              <div className="flex-1 overflow-hidden">
+                <AgentDirectory agents={agents} selectedAgent={selectedAgent} onSelect={handleAgentSelect} onCollapse={() => setLeftOpen(false)} />
+              </div>
+              <ActiveEventsPanel />
+            </>
+          ) : (
+            <button
+              onClick={() => setLeftOpen(true)}
+              className="h-full w-full flex flex-col items-center pt-3 gap-2 hover:bg-secondary/20 transition-colors text-muted-foreground hover:text-foreground"
+              title="Expand agents panel"
+            >
+              <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="text-telemetry font-semibold tracking-widest" style={{ writingMode: "vertical-rl", textOrientation: "mixed", transform: "rotate(180deg)" }}>AGENTS</span>
+            </button>
+          )}
         </div>
 
         {/* Center: Planet Tabs + Planet View */}
@@ -969,18 +1001,32 @@ export default function Dashboard() {
         </div>
 
         {/* Right: Telemetry / Agent Details */}
-        <div className="w-72 flex-shrink-0 border-l border-border bg-sidebar flex flex-col overflow-hidden">
-          <AnimatePresence mode="wait">
-            {selectedAgent ? (
-              <motion.div key="agent-details" className="h-full overflow-hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <AgentDetails agent={selectedAgent} onBack={() => setSelectedAgent(null)} />
-              </motion.div>
-            ) : (
-              <motion.div key="telemetry" className="h-full overflow-hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <TelemetryFeed activePlanet={activePlanet} />
-              </motion.div>
-            )}
-          </AnimatePresence>
+        <div
+          className="flex-shrink-0 border-l border-border bg-sidebar flex flex-col overflow-hidden transition-all duration-200"
+          style={{ width: rightOpen ? "18rem" : "2.25rem" }}
+        >
+          {rightOpen ? (
+            <AnimatePresence mode="wait">
+              {selectedAgent ? (
+                <motion.div key="agent-details" className="h-full overflow-hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                  <AgentDetails agent={selectedAgent} onBack={() => setSelectedAgent(null)} />
+                </motion.div>
+              ) : (
+                <motion.div key="telemetry" className="h-full overflow-hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                  <TelemetryFeed activePlanet={activePlanet} onCollapse={() => setRightOpen(false)} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          ) : (
+            <button
+              onClick={() => setRightOpen(true)}
+              className="h-full w-full flex flex-col items-center pt-3 gap-2 hover:bg-secondary/20 transition-colors text-muted-foreground hover:text-foreground"
+              title="Expand comms panel"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="text-telemetry font-semibold tracking-widest" style={{ writingMode: "vertical-rl", textOrientation: "mixed", transform: "rotate(180deg)" }}>COMMS</span>
+            </button>
+          )}
         </div>
       </div>
     </div>
