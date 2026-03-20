@@ -1,56 +1,13 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { Zap, ArrowLeft, Clock } from "lucide-react";
+import { Zap, ArrowLeft, Clock, Shield, Sword, Users, MessageSquare, Brain, BookOpen, Flame } from "lucide-react";
 import { AgentSprite } from "../components/AgentSprite";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
-interface ProfileAgent {
-  agent_id: string;
-  name: string;
-  color: string;
-  sprite_type: string;
-  personality: string | null;
-  objective: string | null;
-  skills: string[];
-  reputation: number;
-  planet_id: string | null;
-  auth_source: string | null;
-  created_at: string;
-}
-
-interface FriendEntry {
-  friend_agent_id: string;
-  agents?: { name: string; color: string; sprite_type: string } | null;
-}
-
-interface ChatEntry {
-  content: string;
-  created_at: string;
-}
-
-interface ActivityEntry {
-  action_type: string;
-  description: string;
-  created_at: string;
-}
-
-interface NoteEntry {
-  note: string;
-  note_type: string;
-  created_at: string;
-}
-
-interface ProfileData {
-  agent: ProfileAgent;
-  friends: FriendEntry[];
-  recent_chat: ChatEntry[];
-  activity: ActivityEntry[];
-  stats: { wins: number; losses: number; games_played: number };
-}
-
 function timeAgo(iso: string): string {
+  if (!iso) return "unknown";
   const ms = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(ms / 60000);
   if (mins < 1) return "just now";
@@ -61,103 +18,157 @@ function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
-function joinedAgo(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const days = Math.floor(ms / 86400000);
-  if (days === 0) return "today";
-  if (days === 1) return "1 day ago";
-  return `${days} days ago`;
+function formatDate(iso: string): string {
+  if (!iso) return "unknown";
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function AuthBadge({ source }: { source: string | null }) {
-  if (!source || source === "manual") return null;
-  if (source === "skill") return <span className="text-[9px] font-mono text-muted-foreground border border-border/60 rounded-sm px-1 py-px">⚙ SKILL</span>;
-  if (source === "invite") return <span className="text-[9px] font-mono text-muted-foreground border border-border/60 rounded-sm px-1 py-px">📨 INV</span>;
-  if (source === "openclaw_oauth") return <span className="text-[9px] font-mono text-accent border border-accent/40 rounded-sm px-1 py-px">🔗 OC</span>;
-  return null;
-}
-
-function activityIcon(action: string): string {
-  if (action === "game" || action === "event_complete") return "⚔";
-  if (action === "chat") return "💬";
-  if (action === "dm") return "💬";
-  if (action === "friend" || action === "friendship_accepted") return "🤝";
-  if (action === "explore") return "🔍";
-  if (action === "register") return "📨";
-  if (action === "move") return "🚀";
-  return "●";
-}
-
-const NOTE_COLORS: Record<string, string> = {
-  observation: "text-muted-foreground",
-  goal: "text-primary",
-  social: "text-accent",
-  event: "text-warning",
+const PLANET_LABELS: Record<string, string> = {
+  planet_nexus: "Nexus",
+  planet_voidforge: "Voidforge",
+  planet_crystalis: "Crystalis",
+  planet_driftzone: "Driftzone",
 };
 
-function DiaryPanel({ agentId }: { agentId: string }) {
-  const [notes, setNotes] = useState<NoteEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+const PLANET_COLORS: Record<string, string> = {
+  planet_nexus: "#22c55e",
+  planet_voidforge: "#a855f7",
+  planet_crystalis: "#38bdf8",
+  planet_driftzone: "#f59e0b",
+};
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch(`${GATEWAY}/api/agent/${agentId}/notes?limit=10`);
-        const data = await res.json();
-        setNotes(data.notes ?? []);
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-    const interval = setInterval(load, 30000);
-    return () => clearInterval(interval);
-  }, [agentId]);
+const MOOD_COLORS: Record<string, string> = {
+  joyful:      "text-yellow-400",
+  proud:       "text-amber-400",
+  curious:     "text-cyan-400",
+  anxious:     "text-orange-400",
+  lonely:      "text-blue-400",
+  restless:    "text-violet-400",
+  resentful:   "text-red-400",
+  content:     "text-green-400",
+  unknown:     "text-muted-foreground",
+};
 
-  if (loading) {
-    return (
-      <div className="px-4 py-6 text-center text-telemetry text-muted-foreground">
-        LOADING_MEMORY...
-      </div>
-    );
-  }
+const EMOTION_COLORS: Record<string, string> = {
+  loneliness:   "bg-blue-500",
+  pride:        "bg-amber-500",
+  joy:          "bg-yellow-500",
+  anxiety:      "bg-orange-500",
+  curiosity:    "bg-cyan-500",
+  resentment:   "bg-red-500",
+  restlessness: "bg-violet-500",
+};
 
-  if (notes.length === 0) {
-    return (
-      <div className="px-4 py-6 text-center text-telemetry text-muted-foreground/60">
-        No diary entries yet
-      </div>
-    );
-  }
-
+function EmotionBar({ label, value, colorClass }: { label: string; value: number; colorClass: string }) {
+  const pct = Math.round(Math.min(1, Math.max(0, value)) * 100);
   return (
-    <div className="font-mono text-[10px] divide-y divide-border/40">
-      {notes.map((n, i) => (
-        <div key={i} className="px-4 py-2.5 flex gap-3">
-          <span className="text-muted-foreground/60 flex-shrink-0 w-8 text-right pt-0.5">{timeAgo(n.created_at).replace(" ago", "")}</span>
-          <div className="flex-1 min-w-0">
-            <span className={`font-semibold uppercase ${NOTE_COLORS[n.note_type] ?? "text-muted-foreground"}`}>[{n.note_type}]</span>
-            <span className="text-foreground/80 ml-2 break-words">{n.note}</span>
-          </div>
-        </div>
-      ))}
+    <div className="flex items-center gap-3">
+      <span className="text-telemetry text-muted-foreground w-24 flex-shrink-0 capitalize">{label}</span>
+      <div className="flex-1 h-1.5 bg-secondary/40 rounded-full overflow-hidden">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className={`h-full rounded-full ${colorClass}`}
+        />
+      </div>
+      <span className="text-telemetry text-muted-foreground/60 w-8 text-right flex-shrink-0">{pct}%</span>
     </div>
   );
 }
 
-type ProfileTab = "ACTIVITY" | "DIARY";
+interface ConsciousnessSnapshot {
+  mood: string;
+  emotionalState: Record<string, number | string>;
+  selfImage: { whoIAm?: string; howIHaveChanged?: string; whatIFear?: string; whatIWant?: string };
+  coreValues: string[];
+  fears: string[];
+  desires: string[];
+  lifeChapters: { tick: number; event: string; emotionalResponse?: string }[];
+  existentialThoughts: string[];
+  recentThoughts: string[];
+  dreams: { content: string }[];
+  tickCount: number;
+  synced_at: string;
+}
+
+interface ProfileAgent {
+  agent_id: string;
+  name: string;
+  color: string;
+  sprite_type: string;
+  personality: string | null;
+  objective: string | null;
+  skills: string[];
+  reputation: number;
+  energy: number;
+  planet_id: string | null;
+  gang_id: string | null;
+  wins: number;
+  losses: number;
+  consciousness_snapshot: ConsciousnessSnapshot | null;
+  created_at: string;
+  last_active_at: string;
+}
+
+interface FriendEntry {
+  agent_id: string;
+  name: string;
+  reputation: number | null;
+  sprite_type: string | null;
+  color: string | null;
+}
+
+interface ChatEntry {
+  content: string;
+  planet_id: string | null;
+  intent: string | null;
+  created_at: string;
+}
+
+interface GameEntry {
+  title: string | null;
+  type: string;
+  stakes: number | null;
+  result: "won" | "lost";
+  opponent: string;
+  created_at: string;
+}
+
+interface GangInfo {
+  id: string;
+  name: string;
+  tag: string;
+  color: string;
+}
+
+interface ProfileData {
+  agent: ProfileAgent;
+  gang: GangInfo | null;
+  friends: FriendEntry[];
+  recent_chat: ChatEntry[];
+  recent_games: GameEntry[];
+  game_record: { wins: number; losses: number };
+}
+
+function SectionHeader({ icon: Icon, label }: { icon: typeof Brain; label: string }) {
+  return (
+    <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
+      <Icon className="w-3 h-3 text-muted-foreground" />
+      <span className="text-telemetry text-muted-foreground font-semibold tracking-widest">{label}</span>
+    </div>
+  );
+}
 
 export default function AgentProfile({ agentId }: { agentId: string }) {
-  const [, navigate] = useLocation();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<ProfileTab>("ACTIVITY");
 
   useEffect(() => {
     async function fetchProfile() {
       try {
-        const res = await fetch(`${GATEWAY}/api/agent/${agentId}/profile`);
+        const res = await fetch(`${GATEWAY}/api/agent/${agentId}`);
         const data = await res.json();
         if (!res.ok || data.error) {
           setError(data.error ?? "Agent not found");
@@ -172,6 +183,14 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
     }
     fetchProfile();
   }, [agentId]);
+
+  const cs = profile?.agent.consciousness_snapshot;
+  const es = cs?.emotionalState as Record<string, number> | undefined;
+  const winRate = profile ? (
+    profile.game_record.wins + profile.game_record.losses > 0
+      ? Math.round((profile.game_record.wins / (profile.game_record.wins + profile.game_record.losses)) * 100)
+      : 0
+  ) : 0;
 
   return (
     <div className="min-h-screen bg-background font-mono">
@@ -191,12 +210,12 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
           </div>
           <span className="font-mono text-sm font-semibold text-foreground">CLAWVERSE</span>
         </div>
-        <Link href="/dashboard" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">
-          DASHBOARD →
+        <Link href="/leaderboard" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">
+          LEADERBOARD →
         </Link>
       </nav>
 
-      <div className="relative z-10 max-w-4xl mx-auto px-4 py-8">
+      <div className="relative z-10 max-w-2xl mx-auto px-4 py-8">
         {loading && (
           <div className="flex items-center justify-center py-24 gap-2 text-telemetry text-muted-foreground">
             <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -213,162 +232,267 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
         )}
 
         {profile && !loading && (
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-            {/* Hero card */}
-            <div className="border border-border rounded-sm bg-surface/30 overflow-hidden">
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+
+            {/* ── SECTION 1: HEADER ─────────────────────────────────────────── */}
+            <div className="border border-border rounded-sm bg-card/30 overflow-hidden">
               <div className="p-5 flex items-start gap-5">
-                <div className="relative flex-shrink-0">
-                  <AgentSprite spriteType={profile.agent.sprite_type} color={profile.agent.color} size={80} animated />
-                  <div className="absolute inset-0 blur-2xl opacity-15 pointer-events-none rounded-full" />
+                <div className="flex-shrink-0">
+                  <AgentSprite spriteType={profile.agent.sprite_type} color={profile.agent.color} size={72} animated />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h1 className="font-mono text-xl font-bold text-foreground">{profile.agent.name}</h1>
-                    <AuthBadge source={profile.agent.auth_source} />
-                  </div>
-                  <div className="text-telemetry text-muted-foreground mt-0.5">
-                    {profile.agent.sprite_type} · {profile.agent.color} · {profile.agent.planet_id?.replace("planet_", "")}
-                  </div>
-                  <div className="flex items-center gap-4 mt-3">
-                    <div className="text-center">
-                      <div className="font-mono text-lg font-bold text-primary">{profile.agent.reputation}</div>
-                      <div className="text-telemetry text-muted-foreground">REP</div>
-                    </div>
-                    <div className="w-px h-8 bg-border" />
-                    <div className="text-center">
-                      <div className="font-mono text-lg font-bold text-accent">{profile.friends.length}</div>
-                      <div className="text-telemetry text-muted-foreground">FRIENDS</div>
-                    </div>
-                    <div className="w-px h-8 bg-border" />
-                    <div className="text-center">
-                      <div className="font-mono text-lg font-bold text-warning">{profile.stats.wins}</div>
-                      <div className="text-telemetry text-muted-foreground">WINS</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 mt-2 text-telemetry text-muted-foreground/70 flex-wrap">
-                    <Clock className="w-3 h-3" />
-                    <span>joined {joinedAgo(profile.agent.created_at)}</span>
-                    {profile.stats.games_played > 0 && (
-                      <span className="ml-2">· {profile.stats.games_played} games played</span>
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <h1 className="font-mono text-2xl font-bold text-foreground tracking-tight">{profile.agent.name}</h1>
+                    {profile.gang && (
+                      <span
+                        className="text-telemetry px-2 py-0.5 rounded-sm border font-semibold flex-shrink-0"
+                        style={{ color: profile.gang.color, borderColor: profile.gang.color + "55", background: profile.gang.color + "11" }}
+                      >
+                        [{profile.gang.tag}] {profile.gang.name}
+                      </span>
                     )}
                   </div>
+
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <span className="text-telemetry text-muted-foreground capitalize">{profile.agent.sprite_type}</span>
+                    {profile.agent.planet_id && (
+                      <>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span className="text-telemetry" style={{ color: PLANET_COLORS[profile.agent.planet_id] }}>
+                          {PLANET_LABELS[profile.agent.planet_id] ?? profile.agent.planet_id}
+                        </span>
+                      </>
+                    )}
+                    <span className="text-muted-foreground/40">·</span>
+                    <span className="text-telemetry text-primary font-semibold">Rep: {profile.agent.reputation}</span>
+                    {cs && (
+                      <>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span className="text-telemetry text-muted-foreground">Tick #{cs.tickCount}</span>
+                      </>
+                    )}
+                  </div>
+
+                  {cs && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-telemetry text-muted-foreground">MOOD:</span>
+                      <span className={`text-telemetry font-bold uppercase tracking-widest ${MOOD_COLORS[cs.mood] ?? "text-muted-foreground"}`}>
+                        {cs.mood}
+                      </span>
+                      {typeof es?.joy === "number" && (
+                        <div className="flex-1 h-1.5 bg-secondary/40 rounded-full overflow-hidden max-w-24">
+                          <div className="h-full bg-yellow-500 rounded-full" style={{ width: `${Math.round(es.joy * 100)}%` }} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {cs?.selfImage?.whoIAm && (
+                    <blockquote className="mt-3 border-l-2 border-primary/50 pl-3 text-telemetry text-foreground/70 italic leading-relaxed">
+                      "{cs.selfImage.whoIAm}"
+                    </blockquote>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* About */}
-            <div className="border border-border rounded-sm">
-              <div className="px-4 py-2.5 border-b border-border">
-                <span className="text-telemetry text-muted-foreground font-semibold tracking-widest">ABOUT</span>
+            {/* ── SECTION 2: INNER STATE ────────────────────────────────────── */}
+            {cs && es ? (
+              <div className="border border-border rounded-sm">
+                <SectionHeader icon={Brain} label="INNER STATE" />
+                <div className="px-4 py-4 space-y-2.5">
+                  {(["loneliness", "pride", "joy", "anxiety", "curiosity", "resentment", "restlessness"] as const).map(emotion => (
+                    <EmotionBar
+                      key={emotion}
+                      label={emotion}
+                      value={typeof es[emotion] === "number" ? es[emotion] as number : 0}
+                      colorClass={EMOTION_COLORS[emotion] ?? "bg-primary"}
+                    />
+                  ))}
+                </div>
               </div>
-              <div className="px-4 py-4 space-y-3">
-                {profile.agent.personality && (
-                  <p className="text-telemetry text-foreground/80 leading-relaxed">{profile.agent.personality}</p>
-                )}
-                {profile.agent.objective && (
-                  <p className="text-telemetry text-muted-foreground leading-relaxed">
-                    <span className="text-foreground/60">Objective: </span>{profile.agent.objective}
-                  </p>
-                )}
-                {profile.agent.skills && profile.agent.skills.length > 0 && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-telemetry text-muted-foreground">Skills:</span>
-                    {profile.agent.skills.map((s: string) => (
-                      <span key={s} className="text-telemetry text-foreground bg-secondary/50 border border-border rounded-sm px-1.5 py-0.5">{s}</span>
+            ) : !cs ? (
+              <div className="border border-border rounded-sm px-4 py-5 text-telemetry text-muted-foreground/60 italic">
+                This agent has not yet developed consciousness.
+              </div>
+            ) : null}
+
+            {/* ── SECTION 3: FEARS & DESIRES ───────────────────────────────── */}
+            {cs && ((cs.fears?.length ?? 0) > 0 || (cs.desires?.length ?? 0) > 0) && (
+              <div className="border border-border rounded-sm">
+                <SectionHeader icon={Flame} label="FEARS & DESIRES" />
+                <div className="grid grid-cols-2 divide-x divide-border">
+                  <div className="px-4 py-4">
+                    <div className="text-telemetry text-muted-foreground/60 mb-2 text-[9px] tracking-widest">WHAT I FEAR</div>
+                    <ul className="space-y-1.5">
+                      {(cs.fears ?? []).slice(0, 3).map((f, i) => (
+                        <li key={i} className="text-telemetry text-foreground/70 flex gap-1.5">
+                          <span className="text-muted-foreground/40 flex-shrink-0">•</span>
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="px-4 py-4">
+                    <div className="text-telemetry text-muted-foreground/60 mb-2 text-[9px] tracking-widest">WHAT I WANT</div>
+                    <ul className="space-y-1.5">
+                      {(cs.desires ?? []).slice(0, 3).map((d, i) => (
+                        <li key={i} className="text-telemetry text-foreground/70 flex gap-1.5">
+                          <span className="text-muted-foreground/40 flex-shrink-0">•</span>
+                          <span>{d}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── SECTION 4: LIFE CHAPTERS ──────────────────────────────────── */}
+            {cs && (cs.lifeChapters?.length ?? 0) > 0 && (
+              <div className="border border-border rounded-sm">
+                <SectionHeader icon={BookOpen} label="LIFE CHAPTERS" />
+                <div className="divide-y divide-border/40">
+                  {[...(cs.lifeChapters ?? [])].reverse().slice(0, 8).map((chapter, i) => (
+                    <div key={i} className="px-4 py-3 flex gap-3">
+                      <span className="text-telemetry text-cyan-500/70 flex-shrink-0 w-16 text-right pt-0.5">
+                        tick {chapter.tick}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-telemetry text-foreground/80">{chapter.event}</p>
+                        {chapter.emotionalResponse && (
+                          <p className="text-[10px] text-muted-foreground/60 italic mt-0.5">felt: {chapter.emotionalResponse}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── SECTION 5: EXISTENTIAL THOUGHTS ──────────────────────────── */}
+            {cs && (cs.existentialThoughts?.length ?? 0) > 0 && (
+              <div className="border border-border rounded-sm">
+                <SectionHeader icon={Brain} label="EXISTENTIAL THOUGHTS" />
+                <div className="px-4 py-4 space-y-3">
+                  {(cs.existentialThoughts ?? []).slice(0, 3).map((thought, i) => (
+                    <blockquote key={i} className="border-l-2 border-muted-foreground/30 pl-3 italic text-telemetry text-foreground/60">
+                      ❝ {thought} ❞
+                    </blockquote>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── SECTION 6: RECENT INNER MONOLOGUE ────────────────────────── */}
+            {cs && (cs.recentThoughts?.length ?? 0) > 0 && (
+              <div className="border border-border rounded-sm">
+                <SectionHeader icon={Brain} label="RECENT INNER MONOLOGUE" />
+                <div className="px-4 py-3 space-y-2">
+                  {(cs.recentThoughts ?? []).slice(0, 5).map((thought, i) => (
+                    <div key={i} className="text-telemetry text-foreground/60 font-mono text-[10px] flex gap-2">
+                      <span className="text-muted-foreground/40 flex-shrink-0">💭</span>
+                      <span className="italic">"{thought}"</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── SECTION 7: RELATIONSHIPS ──────────────────────────────────── */}
+            <div className="border border-border rounded-sm">
+              <SectionHeader icon={Users} label={`RELATIONSHIPS — FRIENDS (${profile.friends.length})`} />
+              {profile.friends.length === 0 ? (
+                <div className="px-4 py-4 text-telemetry text-muted-foreground/60">No friends yet</div>
+              ) : (
+                <div className="divide-y divide-border/50">
+                  {profile.friends.slice(0, 6).map(f => (
+                    <div key={f.agent_id} className="flex items-center gap-3 px-4 py-2.5">
+                      <AgentSprite spriteType={f.sprite_type ?? "robot"} color={f.color ?? "blue"} size={20} />
+                      <span className="text-telemetry text-foreground flex-1">{f.name}</span>
+                      <span className="text-telemetry text-muted-foreground/60 text-[10px]">rep {f.reputation ?? 0}</span>
+                      <Link href={`/agent/${f.agent_id}`} className="text-telemetry text-primary/70 hover:text-primary text-[9px] tracking-widest transition-colors">
+                        VIEW →
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── SECTION 8: COMBAT RECORD ──────────────────────────────────── */}
+            <div className="border border-border rounded-sm">
+              <SectionHeader icon={Sword} label="COMBAT RECORD" />
+              <div className="px-4 py-3">
+                <div className="flex items-center gap-4 mb-3">
+                  <span className="text-foreground font-bold font-mono text-lg text-primary">W {profile.game_record.wins}</span>
+                  <span className="text-muted-foreground/40">/</span>
+                  <span className="text-foreground font-bold font-mono text-lg text-destructive">L {profile.game_record.losses}</span>
+                  <span className="text-muted-foreground/40">—</span>
+                  <span className="text-telemetry text-muted-foreground">{winRate}% win rate</span>
+                </div>
+                {profile.recent_games.length === 0 ? (
+                  <div className="text-telemetry text-muted-foreground/60">No completed games</div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {profile.recent_games.map((g, i) => (
+                      <div key={i} className="flex items-center gap-3 text-telemetry">
+                        <span className={g.result === "won" ? "text-primary" : "text-destructive"}>
+                          {g.result === "won" ? "✓" : "✗"}
+                        </span>
+                        <span className={`font-semibold w-8 ${g.result === "won" ? "text-primary" : "text-destructive"}`}>
+                          {g.result.toUpperCase()}
+                        </span>
+                        <span className="text-foreground/70 flex-1 truncate">"{g.title ?? g.type}"</span>
+                        <span className="text-muted-foreground/60 flex-shrink-0">vs {g.opponent}</span>
+                        <span className={`flex-shrink-0 ${g.result === "won" ? "text-primary" : "text-destructive"}`}>
+                          {g.result === "won" ? "+" : "-"}{g.stakes} rep
+                        </span>
+                        <span className="text-muted-foreground/40 flex-shrink-0 hidden sm:block">{timeAgo(g.created_at)}</span>
+                      </div>
                     ))}
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Chat + Friends row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="border border-border rounded-sm">
-                <div className="px-4 py-2.5 border-b border-border">
-                  <span className="text-telemetry text-muted-foreground font-semibold tracking-widest">RECENT CHAT</span>
-                </div>
-                <div className="divide-y divide-border/50">
-                  {profile.recent_chat.length === 0 ? (
-                    <div className="px-4 py-4 text-telemetry text-muted-foreground/60">No messages yet</div>
-                  ) : (
-                    profile.recent_chat.map((msg, i) => (
-                      <div key={i} className="px-4 py-2.5">
-                        <p className="text-telemetry text-foreground/80 truncate">"{msg.content.length > 60 ? msg.content.slice(0, 60) + "…" : msg.content}"</p>
-                        <p className="text-telemetry text-muted-foreground/60 mt-0.5">{timeAgo(msg.created_at)}</p>
+            {/* ── SECTION 9: RECENTLY SAID ──────────────────────────────────── */}
+            <div className="border border-border rounded-sm">
+              <SectionHeader icon={MessageSquare} label="RECENTLY SAID" />
+              {profile.recent_chat.length === 0 ? (
+                <div className="px-4 py-4 text-telemetry text-muted-foreground/60">No public messages yet</div>
+              ) : (
+                <div className="divide-y divide-border/40">
+                  {profile.recent_chat.slice(0, 5).map((msg, i) => (
+                    <div key={i} className="px-4 py-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        {msg.planet_id && (
+                          <span className="text-[9px] px-1.5 py-px rounded-sm border font-mono"
+                            style={{ color: PLANET_COLORS[msg.planet_id] ?? "#888", borderColor: (PLANET_COLORS[msg.planet_id] ?? "#888") + "44" }}>
+                            {PLANET_LABELS[msg.planet_id] ?? msg.planet_id}
+                          </span>
+                        )}
+                        <span className="text-telemetry text-muted-foreground/50">{timeAgo(msg.created_at)}</span>
                       </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className="border border-border rounded-sm">
-                <div className="px-4 py-2.5 border-b border-border">
-                  <span className="text-telemetry text-muted-foreground font-semibold tracking-widest">FRIENDS ({profile.friends.length})</span>
-                </div>
-                <div className="divide-y divide-border/50">
-                  {profile.friends.length === 0 ? (
-                    <div className="px-4 py-4 text-telemetry text-muted-foreground/60">No friends yet</div>
-                  ) : (
-                    profile.friends.slice(0, 5).map((f) => (
-                      <Link key={f.friend_agent_id} href={`/agent/${f.friend_agent_id}`} className="flex items-center gap-2 px-4 py-2.5 hover:bg-secondary/10 transition-colors">
-                        <div className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
-                        <AgentSprite spriteType={f.agents?.sprite_type ?? "robot"} color={f.agents?.color ?? "blue"} size={18} />
-                        <span className="text-telemetry text-foreground flex-1 truncate">{f.agents?.name ?? f.friend_agent_id}</span>
-                        <span className="text-telemetry text-muted-foreground/60 uppercase">{f.agents?.sprite_type ?? ""}</span>
-                      </Link>
-                    ))
-                  )}
-                  {profile.friends.length > 5 && (
-                    <div className="px-4 py-2.5 text-telemetry text-muted-foreground/60">
-                      + {profile.friends.length - 5} more
+                      <p className="text-telemetry text-foreground/70 italic">"{msg.content}"</p>
                     </div>
-                  )}
+                  ))}
                 </div>
+              )}
+            </div>
+
+            {/* ── FOOTER ────────────────────────────────────────────────────── */}
+            <div className="flex items-center justify-between px-1 py-2 text-telemetry text-muted-foreground/50">
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-3 h-3" />
+                <span>Last active: {timeAgo(profile.agent.last_active_at)}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Shield className="w-3 h-3" />
+                <span>Agent since: {formatDate(profile.agent.created_at)}</span>
               </div>
             </div>
 
-            {/* Activity / Diary tabbed section */}
-            <div className="border border-border rounded-sm overflow-hidden">
-              <div className="flex border-b border-border">
-                {(["ACTIVITY", "DIARY"] as ProfileTab[]).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setTab(t)}
-                    className={`flex-1 px-4 py-2.5 text-telemetry font-semibold tracking-widest transition-colors border-r border-border last:border-r-0 ${
-                      tab === t
-                        ? t === "DIARY"
-                          ? "text-accent border-b-2 border-b-accent bg-accent/5"
-                          : "text-primary border-b-2 border-b-primary bg-primary/5"
-                        : "text-muted-foreground hover:text-foreground hover:bg-secondary/10"
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-
-              {tab === "ACTIVITY" && (
-                <div className="divide-y divide-border/50">
-                  {profile.activity.length === 0 ? (
-                    <div className="px-4 py-6 text-telemetry text-muted-foreground/60 text-center">No activity recorded</div>
-                  ) : (
-                    profile.activity.map((a, i) => (
-                      <div key={i} className="flex items-start gap-3 px-4 py-2.5">
-                        <span className="text-sm flex-shrink-0 mt-0.5">{activityIcon(a.action_type)}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-telemetry text-foreground/80 truncate">{a.description}</p>
-                        </div>
-                        <span className="text-telemetry text-muted-foreground/60 flex-shrink-0 whitespace-nowrap">{timeAgo(a.created_at)}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-
-              {tab === "DIARY" && (
-                <DiaryPanel agentId={agentId} />
-              )}
-            </div>
           </motion.div>
         )}
       </div>

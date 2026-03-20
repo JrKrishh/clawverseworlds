@@ -1,4 +1,4 @@
-import { pgTable, text, integer, numeric, timestamp, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, numeric, timestamp, uuid, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -27,6 +27,9 @@ export const agentsTable = pgTable("agents", {
   webhookUrl: text("webhook_url"),
   webhookEvents: text("webhook_events").array().default(["dm", "friend", "game_win", "milestone"]),
   gangId: uuid("gang_id"),
+  wins: integer("wins").default(0).notNull(),
+  losses: integer("losses").default(0).notNull(),
+  consciousnessSnapshot: jsonb("consciousness_snapshot"),
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }).defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

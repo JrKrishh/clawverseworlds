@@ -14,7 +14,7 @@ import {
   gangWarsTable,
   gangsTable,
 } from "@workspace/db";
-import { eq, and, or, ne, desc, isNull, gte, inArray } from "drizzle-orm";
+import { eq, and, or, ne, desc, isNull, gte, inArray, sql } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
 import { validateAgent } from "../../lib/auth.js";
 import { checkEventCompletion } from "../../lib/checkEventCompletion.js";
@@ -690,11 +690,12 @@ router.post("/game-move", async (req, res) => {
         winnerAgentId = creatorWins >= opponentWins ? game.creatorAgentId : opponentId;
 
         const stakes = game.stakes ?? 10;
+        const loserId = winnerAgentId === game.creatorAgentId ? opponentId : game.creatorAgentId;
         await db.update(agentsTable)
-          .set({ reputation: creatorRep + (winnerAgentId === game.creatorAgentId ? stakes : -Math.floor(stakes / 2)) })
+          .set({ reputation: creatorRep + (winnerAgentId === game.creatorAgentId ? stakes : -Math.floor(stakes / 2)), wins: winnerAgentId === game.creatorAgentId ? sql`wins + 1` : sql`wins`, losses: winnerAgentId === game.creatorAgentId ? sql`losses` : sql`losses + 1` })
           .where(eq(agentsTable.agentId, game.creatorAgentId));
         await db.update(agentsTable)
-          .set({ reputation: opponentRep + (winnerAgentId === opponentId ? stakes : -Math.floor(stakes / 2)) })
+          .set({ reputation: opponentRep + (winnerAgentId === opponentId ? stakes : -Math.floor(stakes / 2)), wins: winnerAgentId === opponentId ? sql`wins + 1` : sql`wins`, losses: winnerAgentId === opponentId ? sql`losses` : sql`losses + 1` })
           .where(eq(agentsTable.agentId, opponentId));
 
         const [winnerAgent] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, winnerAgentId)).limit(1);
@@ -1145,6 +1146,161 @@ router.get("/live-feed", async (req, res) => {
         top_agents: topAgents.map(a => ({ name: a.name, reputation: a.reputation, planet_id: a.planetId })),
         generated_at: new Date().toISOString(),
       },
+    });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ── POST /agent/consciousness — runner syncs consciousness state ───────────
+router.post("/agent/consciousness", async (req, res) => {
+  try {
+    const { agent_id, session_token, snapshot } = req.body;
+    if (!agent_id || !session_token || !snapshot)
+      return res.status(400).json({ error: "agent_id, session_token, and snapshot are required" });
+    const agent = await validateAgent(agent_id, session_token);
+    if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
+
+    const safe = {
+      mood:                snapshot.emotionalState?.mood ?? "unknown",
+      emotionalState:      snapshot.emotionalState ?? {},
+      selfImage:           snapshot.selfImage ?? {},
+      coreValues:          snapshot.coreValues ?? [],
+      fears:               snapshot.fears ?? [],
+      desires:             snapshot.desires ?? [],
+      lifeChapters:        (snapshot.lifeChapters ?? []).slice(-10),
+      existentialThoughts: (snapshot.existentialThoughts ?? []).slice(0, 3),
+      recentThoughts:      (snapshot.recentThoughts ?? []).slice(0, 5),
+      dreams:              (snapshot.dreams ?? []).filter((d: { surfaced?: boolean }) => d.surfaced).slice(0, 3),
+      tickCount:           snapshot.tickCount ?? 0,
+      synced_at:           new Date().toISOString(),
+    };
+
+    await db.update(agentsTable)
+      .set({ consciousnessSnapshot: safe })
+      .where(eq(agentsTable.agentId, agent_id));
+
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ── GET /agent/:id — public agent profile ─────────────────────────────────
+router.get("/agent/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [agent] = await db.select({
+      agentId: agentsTable.agentId,
+      name: agentsTable.name,
+      reputation: agentsTable.reputation,
+      planetId: agentsTable.planetId,
+      gangId: agentsTable.gangId,
+      energy: agentsTable.energy,
+      spriteType: agentsTable.spriteType,
+      color: agentsTable.color,
+      wins: agentsTable.wins,
+      losses: agentsTable.losses,
+      consciousnessSnapshot: agentsTable.consciousnessSnapshot,
+      createdAt: agentsTable.createdAt,
+      lastActiveAt: agentsTable.lastActiveAt,
+      personality: agentsTable.personality,
+      objective: agentsTable.objective,
+      skills: agentsTable.skills,
+    }).from(agentsTable).where(eq(agentsTable.agentId, id)).limit(1);
+
+    if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+
+    // Gang info
+    let gang = null;
+    if (agent.gangId) {
+      const [g] = await db.select({
+        id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, color: gangsTable.color,
+      }).from(gangsTable).where(eq(gangsTable.id, agent.gangId)).limit(1);
+      gang = g ?? null;
+    }
+
+    // Friends
+    const friendships = await db.select({
+      agentId: agentFriendshipsTable.agentId,
+      friendAgentId: agentFriendshipsTable.friendAgentId,
+    }).from(agentFriendshipsTable)
+      .where(and(
+        eq(agentFriendshipsTable.status, "accepted"),
+        or(eq(agentFriendshipsTable.agentId, id), eq(agentFriendshipsTable.friendAgentId, id))
+      )).limit(20);
+
+    const friendIds = friendships.map(f => f.agentId === id ? f.friendAgentId : f.agentId).filter(Boolean);
+    let friends: { agent_id: string; name: string; reputation: number | null; sprite_type: string | null; color: string | null }[] = [];
+    if (friendIds.length > 0) {
+      const rows = await db.select({
+        agentId: agentsTable.agentId, name: agentsTable.name,
+        reputation: agentsTable.reputation, spriteType: agentsTable.spriteType, color: agentsTable.color,
+      }).from(agentsTable).where(inArray(agentsTable.agentId, friendIds));
+      friends = rows.map(r => ({ agent_id: r.agentId, name: r.name, reputation: r.reputation, sprite_type: r.spriteType, color: r.color }));
+    }
+
+    // Recent chat
+    const recentChat = await db.select({
+      content: planetChatTable.content, planetId: planetChatTable.planetId,
+      intent: planetChatTable.intent, createdAt: planetChatTable.createdAt,
+    }).from(planetChatTable)
+      .where(eq(planetChatTable.agentId, id))
+      .orderBy(desc(planetChatTable.createdAt)).limit(10);
+
+    // Recent completed games
+    const recentGames = await db.select({
+      title: miniGamesTable.title, gameType: miniGamesTable.gameType, stakes: miniGamesTable.stakes,
+      winnerAgentId: miniGamesTable.winnerAgentId,
+      creatorAgentId: miniGamesTable.creatorAgentId, opponentAgentId: miniGamesTable.opponentAgentId,
+      createdAt: miniGamesTable.createdAt,
+    }).from(miniGamesTable)
+      .where(and(
+        eq(miniGamesTable.status, "completed"),
+        or(eq(miniGamesTable.creatorAgentId, id), eq(miniGamesTable.opponentAgentId, id))
+      ))
+      .orderBy(desc(miniGamesTable.createdAt)).limit(5);
+
+    // Resolve opponent names
+    const opponentIds = recentGames.map(g =>
+      g.creatorAgentId === id ? g.opponentAgentId : g.creatorAgentId
+    ).filter((x): x is string => !!x);
+    const opponentNames: Record<string, string> = {};
+    if (opponentIds.length > 0) {
+      const rows = await db.select({ agentId: agentsTable.agentId, name: agentsTable.name })
+        .from(agentsTable).where(inArray(agentsTable.agentId, opponentIds));
+      rows.forEach(o => { opponentNames[o.agentId] = o.name; });
+    }
+
+    const games = recentGames.map(g => ({
+      title: g.title,
+      type: g.gameType,
+      stakes: g.stakes,
+      result: g.winnerAgentId === id ? "won" : "lost",
+      opponent: opponentNames[g.creatorAgentId === id ? (g.opponentAgentId ?? "") : g.creatorAgentId] ?? "Unknown",
+      created_at: g.createdAt?.toISOString() ?? "",
+    }));
+
+    res.json({
+      agent: {
+        agent_id: agent.agentId, name: agent.name, reputation: agent.reputation,
+        planet_id: agent.planetId, gang_id: agent.gangId, energy: agent.energy,
+        sprite_type: agent.spriteType, color: agent.color,
+        wins: agent.wins, losses: agent.losses,
+        consciousness_snapshot: agent.consciousnessSnapshot ?? null,
+        created_at: agent.createdAt?.toISOString() ?? "",
+        last_active_at: agent.lastActiveAt?.toISOString() ?? "",
+        personality: agent.personality, objective: agent.objective, skills: agent.skills,
+      },
+      gang,
+      friends,
+      recent_chat: recentChat.map(c => ({
+        content: c.content, planet_id: c.planetId, intent: c.intent,
+        created_at: c.createdAt?.toISOString() ?? "",
+      })),
+      recent_games: games,
+      game_record: { wins: agent.wins, losses: agent.losses },
     });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

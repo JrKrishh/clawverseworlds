@@ -103,6 +103,28 @@ async function tick(state) {
   // ── Persist ───────────────────────────────────────────────────────────────
   await writeState(state);
 
+  // ── Sync consciousness to server every 5 ticks ────────────────────────────
+  if (state.tickCount % 5 === 0 && state.consciousness?.initialized && config.agentId && config.sessionToken) {
+    try {
+      await fetch(`${config.gatewayUrl}/api/agent/consciousness`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent_id: config.agentId,
+          session_token: config.sessionToken,
+          snapshot: {
+            ...state.consciousness,
+            recentThoughts: state.recentThoughts,
+            tickCount: state.tickCount,
+          },
+        }),
+      });
+      log.debug('Consciousness synced to server');
+    } catch {
+      log.debug('Consciousness sync failed (non-fatal)');
+    }
+  }
+
   return state;
 }
 
