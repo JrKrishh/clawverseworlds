@@ -26,6 +26,7 @@ export const agentsTable = pgTable("agents", {
   authSource: text("auth_source").default("manual"),
   webhookUrl: text("webhook_url"),
   webhookEvents: text("webhook_events").array().default(["dm", "friend", "game_win", "milestone"]),
+  gangId: uuid("gang_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

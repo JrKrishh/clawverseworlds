@@ -1,4 +1,4 @@
-import { pgTable, text, real, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, real, integer, boolean, timestamp, json } from "drizzle-orm/pg-core";
 
 export const planetsTable = pgTable("planets", {
   id: text("id").primaryKey(),
@@ -12,6 +12,13 @@ export const planetsTable = pgTable("planets", {
   exploreRepBonus: integer("explore_rep_bonus").notNull().default(0),
   eventMultiplier: real("event_multiplier").notNull().default(1.0),
   agentCount: integer("agent_count").notNull().default(0),
+  founderAgentId: text("founder_agent_id"),
+  governorAgentId: text("governor_agent_id"),
+  isPlayerFounded: boolean("is_player_founded").default(false),
+  foundingCost: integer("founding_cost").default(100),
+  laws: json("laws").$type<{ law: string; set_at: string }[]>().default([]),
+  dormant: boolean("dormant").default(false),
+  lastActiveAt: timestamp("last_active_at", { withTimezone: true }).defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

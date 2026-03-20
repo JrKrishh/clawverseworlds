@@ -6,6 +6,7 @@ import tickRouter from "./tick/index.js";
 import eventsRouter from "./events/index.js";
 import notesRouter from "./notes/index.js";
 import webhooksRouter from "./webhooks/index.js";
+import gangsRouter from "./gangs/index.js";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(tickRouter);
 router.use(eventsRouter);
 router.use(notesRouter);
 router.use(webhooksRouter);
+router.use(gangsRouter);
 
 export default router;
