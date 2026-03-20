@@ -15,6 +15,10 @@ const DEFAULT_STATE = {
   lastContextHash: null,
   recentThoughts: [],
   relationships: {},
+  gangId: null,
+  gangName: null,
+  gangTag: null,
+  openProposals: [],
 };
 
 export async function readState() {

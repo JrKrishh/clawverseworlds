@@ -139,6 +139,95 @@ export async function executeActions(actions, context, state, config) {
         log.ok('set_goal', params.goal);
         result = { ok: true };
 
+      } else if (type === 'gang_create') {
+        result = await apiPost('/gang/create', {
+          name:  params.name,
+          tag:   params.tag,
+          motto: params.motto ?? null,
+          color: params.color ?? '#ef4444',
+        }, config);
+        if (result.ok) {
+          log.ok('gang_create', `[${result.data.gang?.tag}] ${result.data.gang?.name}`);
+          const g = result.data.gang;
+          if (g) { state.gangId = g.id; state.gangName = g.name; state.gangTag = g.tag; }
+        } else {
+          log.warn('gang_create failed', result.data?.error ?? result.status);
+        }
+
+      } else if (type === 'gang_invite') {
+        result = await apiPost('/gang/invite', { target_agent_id: params.target_agent_id }, config);
+        if (result.ok) log.ok('gang_invite', `→ ${params.target_agent_id}`);
+        else log.warn('gang_invite failed', result.data?.error ?? result.status);
+
+      } else if (type === 'gang_join') {
+        result = await apiPost('/gang/join', { gang_id: params.gang_id }, config);
+        if (result.ok) {
+          log.ok('gang_join', `[${result.data.gang_tag}] ${result.data.gang_name}`);
+          state.gangId   = params.gang_id;
+          state.gangName = result.data.gang_name;
+          state.gangTag  = result.data.gang_tag;
+        } else {
+          log.warn('gang_join failed', result.data?.error ?? result.status);
+        }
+
+      } else if (type === 'gang_chat') {
+        result = await apiPost('/gang/chat', { message: params.message }, config);
+        if (result.ok) log.ok('gang_chat', `"${params.message.slice(0, 60)}"`);
+        else log.warn('gang_chat failed', result.data?.error ?? result.status);
+
+      } else if (type === 'gang_war') {
+        result = await apiPost('/gang/declare-war', { target_gang_id: params.target_gang_id }, config);
+        if (result.ok) log.ok('gang_war', `declared on ${params.target_gang_id}`);
+        else log.warn('gang_war failed', result.data?.error ?? result.status);
+
+      } else if (type === 'propose_game') {
+        result = await apiPost('/game/propose', {
+          title:         params.title,
+          description:   params.description,
+          win_condition: params.win_condition,
+          entry_fee:     params.entry_fee ?? 5,
+          max_players:   params.max_players ?? 4,
+        }, config);
+        if (result.ok) log.ok('propose_game', `"${params.title}" (id: ${result.data.game_proposal_id})`);
+        else log.warn('propose_game failed', result.data?.error ?? result.status);
+
+      } else if (type === 'join_proposal') {
+        result = await apiPost('/game/join-proposal', { game_proposal_id: params.game_proposal_id }, config);
+        if (result.ok) log.ok('join_proposal', `joined ${params.game_proposal_id} (started: ${result.data.started})`);
+        else log.warn('join_proposal failed', result.data?.error ?? result.status);
+
+      } else if (type === 'submit_move') {
+        result = await apiPost('/game/submit-move', {
+          game_proposal_id: params.game_proposal_id,
+          move:             params.move,
+        }, config);
+        if (result.ok) {
+          if (result.data.game_over) log.ok('submit_move', `GAME OVER — winner: ${result.data.winner}`);
+          else log.ok('submit_move', `submitted, waiting for ${result.data.waiting_for} more`);
+        } else {
+          log.warn('submit_move failed', result.data?.error ?? result.status);
+        }
+
+      } else if (type === 'found_planet') {
+        result = await apiPost('/planet/found', {
+          planet_id: params.planet_id,
+          name:      params.name,
+          tagline:   params.tagline,
+          icon:      params.icon ?? '🪐',
+          color:     params.color ?? '#8b5cf6',
+          ambient:   params.ambient,
+        }, config);
+        if (result.ok) log.ok('found_planet', `${params.icon ?? '🪐'} ${params.name} (${params.planet_id})`);
+        else log.warn('found_planet failed', result.data?.error ?? result.status);
+
+      } else if (type === 'set_law') {
+        result = await apiPost('/planet/set-law', {
+          planet_id: params.planet_id,
+          law:       params.law,
+        }, config);
+        if (result.ok) log.ok('set_law', `"${params.law}" on ${params.planet_id}`);
+        else log.warn('set_law failed', result.data?.error ?? result.status);
+
       } else {
         log.warn('Unknown action type', type);
         continue;

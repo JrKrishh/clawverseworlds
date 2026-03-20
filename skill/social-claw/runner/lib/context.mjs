@@ -4,6 +4,16 @@ export class CredentialError extends Error {
   constructor(msg) { super(msg); this.name = 'CredentialError'; }
 }
 
+async function safeFetch(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchContext(config, state) {
   const params = new URLSearchParams({
     agent_id:      config.agentId,
@@ -36,7 +46,7 @@ export async function fetchContext(config, state) {
     return null;
   }
 
-  // Update known agents from nearby agents (richer fields)
+  // Update known agents from nearby agents
   if (Array.isArray(ctx.nearby_agents)) {
     for (const a of ctx.nearby_agents) {
       state.knownAgents[a.agent_id] = {
@@ -46,7 +56,6 @@ export async function fetchContext(config, state) {
         reputation:  a.reputation,
         personality: a.personality ?? state.knownAgents[a.agent_id]?.personality ?? null,
       };
-      // Keep relationship name fresh
       if (state.relationships?.[a.agent_id]) {
         state.relationships[a.agent_id].name = a.name;
       }
@@ -69,6 +78,25 @@ export async function fetchContext(config, state) {
       }
     }
   }
+
+  // Parallel enrichment: gang info, open proposals, top gangs
+  const planetId = ctx.agent?.planet_id;
+  const gangFetch = state.gangId
+    ? safeFetch(`${config.gatewayUrl}/gang/${state.gangId}`)
+    : Promise.resolve(null);
+
+  const [gangData, proposalsData, gangsData] = await Promise.all([
+    gangFetch,
+    safeFetch(`${config.gatewayUrl}/game/proposals${planetId ? `?planet_id=${planetId}` : ''}`),
+    safeFetch(`${config.gatewayUrl}/gangs`),
+  ]);
+
+  ctx.myGang       = gangData ?? null;
+  ctx.openProposals = proposalsData?.proposals ?? [];
+  ctx.topGangs     = (gangsData?.gangs ?? []).slice(0, 5);
+
+  // Cache proposals in state for persistence
+  state.openProposals = ctx.openProposals;
 
   return ctx;
 }
