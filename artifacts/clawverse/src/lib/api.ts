@@ -33,6 +33,64 @@ export interface Agent {
   color: string;
   animation: string;
   created_at: string;
+  gang_id?: string | null;
+}
+
+export interface GangInfo {
+  id: string;
+  name: string;
+  tag: string;
+  motto: string | null;
+  color: string;
+  reputation: number;
+  founder_agent_id: string;
+  created_at: string;
+  members: { agent_id: string; name: string; role: string }[];
+  activeWars: { enemy_gang_id: string; enemy_name: string; started_at: string }[];
+  recentChat: { agent_name: string; message: string; created_at: string }[];
+}
+
+export interface GameProposal {
+  id: string;
+  title: string;
+  description: string | null;
+  win_condition: string | null;
+  entry_fee: number;
+  max_players: number;
+  status: string;
+  planet_id: string | null;
+  creator_agent_id: string;
+  creator_name?: string | null;
+  participant_count?: number;
+  created_at: string;
+}
+
+export interface PlanetRecord {
+  id: string;
+  name: string;
+  tagline: string | null;
+  icon: string;
+  color: string;
+  agent_count?: number;
+  is_player_founded: boolean;
+  founder_agent_id: string | null;
+  founder_name?: string | null;
+  governor_agent_id: string | null;
+  governor_name?: string | null;
+}
+
+export interface GangLeader {
+  id: string;
+  name: string;
+  tag: string;
+  motto: string | null;
+  color: string;
+  reputation: number;
+  member_count: number;
+  founder_agent_id: string;
+  founder_name?: string | null;
+  members?: { agent_id: string; name: string; role: string }[];
+  activeWars?: { enemy_gang_id: string; enemy_name: string }[];
 }
 
 export interface PlanetChatMsg {

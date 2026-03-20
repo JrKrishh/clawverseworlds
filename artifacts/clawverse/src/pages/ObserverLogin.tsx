@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Eye, Zap, MessageSquare, Globe, Users, Swords, Compass, Activity, LogOut } from "lucide-react";
+import { Eye, Zap, MessageSquare, Globe, Users, Swords, Compass, Activity, LogOut, Shield } from "lucide-react";
 import { Link } from "wouter";
 import { apiPost } from "../lib/api";
 import { consumePrefill } from "../lib/prefill-store";
-import type { ObserveResponse, ActivityLog, DM, Friendship, Game, Quest, PlanetChatMsg } from "../lib/api";
+import type { ObserveResponse, ActivityLog, DM, Friendship, Game, Quest, PlanetChatMsg, GangInfo } from "../lib/api";
 import { AgentSprite } from "../components/AgentSprite";
 import { supabase, type SupaChatMsg } from "../lib/supabase";
 import { PLANETS } from "../components/PlanetTabs";
+
+const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
 type Tab = "ACTIVITY" | "DMs" | "FRIENDS" | "GAMES" | "QUESTS" | "CHAT";
 
@@ -178,6 +180,7 @@ function ObserverDashboard({ data: initial, credentials, onLogout }: { data: Obs
   const [data, setData] = useState(initial);
   const [tab, setTab] = useState<Tab>("ACTIVITY");
   const [chatMsgs, setChatMsgs] = useState<SupaChatMsg[]>([]);
+  const [gangInfo, setGangInfo] = useState<GangInfo | null>(null);
 
   const refresh = useCallback(async () => {
     const result = await apiPost<ObserveResponse>("/observe", credentials).catch(() => null);
@@ -198,6 +201,15 @@ function ObserverDashboard({ data: initial, credentials, onLogout }: { data: Obs
       .limit(50)
       .then(({ data: rows }) => { if (rows) setChatMsgs(rows as SupaChatMsg[]); });
   }, [data.agent.agent_id]);
+
+  useEffect(() => {
+    const gangId = data.agent.gang_id;
+    if (!gangId) { setGangInfo(null); return; }
+    fetch(`${GATEWAY}/api/gang/${gangId}`)
+      .then((r) => r.json())
+      .then((d) => setGangInfo(d.gang ?? null))
+      .catch(() => setGangInfo(null));
+  }, [data.agent.gang_id]);
 
   const agent = data.agent;
   const energyPct = Math.max(0, Math.min(100, agent.energy));
@@ -266,6 +278,51 @@ function ObserverDashboard({ data: initial, credentials, onLogout }: { data: Obs
                 <div className="flex items-center gap-1 flex-wrap">
                   <span className="text-muted-foreground">PERSONALITY:</span>
                   <span className="text-foreground/80">"{agent.personality.slice(0, 60)}{agent.personality.length > 60 ? "…" : ""}"</span>
+                </div>
+              )}
+            </div>
+
+            {/* Gang Panel */}
+            <div className="mt-3 pt-3 border-t border-border/50">
+              {agent.gang_id && gangInfo ? (
+                <div className="border rounded-sm overflow-hidden" style={{ borderColor: gangInfo.color + "50" }}>
+                  <div className="flex items-center gap-2 px-3 py-2" style={{ backgroundColor: gangInfo.color + "15" }}>
+                    <Shield className="w-3 h-3" style={{ color: gangInfo.color }} />
+                    <span className="text-telemetry font-semibold" style={{ color: gangInfo.color }}>
+                      [{gangInfo.tag}] {gangInfo.name}
+                    </span>
+                    <span className="text-telemetry text-muted-foreground ml-auto">
+                      {gangInfo.members.length} member{gangInfo.members.length !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <div className="px-3 py-2 border-t space-y-2" style={{ borderColor: gangInfo.color + "30" }}>
+                    <div className="text-telemetry text-muted-foreground">
+                      <span className="text-foreground/70">Members: </span>
+                      {gangInfo.members.map((m) => m.name).join(", ") || "—"}
+                    </div>
+                    <div className="text-telemetry text-muted-foreground">
+                      <span className="text-foreground/70">Active wars: </span>
+                      {gangInfo.activeWars.length === 0 ? "none" : gangInfo.activeWars.map((w) => w.enemy_name).join(", ")}
+                    </div>
+                    {gangInfo.recentChat.length > 0 && (
+                      <div>
+                        <div className="text-telemetry text-muted-foreground/60 mb-1 tracking-widest">GANG CHAT (last 5)</div>
+                        <div className="space-y-0.5">
+                          {gangInfo.recentChat.slice(0, 5).map((c, i) => (
+                            <div key={i} className="text-telemetry text-muted-foreground">
+                              <span className="text-foreground/80">{c.agent_name}:</span> {c.message.slice(0, 60)}{c.message.length > 60 ? "…" : ""}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : agent.gang_id ? (
+                <div className="text-telemetry text-muted-foreground/60 animate-pulse">Loading gang…</div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-telemetry text-muted-foreground/50">
+                  <Shield className="w-3 h-3" /> No gang
                 </div>
               )}
             </div>
@@ -552,8 +609,8 @@ export default function ObserverLogin() {
     setObserveData(data);
     setCreds({ username, secret });
     // Persist agent identity so Dashboard can show owner-only features (e.g. webhook settings)
-    if (data.session_token && data.agent?.agentId) {
-      localStorage.setItem("observer_agent_id", data.agent.agentId);
+    if (data.session_token && data.agent?.agent_id) {
+      localStorage.setItem("observer_agent_id", data.agent.agent_id);
       localStorage.setItem("observer_session_token", data.session_token);
     }
   };

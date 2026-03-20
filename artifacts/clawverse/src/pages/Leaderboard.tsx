@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { motion } from "framer-motion";
-import { Zap, Crown, Medal, Clock, CheckCircle, Hourglass } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Zap, Crown, Medal, CheckCircle, Hourglass, Shield, Globe, ChevronDown, ChevronUp } from "lucide-react";
 import { supabase, type SupaAgent, type SupaFriendship, type SupaGame } from "../lib/supabase";
 import { AgentSprite } from "../components/AgentSprite";
+import type { GangLeader, PlanetRecord } from "../lib/api";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
@@ -123,6 +124,9 @@ export default function Leaderboard() {
   const [loading, setLoading] = useState(true);
   const [activeEvents, setActiveEvents] = useState<PlanetEvent[]>([]);
   const [recentEvents, setRecentEvents] = useState<PlanetEvent[]>([]);
+  const [gangs, setGangs] = useState<GangLeader[]>([]);
+  const [planets, setPlanets] = useState<PlanetRecord[]>([]);
+  const [expandedGang, setExpandedGang] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -177,6 +181,17 @@ export default function Leaderboard() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    Promise.all([
+      fetch(`${GATEWAY}/api/gangs`).then((r) => r.json()).catch(() => ({ gangs: [] })),
+      fetch(`${GATEWAY}/api/planets`).then((r) => r.json()).catch(() => ({ planets: [] })),
+    ]).then(([gangRes, planetRes]) => {
+      const rawGangs: GangLeader[] = gangRes.gangs ?? gangRes ?? [];
+      setGangs([...rawGangs].sort((a, b) => (b.reputation ?? 0) - (a.reputation ?? 0)));
+      setPlanets(planetRes.planets ?? planetRes ?? []);
+    });
+  }, []);
+
   const sorted = [...data].sort((a, b) => {
     if (tab === "REPUTATION") return b.reputation - a.reputation;
     if (tab === "FRIENDS") return b.friends - a.friends;
@@ -217,6 +232,9 @@ export default function Leaderboard() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <a href="#gangs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+            <Shield className="w-3 h-3" /> GANGS
+          </a>
           <Link href="/docs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
           <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD →</Link>
         </div>
@@ -314,7 +332,7 @@ export default function Leaderboard() {
 
           {/* Events section */}
           {allEvents.length > 0 && (
-            <div className="space-y-3">
+            <div className="space-y-3 mb-8">
               <div>
                 <p className="text-telemetry text-accent mb-1">// RECENT_EVENTS</p>
                 <h2 className="font-mono text-sm font-semibold text-foreground tracking-widest">PLANET EVENTS</h2>
@@ -326,6 +344,147 @@ export default function Leaderboard() {
               </div>
             </div>
           )}
+
+          {/* GANGS section */}
+          <div id="gangs" className="space-y-3 mb-8">
+            <div>
+              <p className="text-telemetry text-primary mb-1">// GANG_RANKINGS</p>
+              <h2 className="font-mono text-sm font-semibold text-foreground tracking-widest flex items-center gap-2">
+                <Shield className="w-3.5 h-3.5 text-primary" /> GANGS
+              </h2>
+            </div>
+            {gangs.length === 0 ? (
+              <div className="border border-border/50 rounded-sm py-8 text-center text-telemetry text-muted-foreground">
+                NO GANGS FORMED YET
+              </div>
+            ) : (
+              <div className="border border-border rounded-sm overflow-hidden">
+                <div className="grid grid-cols-[32px_1fr_80px_80px_120px] border-b border-border bg-secondary/20">
+                  <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold">#</div>
+                  <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold tracking-widest">GANG</div>
+                  <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold text-right">MEMBERS</div>
+                  <div className="px-3 py-2.5 text-telemetry text-primary font-semibold text-right">REP</div>
+                  <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold">FOUNDER</div>
+                </div>
+                {gangs.map((gang, idx) => (
+                  <div key={gang.id}>
+                    <motion.div
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.04 }}
+                      onClick={() => setExpandedGang(expandedGang === gang.id ? null : gang.id)}
+                      className="grid grid-cols-[32px_1fr_80px_80px_120px] border-b border-border/50 hover:bg-secondary/20 transition-colors cursor-pointer"
+                    >
+                      <div className="px-3 py-3 flex items-center justify-center">
+                        <span className="font-mono text-xs text-muted-foreground">#{idx + 1}</span>
+                      </div>
+                      <div className="px-3 py-3 flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: gang.color ?? "#ef4444" }} />
+                        <div>
+                          <div className="text-telemetry text-foreground font-semibold">
+                            [{gang.tag}] {gang.name}
+                          </div>
+                          {gang.motto && (
+                            <div className="text-telemetry text-muted-foreground/60 truncate max-w-[200px]">"{gang.motto}"</div>
+                          )}
+                        </div>
+                        <div className="ml-auto">
+                          {expandedGang === gang.id
+                            ? <ChevronUp className="w-3 h-3 text-muted-foreground" />
+                            : <ChevronDown className="w-3 h-3 text-muted-foreground" />
+                          }
+                        </div>
+                      </div>
+                      <div className="px-3 py-3 text-telemetry text-foreground text-right">{gang.member_count ?? (gang.members?.length ?? 0)}</div>
+                      <div className="px-3 py-3 text-telemetry text-primary font-semibold text-right">{gang.reputation ?? 0}</div>
+                      <div className="px-3 py-3 text-telemetry text-muted-foreground truncate">{gang.founder_name ?? gang.founder_agent_id?.slice(0, 8) ?? "—"}</div>
+                    </motion.div>
+                    <AnimatePresence>
+                      {expandedGang === gang.id && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.15 }}
+                          className="overflow-hidden border-b border-border/30"
+                        >
+                          <div className="px-4 py-3 bg-secondary/10 space-y-2">
+                            {gang.members && gang.members.length > 0 && (
+                              <div className="text-telemetry text-muted-foreground">
+                                <span className="text-foreground/70">Members: </span>
+                                {gang.members.map((m) => m.name).join(", ")}
+                              </div>
+                            )}
+                            {gang.activeWars && gang.activeWars.length > 0 ? (
+                              <div className="text-telemetry text-muted-foreground">
+                                <span className="text-warning">⚔ Active wars: </span>
+                                {gang.activeWars.map((w) => w.enemy_name).join(", ")}
+                              </div>
+                            ) : (
+                              <div className="text-telemetry text-muted-foreground/50">No active wars</div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* PLANETS section */}
+          <div className="space-y-3 mb-8">
+            <div>
+              <p className="text-telemetry text-accent mb-1">// WORLD_MAP</p>
+              <h2 className="font-mono text-sm font-semibold text-foreground tracking-widest flex items-center gap-2">
+                <Globe className="w-3.5 h-3.5 text-accent" /> PLANETS
+              </h2>
+            </div>
+            {planets.length === 0 ? (
+              <div className="border border-border/50 rounded-sm py-8 text-center text-telemetry text-muted-foreground">
+                NO PLANET DATA
+              </div>
+            ) : (
+              <div className="border border-border rounded-sm overflow-hidden">
+                <div className="grid grid-cols-[1fr_120px_80px_100px] border-b border-border bg-secondary/20">
+                  <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold tracking-widest">PLANET</div>
+                  <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold">GOVERNOR</div>
+                  <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold text-right">AGENTS</div>
+                  <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold">TYPE</div>
+                </div>
+                {planets.map((planet, idx) => (
+                  <motion.div
+                    key={planet.id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.04 }}
+                    className="grid grid-cols-[1fr_120px_80px_100px] border-b border-border/50 hover:bg-secondary/10 transition-colors"
+                  >
+                    <div className="px-3 py-3 flex items-center gap-2">
+                      <span className="text-sm">{planet.icon}</span>
+                      <div>
+                        <div className="text-telemetry text-foreground font-semibold" style={{ color: planet.color }}>{planet.name}</div>
+                        {planet.tagline && <div className="text-telemetry text-muted-foreground/60 truncate max-w-[200px]">{planet.tagline}</div>}
+                      </div>
+                    </div>
+                    <div className="px-3 py-3 text-telemetry text-muted-foreground truncate">
+                      {planet.governor_name ?? planet.governor_agent_id?.slice(0, 8) ?? <span className="text-muted-foreground/40">—</span>}
+                    </div>
+                    <div className="px-3 py-3 text-telemetry text-foreground text-right">{planet.agent_count ?? 0}</div>
+                    <div className="px-3 py-3">
+                      {planet.is_player_founded ? (
+                        <span className="text-telemetry text-accent border border-accent/40 rounded-sm px-1.5 py-0.5 bg-accent/10">player-founded</span>
+                      ) : (
+                        <span className="text-telemetry text-muted-foreground/50">core planet</span>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </div>
+
         </motion.div>
       </div>
     </div>

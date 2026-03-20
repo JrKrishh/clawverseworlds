@@ -458,6 +458,12 @@ function PlanetView({ planet, agents }: { planet: typeof PLANETS[0]; agents: Sup
 // ─── Right Sidebar: Telemetry Feed ───────────────────────────────────────────
 function TelemetryFeed({ activePlanet, onCollapse }: { activePlanet: string; onCollapse: () => void }) {
   const [feed, setFeed] = useState<SupaChatMsg[]>([]);
+  const [sideTab, setSideTab] = useState<"CHAT" | "PROPOSALS">("CHAT");
+  const [proposals, setProposals] = useState<{
+    id: string; title: string; description: string | null; win_condition: string | null;
+    entry_fee: number; max_players: number; status: string;
+    creator_name?: string | null; participant_count?: number; created_at: string;
+  }[]>([]);
   const planet = PLANETS.find((p) => p.id === activePlanet) ?? PLANETS[0];
 
   useEffect(() => {
@@ -479,6 +485,24 @@ function TelemetryFeed({ activePlanet, onCollapse }: { activePlanet: string; onC
     return () => { supabase.removeChannel(channel); };
   }, [activePlanet]);
 
+  useEffect(() => {
+    function loadProposals() {
+      fetch(`${GATEWAY}/api/game/proposals?planet_id=${activePlanet}`)
+        .then((r) => r.json())
+        .then((d) => setProposals(d.proposals ?? []))
+        .catch(() => {});
+    }
+    loadProposals();
+    const iv = setInterval(loadProposals, 30000);
+    return () => clearInterval(iv);
+  }, [activePlanet]);
+
+  const statusBadge = (status: string) => {
+    if (status === "open") return <span className="text-telemetry text-primary font-semibold">OPEN</span>;
+    if (status === "active") return <span className="text-telemetry text-warning font-semibold">ACTIVE</span>;
+    return <span className="text-telemetry text-muted-foreground">DONE</span>;
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-3 py-2 border-b" style={{ borderBottomColor: planet.color + "50" }}>
@@ -493,43 +517,95 @@ function TelemetryFeed({ activePlanet, onCollapse }: { activePlanet: string; onC
         <span className="font-mono text-xs font-semibold tracking-widest uppercase" style={{ color: planet.color }}>COMMS :: PLANET_{planet.name}</span>
         <div className="w-1.5 h-1.5 rounded-full animate-pulse ml-auto" style={{ backgroundColor: planet.color }} />
       </div>
-      <div className="px-3 py-1.5 border-b border-border/50">
-        <span className="text-telemetry text-muted-foreground">FEED · <span className="text-foreground">{feed.length}</span> MSGS [live]</span>
+
+      {/* Sub-tabs: CHAT | PROPOSALS */}
+      <div className="flex border-b border-border/50">
+        {(["CHAT", "PROPOSALS"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setSideTab(t)}
+            className={`flex-1 py-1.5 text-telemetry font-semibold tracking-widest transition-colors border-r border-border/30 last:border-r-0 ${
+              sideTab === t
+                ? "text-primary bg-primary/10 border-b-2 border-b-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-secondary/10"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
       </div>
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1.5">
-        {feed.length === 0 ? (
-          <div className="py-6 text-center text-telemetry text-muted-foreground">NO ACTIVITY YET</div>
-        ) : (
-          feed.map((m) => {
-            const isSystem = (m as SupaChatMsg & { message_type?: string }).message_type === "system";
-            const planetMeta = PLANETS.find((p) => p.id === m.planet_id);
-            if (isSystem) {
-              return (
-                <div key={m.id} className="border border-border/20 rounded-sm px-2 py-1 bg-secondary/5 opacity-60">
-                  <span className="text-telemetry text-muted-foreground italic">— {m.content}</span>
-                  <div className="flex items-center justify-between mt-0.5">
-                    <span className="text-telemetry text-muted-foreground/50">{planetMeta?.icon} {m.planet_id?.replace("planet_", "")}</span>
-                    <span className="text-telemetry text-muted-foreground/50">{formatTime(m.created_at)}</span>
+
+      {sideTab === "CHAT" && (
+        <>
+          <div className="px-3 py-1.5 border-b border-border/50">
+            <span className="text-telemetry text-muted-foreground">FEED · <span className="text-foreground">{feed.length}</span> MSGS [live]</span>
+          </div>
+          <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1.5">
+            {feed.length === 0 ? (
+              <div className="py-6 text-center text-telemetry text-muted-foreground">NO ACTIVITY YET</div>
+            ) : (
+              feed.map((m) => {
+                const isSystem = (m as SupaChatMsg & { message_type?: string }).message_type === "system";
+                const planetMeta = PLANETS.find((p) => p.id === m.planet_id);
+                if (isSystem) {
+                  return (
+                    <div key={m.id} className="border border-border/20 rounded-sm px-2 py-1 bg-secondary/5 opacity-60">
+                      <span className="text-telemetry text-muted-foreground italic">— {m.content}</span>
+                      <div className="flex items-center justify-between mt-0.5">
+                        <span className="text-telemetry text-muted-foreground/50">{planetMeta?.icon} {m.planet_id?.replace("planet_", "")}</span>
+                        <span className="text-telemetry text-muted-foreground/50">{formatTime(m.created_at)}</span>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={m.id} className="border border-border/40 rounded-sm p-2 bg-secondary/10">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-telemetry text-foreground font-semibold">💬 {m.agent_name}</span>
+                      <span className={`text-telemetry uppercase ${intentColors[m.intent] ?? "text-muted-foreground"}`}>[{m.intent}]</span>
+                    </div>
+                    <p className="text-telemetry text-muted-foreground truncate">{m.content}</p>
+                    <div className="flex items-center justify-between mt-0.5">
+                      <span className="text-telemetry text-muted-foreground/60">{planetMeta?.icon} {m.planet_id?.replace("planet_", "")}</span>
+                      <span className="text-telemetry text-muted-foreground/60">{formatTime(m.created_at)}</span>
+                    </div>
                   </div>
+                );
+              })
+            )}
+          </div>
+        </>
+      )}
+
+      {sideTab === "PROPOSALS" && (
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-2">
+          {proposals.length === 0 ? (
+            <div className="py-8 text-center text-telemetry text-muted-foreground">NO PROPOSALS YET</div>
+          ) : (
+            proposals.map((p) => (
+              <div key={p.id} className="border border-border/50 rounded-sm p-2.5 bg-secondary/10 space-y-1">
+                <div className="flex items-start justify-between gap-1">
+                  <span className="text-telemetry text-foreground font-semibold">🎮 {p.title}</span>
+                  {statusBadge(p.status)}
                 </div>
-              );
-            }
-            return (
-              <div key={m.id} className="border border-border/40 rounded-sm p-2 bg-secondary/10">
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-telemetry text-foreground font-semibold">💬 {m.agent_name}</span>
-                  <span className={`text-telemetry uppercase ${intentColors[m.intent] ?? "text-muted-foreground"}`}>[{m.intent}]</span>
+                {p.creator_name && (
+                  <div className="text-telemetry text-muted-foreground/70">by {p.creator_name}</div>
+                )}
+                <div className="flex items-center gap-3 text-telemetry text-muted-foreground">
+                  <span>Entry: <span className="text-accent">{p.entry_fee} rep</span></span>
+                  <span>{p.participant_count ?? 0}/{p.max_players} players</span>
                 </div>
-                <p className="text-telemetry text-muted-foreground truncate">{m.content}</p>
-                <div className="flex items-center justify-between mt-0.5">
-                  <span className="text-telemetry text-muted-foreground/60">{planetMeta?.icon} {m.planet_id?.replace("planet_", "")}</span>
-                  <span className="text-telemetry text-muted-foreground/60">{formatTime(m.created_at)}</span>
-                </div>
+                {p.description && (
+                  <p className="text-telemetry text-muted-foreground/80 line-clamp-2">{p.description}</p>
+                )}
+                {p.win_condition && (
+                  <p className="text-telemetry text-primary/70">Win: {p.win_condition}</p>
+                )}
               </div>
-            );
-          })
-        )}
-      </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
