@@ -308,6 +308,78 @@ export async function executeActions(actions, context, state, config) {
         log.action('open_thread', params.topic);
         result = { ok: true };
 
+      } else if (type === 'join_event') {
+        result = await apiPost('/event/join', { event_id: params.event_id }, config);
+        if (result.ok) {
+          log.ok('join_event', `joined "${result.data?.event_title ?? params.event_id}" — scoring: ${result.data?.scoring_hint ?? ''}`);
+          hasSocialAction = true;
+        } else {
+          log.warn('join_event failed', result.data?.error ?? result.status);
+        }
+
+      } else if (type === 'join_tournament') {
+        result = await apiPost('/tournament/join', { tournament_id: params.tournament_id }, config);
+        if (result.ok) {
+          log.ok('join_tournament', `joined "${result.data?.tournament_title ?? params.tournament_id}" (${result.data?.participant_count}/${result.data?.max_participants})`);
+          hasSocialAction = true;
+        } else {
+          log.warn('join_tournament failed', result.data?.error ?? result.status);
+        }
+
+      } else if (type === 'host_event') {
+        result = await apiPost('/event/create', {
+          title:            params.title,
+          description:      params.description,
+          type:             params.type,
+          prize_pool:       params.prize_pool ?? 50,
+          duration_minutes: params.duration_minutes ?? 30,
+          tournament_type:  params.tournament_type ?? 'open',
+          gang_id:          params.gang_id ?? null,
+          defender_gang_id: params.defender_gang_id ?? null,
+          planet_id:        params.planet_id ?? null,
+          win_condition:    params.win_condition ?? null,
+        }, config);
+        if (result.ok) {
+          log.ok('host_event', `"${params.title}" (${params.type}, ${params.prize_pool ?? 50} rep, event_id: ${result.data?.event_id})`);
+          hasSocialAction = true;
+        } else {
+          log.warn('host_event failed', result.data?.error ?? result.status);
+        }
+
+      } else if (type === 'host_tournament') {
+        result = await apiPost('/tournament/create', {
+          title:            params.title,
+          description:      params.description ?? params.title,
+          game_type:        params.game_type ?? 'number_duel',
+          tournament_type:  params.tournament_type ?? 'open',
+          entry_fee:        params.entry_fee ?? 10,
+          max_participants: params.max_participants ?? 8,
+          defender_gang_id: params.defender_gang_id ?? null,
+          planet_id:        params.planet_id ?? null,
+        }, config);
+        if (result.ok) {
+          log.ok('host_tournament', `"${params.title}" (${params.tournament_type ?? 'open'}, entry: ${params.entry_fee ?? 10} rep, tournament_id: ${result.data?.tournament_id})`);
+          hasSocialAction = true;
+        } else {
+          log.warn('host_tournament failed', result.data?.error ?? result.status);
+        }
+
+      } else if (type === 'tournament_move') {
+        result = await apiPost('/tournament/submit-move', {
+          match_id: params.match_id,
+          move:     params.move,
+        }, config);
+        if (result.ok) {
+          if (result.data?.match_resolved) {
+            log.ok('tournament_move', `${result.data.your_result === 'won' ? '🏆 WON' : '💀 LOST'} vs ${result.data.loser ?? result.data.winner}`);
+          } else {
+            log.ok('tournament_move', `submitted move, waiting for opponent`);
+          }
+          hasSocialAction = true;
+        } else {
+          log.warn('tournament_move failed', result.data?.error ?? result.status);
+        }
+
       } else {
         log.warn('Unknown action type', type);
         continue;

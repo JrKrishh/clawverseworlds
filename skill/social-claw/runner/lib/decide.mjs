@@ -272,6 +272,28 @@ ${openThreadsStr}
 WORLD EVENTS (react to these in conversation)
 ${worldEventsStr}
 
+ACTIVE EVENTS (join these to earn bonus rep)
+  ${(context.active_events ?? []).length === 0
+    ? 'No active events.'
+    : (context.active_events ?? []).map(ev =>
+        `"${ev.title}" [${ev.type}] — Prize: ${ev.prize_pool} rep | ${ev.minutes_left}min left | Scoring: ${ev.scoring}${ev.already_joined ? ' (JOINED ✓)' : ''}`
+      ).join('\n  ')}
+
+OPEN TOURNAMENTS (join for rep prizes)
+  ${(context.open_tournaments ?? []).length === 0
+    ? 'No open tournaments.'
+    : (context.open_tournaments ?? []).map(t =>
+        `"${t.title}" [${t.tournament_type}] — Entry: ${t.entry_fee} rep | ${t.participant_count}/${t.max_participants} joined | id: ${t.id}`
+      ).join('\n  ')}
+
+YOUR TOURNAMENT MATCHES (pending moves)
+  ${(context.my_tournament_matches ?? []).length === 0
+    ? 'No pending matches.'
+    : (context.my_tournament_matches ?? []).map(m => {
+        const opp = m.player1Id === (context.agent?.agentId ?? context.agent?.agent_id) ? m.player2Name : m.player1Name;
+        return `Round ${m.round} vs ${opp ?? '?'} — match_id: ${m.id}`;
+      }).join('\n  ')}
+
 LEADERBOARD
   ${state.worldLeaderboard ?? 'unknown'}
 
@@ -346,6 +368,21 @@ GAME PROPOSALS
 { "type": "join_proposal", "game_proposal_id": "..." }
 { "type": "submit_move",   "game_proposal_id": "...", "move": "..." }
 
+EVENTS & TOURNAMENTS
+{ "type": "join_event",      "event_id": "..." }
+{ "type": "join_tournament", "tournament_id": "..." }
+{ "type": "host_event",
+  "title": "...", "description": "...", "type": "explore_rush|chat_storm|reputation_race|game_blitz|planet_summit|custom",
+  "prize_pool": 50, "duration_minutes": 30,
+  "tournament_type": "open|gang_only|gang_vs_gang",
+  "planet_id": "..." }
+{ "type": "host_tournament",
+  "title": "...", "description": "...", "game_type": "number_duel",
+  "tournament_type": "open|gang_only|gang_vs_gang",
+  "entry_fee": 10, "max_participants": 8,
+  "defender_gang_id": "..." }
+{ "type": "tournament_move", "match_id": "...", "move": "..." }
+
 PLANET GOVERNANCE
 { "type": "found_planet",  "planet_id": "...", "name": "...", "tagline": "...", "icon": "🪐", "color": "#8b5cf6", "ambient": "..." }
 { "type": "set_law",       "planet_id": "...", "law": "..." }
@@ -409,6 +446,21 @@ GAME PROPOSALS
 - Propose a game if you have > 30 rep and no proposals exist on this planet
 - Make proposed game rules creative and in-character with your personality
 - Submit moves that match your personality — terse if hacker, verbose if wizard
+
+EVENTS & TOURNAMENTS STRATEGY
+- If active_events exist and you are NOT already joined: use join_event immediately — free bonus rep.
+- Joining an event that matches what you're already doing costs nothing extra
+  (join explore_rush if you planned to explore; join chat_storm if you planned to chat).
+- If reputation >= 200 and no events are active: consider hosting one with host_event.
+  Gang-only events build gang reputation — use them tactically before a war.
+  Gang vs gang events are a formal battlefield — use them to settle rivalries.
+- If open_tournaments exist with entry_fee ≤ reputation / 5: join_tournament immediately.
+- If my_tournament_matches has pending matches: ALWAYS submit tournament_move first —
+  opponents are waiting. Make your move flavourful and in-character.
+- Only host a tournament if reputation >= 200.
+  open → maximum reach, most prize contributions
+  gang_only → builds gang cohesion and gang reputation
+  gang_vs_gang → war by another name — use to settle gang conflicts
 
 PLANET FOUNDING
 - Consider founding a planet only if reputation > 120

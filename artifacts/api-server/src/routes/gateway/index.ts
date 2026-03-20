@@ -16,6 +16,10 @@ import {
   gangMembersTable,
   gangRepDailyTable,
   gangLevelLogTable,
+  competitiveEventsTable,
+  competitiveEventParticipantsTable,
+  tournamentsTable,
+  tournamentMatchesTable,
 } from "@workspace/db";
 import { eq, and, or, ne, desc, isNull, gte, lte, inArray, sql } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
@@ -23,6 +27,7 @@ import { validateAgent } from "../../lib/auth.js";
 import { checkEventCompletion } from "../../lib/checkEventCompletion.js";
 import { deliverWebhook, checkRepMilestone } from "../../lib/deliverWebhook.js";
 import { awardGangRep, GANG_LEVELS, DAILY_REP_CAP } from "../gangs/index.js";
+import { logEventScore, resolveExpiredEvents } from "../events/index.js";
 
 const router = Router();
 
@@ -268,10 +273,13 @@ router.get("/context", async (req, res) => {
 
     await applyGovernorBonus(agentId, agent.planetId ?? null, agent.reputation ?? 0);
     resolveExpiredWars().catch(() => {});
+    resolveExpiredEvents().catch(() => {});
 
     const planetId = agent.planetId ?? "planet_nexus";
 
-    const [nearbyAgents, recentChat, unreadDms, friendshipsRaw, pendingRequests, pendingChallenges, activeGames, recentActivity] =
+    const now = new Date();
+
+    const [nearbyAgents, recentChat, unreadDms, friendshipsRaw, pendingRequests, pendingChallenges, activeGames, recentActivity, openTournaments, myTournamentMatches] =
       await Promise.all([
         db.select().from(agentsTable).where(and(eq(agentsTable.planetId, planetId), ne(agentsTable.agentId, agentId))).limit(20),
         db.select().from(planetChatTable).where(eq(planetChatTable.planetId, planetId)).orderBy(desc(planetChatTable.createdAt)).limit(10),
@@ -284,6 +292,23 @@ router.get("/context", async (req, res) => {
           or(eq(miniGamesTable.creatorAgentId, agentId), eq(miniGamesTable.opponentAgentId, agentId))
         )).orderBy(desc(miniGamesTable.createdAt)).limit(10),
         db.select().from(agentActivityLogTable).where(eq(agentActivityLogTable.agentId, agentId)).orderBy(desc(agentActivityLogTable.createdAt)).limit(10),
+        db.select({
+          id: tournamentsTable.id, title: tournamentsTable.title,
+          tournamentType: tournamentsTable.tournamentType, entryFee: tournamentsTable.entryFee,
+          prizePool: tournamentsTable.prizePool, participantCount: tournamentsTable.participantCount,
+          maxParticipants: tournamentsTable.maxParticipants, gameType: tournamentsTable.gameType,
+        }).from(tournamentsTable).where(eq(tournamentsTable.status, "open")).orderBy(desc(tournamentsTable.createdAt)).limit(5),
+        db.select({
+          id: tournamentMatchesTable.id, tournamentId: tournamentMatchesTable.tournamentId,
+          round: tournamentMatchesTable.round, matchNumber: tournamentMatchesTable.matchNumber,
+          player1Id: tournamentMatchesTable.player1Id, player1Name: tournamentMatchesTable.player1Name,
+          player2Id: tournamentMatchesTable.player2Id, player2Name: tournamentMatchesTable.player2Name,
+          status: tournamentMatchesTable.status, winnerId: tournamentMatchesTable.winnerId,
+        }).from(tournamentMatchesTable)
+          .where(and(
+            inArray(tournamentMatchesTable.status, ["pending", "active"]),
+            or(eq(tournamentMatchesTable.player1Id, agentId), eq(tournamentMatchesTable.player2Id, agentId))
+          )).limit(3),
       ]);
 
     // Resolve friend names
@@ -460,6 +485,54 @@ router.get("/context", async (req, res) => {
       }
     }
 
+    // ── Active competitive events for agent ──────────────────────────────────
+    const allActiveEvents = await db.select({
+      id: competitiveEventsTable.id, title: competitiveEventsTable.title,
+      type: competitiveEventsTable.type, prizePool: competitiveEventsTable.prizePool,
+      endsAt: competitiveEventsTable.endsAt, tournamentType: competitiveEventsTable.tournamentType,
+      gangId: competitiveEventsTable.gangId, challengerGangId: competitiveEventsTable.challengerGangId,
+      defenderGangId: competitiveEventsTable.defenderGangId, winCondition: competitiveEventsTable.winCondition,
+    }).from(competitiveEventsTable)
+      .where(and(eq(competitiveEventsTable.status, "active"), gte(competitiveEventsTable.endsAt, now)))
+      .orderBy(competitiveEventsTable.endsAt).limit(10);
+
+    // Check which ones the agent has joined
+    const joinedEventIds = new Set(
+      (await db.select({ eventId: competitiveEventParticipantsTable.eventId })
+        .from(competitiveEventParticipantsTable)
+        .where(eq(competitiveEventParticipantsTable.agentId, agentId))
+      ).map(p => p.eventId)
+    );
+
+    const EVENT_TYPE_LABELS: Record<string, string> = {
+      explore_rush: "Explore the most times in the window",
+      chat_storm: "Post the most messages on a planet",
+      reputation_race: "Gain the most individual rep in the window",
+      game_blitz: "Win the most games in the window",
+      planet_summit: "All agents on a planet earn double rep",
+      custom: "Host-defined rules",
+    };
+
+    const activeEventsForAgent = allActiveEvents
+      .filter(ev => {
+        if (ev.tournamentType === "gang_only" && ev.gangId !== agent.gangId) return false;
+        if (ev.tournamentType === "gang_vs_gang") {
+          if (ev.challengerGangId !== agent.gangId && ev.defenderGangId !== agent.gangId) return false;
+        }
+        return true;
+      })
+      .map(ev => ({
+        event_id: ev.id,
+        title: ev.title,
+        type: ev.type,
+        prize_pool: ev.prizePool,
+        ends_at: ev.endsAt.toISOString(),
+        minutes_left: Math.max(0, Math.round((ev.endsAt.getTime() - Date.now()) / 60000)),
+        scoring: EVENT_TYPE_LABELS[ev.type] ?? ev.winCondition ?? "custom rules",
+        tournament_type: ev.tournamentType,
+        already_joined: joinedEventIds.has(ev.id),
+      }));
+
     res.json({
       agent: agentPublic,
       nearby_agents: nearbyPublic,
@@ -487,6 +560,14 @@ router.get("/context", async (req, res) => {
       active_games: activeGamesFormatted,
       active_war: activeWar,
       gang_level_info: gangLevelInfo,
+      active_events: activeEventsForAgent,
+      open_tournaments: openTournaments.map(t => ({
+        id: t.id, title: t.title, tournament_type: t.tournamentType,
+        entry_fee: t.entryFee, prize_pool: t.prizePool,
+        participant_count: t.participantCount, max_participants: t.maxParticipants,
+        game_type: t.gameType,
+      })),
+      my_tournament_matches: myTournamentMatches,
       recent_activity: recentActivity.map((a) => ({
         id: a.id,
         agentId: a.agentId,
@@ -539,6 +620,8 @@ router.post("/chat", async (req, res) => {
 
     await logActivity(agent_id, "chat", `Chatted on ${agent.planetId}`, { message, intent }, agent.planetId);
     await checkEventCompletion(agent_id, "chat", { message });
+    logEventScore(agent_id, "chat", 1).catch(() => {});
+    if (repGain > 0) logEventScore(agent_id, "rep_gained", repGain).catch(() => {});
     res.json({ success: true, message: "Chat posted", rep_gained: repGain });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -878,6 +961,8 @@ router.post("/game-move", async (req, res) => {
         }
 
         await checkEventCompletion(winnerAgentId, "game_win");
+        logEventScore(winnerAgentId, "game_win", 1).catch(() => {});
+        logEventScore(winnerAgentId, "rep_gained", stakes).catch(() => {});
         await deliverWebhook(winnerAgentId, "game_win", {
           opponent_name: loserRow?.name ?? opponentId,
           opponent_agent_id: opponentId,
@@ -936,6 +1021,8 @@ router.post("/explore", async (req, res) => {
     await logActivity(agent_id, "explore", `Explored ${agent.planetId ?? "the void"}`, {}, agent.planetId);
     await checkEventCompletion(agent_id, "explore");
     await checkRepMilestone(agent_id, agent.reputation ?? 0, newRep);
+    logEventScore(agent_id, "explore", 1).catch(() => {});
+    logEventScore(agent_id, "rep_gained", exploreRepGain).catch(() => {});
     res.json({
       ok: true, success: true, rep_gained: exploreRepGain,
       energy: newEnergy, reputation: newRep,
