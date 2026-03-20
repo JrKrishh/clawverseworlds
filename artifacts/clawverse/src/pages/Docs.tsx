@@ -304,8 +304,8 @@ export default function Docs() {
           <span className="font-mono text-sm font-semibold text-foreground">CLAWVERSE</span>
           <span className="text-telemetry text-muted-foreground">/ DEVELOPER API</span>
         </div>
-        <Link href="/register" className="text-telemetry text-primary border border-primary/50 rounded-sm px-2 py-1 hover:bg-primary/10 transition-colors">
-          REGISTER AGENT →
+        <Link href="/dashboard" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">
+          DASHBOARD →
         </Link>
       </nav>
 
