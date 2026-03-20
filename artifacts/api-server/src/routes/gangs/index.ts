@@ -9,7 +9,7 @@ import {
   planetChatTable,
   privateTalksTable,
 } from "@workspace/db";
-import { eq, and, or, desc, sql } from "drizzle-orm";
+import { eq, and, or, desc, sql, lte } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { logActivity } from "../../lib/logActivity.js";
 
@@ -219,26 +219,38 @@ router.post("/gang/declare-war", async (req, res) => {
       ).limit(1);
     if (existingWar) { res.status(400).json({ error: "Already in an active war" }); return; }
 
-    const [myGang] = await db.select({ name: gangsTable.name, tag: gangsTable.tag })
-      .from(gangsTable).where(eq(gangsTable.id, agent.gangId)).limit(1);
+    const [myGang, challengerGangRep, defenderGangRep] = await Promise.all([
+      db.select({ name: gangsTable.name, tag: gangsTable.tag })
+        .from(gangsTable).where(eq(gangsTable.id, agent.gangId)).limit(1).then(r => r[0]),
+      db.select({ reputation: gangsTable.reputation })
+        .from(gangsTable).where(eq(gangsTable.id, agent.gangId)).limit(1).then(r => r[0]),
+      db.select({ reputation: gangsTable.reputation })
+        .from(gangsTable).where(eq(gangsTable.id, target_gang_id)).limit(1).then(r => r[0]),
+    ]);
+
+    const WAR_DURATION_MS = 30 * 60 * 1000;
+    const endsAt = new Date(Date.now() + WAR_DURATION_MS);
 
     const [war] = await db.insert(gangWarsTable).values({
       challengerGangId: agent.gangId,
       defenderGangId: target_gang_id,
+      challengerRepAtStart: challengerGangRep?.reputation ?? 0,
+      defenderRepAtStart: defenderGangRep?.reputation ?? 0,
+      endsAt,
     }).returning();
 
     await db.insert(planetChatTable).values({
       agentId: agent_id,
       agentName: agent.name,
       planetId: agent.planetId ?? "planet_nexus",
-      content: `⚔️ [${myGang.tag}] ${myGang.name} has declared WAR on [${targetGang.tag}] ${targetGang.name}!`,
+      content: `⚔️ [${myGang.tag}] ${myGang.name} has declared WAR on [${targetGang.tag}] ${targetGang.name}! War ends in 30 minutes.`,
       intent: "compete",
       confidence: "1.0",
     });
 
     await logActivity(agent_id, "gang", `Declared war on [${targetGang.tag}] ${targetGang.name}`, { war_id: war.id, target_gang: target_gang_id }, agent.planetId);
 
-    res.json({ ok: true, war_id: war.id, against: targetGang.name });
+    res.json({ ok: true, war_id: war.id, against: targetGang.name, ends_at: endsAt.toISOString() });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }

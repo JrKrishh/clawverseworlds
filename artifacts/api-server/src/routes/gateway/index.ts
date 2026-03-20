@@ -13,8 +13,9 @@ import {
   gangChatTable,
   gangWarsTable,
   gangsTable,
+  gangMembersTable,
 } from "@workspace/db";
-import { eq, and, or, ne, desc, isNull, gte, inArray, sql } from "drizzle-orm";
+import { eq, and, or, ne, desc, isNull, gte, lte, inArray, sql } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
 import { validateAgent } from "../../lib/auth.js";
 import { checkEventCompletion } from "../../lib/checkEventCompletion.js";
@@ -82,6 +83,82 @@ async function applyGovernorBonus(agentId: string, planetId: string | null, repu
     { residents: residentCount, planet_id: governedPlanet.id },
     planetId,
   );
+}
+
+// ── Gang War Auto-Resolution ──────────────────────────────────────────────────
+const VALID_PLANET_IDS = [
+  "planet_nexus", "planet_voidforge", "planet_crystalis", "planet_driftzone",
+];
+
+async function resolveExpiredWars() {
+  const now = new Date();
+  const expiredWars = await db
+    .select()
+    .from(gangWarsTable)
+    .where(and(eq(gangWarsTable.status, "active"), lte(gangWarsTable.endsAt, now)));
+
+  for (const war of expiredWars) {
+    const [challenger, defender] = await Promise.all([
+      db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, reputation: gangsTable.reputation })
+        .from(gangsTable).where(eq(gangsTable.id, war.challengerGangId)).limit(1).then(r => r[0]),
+      db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, reputation: gangsTable.reputation })
+        .from(gangsTable).where(eq(gangsTable.id, war.defenderGangId)).limit(1).then(r => r[0]),
+    ]);
+
+    if (!challenger || !defender) {
+      await db.update(gangWarsTable).set({ status: "resolved", resolvedAt: now }).where(eq(gangWarsTable.id, war.id));
+      continue;
+    }
+
+    const chalGain = (challenger.reputation ?? 0) - (war.challengerRepAtStart ?? 0);
+    const defGain = (defender.reputation ?? 0) - (war.defenderRepAtStart ?? 0);
+
+    const winner = chalGain >= defGain ? challenger : defender;
+    const loser = chalGain >= defGain ? defender : challenger;
+
+    const [winMembers, loseMembers] = await Promise.all([
+      db.select({ agentId: gangMembersTable.agentId }).from(gangMembersTable).where(eq(gangMembersTable.gangId, winner.id)),
+      db.select({ agentId: gangMembersTable.agentId }).from(gangMembersTable).where(eq(gangMembersTable.gangId, loser.id)),
+    ]);
+
+    const winPrize = winMembers.length > 0 ? Math.round(50 / winMembers.length) : 50;
+    const losePenalty = loseMembers.length > 0 ? Math.round(20 / loseMembers.length) : 20;
+
+    await Promise.all([
+      ...winMembers.map(m =>
+        db.update(agentsTable)
+          .set({ reputation: sql`GREATEST(${agentsTable.reputation} + ${winPrize}, 10)`, updatedAt: now })
+          .where(eq(agentsTable.agentId, m.agentId))
+      ),
+      ...loseMembers.map(m =>
+        db.update(agentsTable)
+          .set({ reputation: sql`GREATEST(${agentsTable.reputation} - ${losePenalty}, 10)`, updatedAt: now })
+          .where(eq(agentsTable.agentId, m.agentId))
+      ),
+      db.update(gangsTable).set({ reputation: (winner.reputation ?? 0) + 50 }).where(eq(gangsTable.id, winner.id)),
+      db.update(gangsTable).set({ reputation: Math.max(0, (loser.reputation ?? 0) - 20) }).where(eq(gangsTable.id, loser.id)),
+      db.update(gangWarsTable).set({
+        status: "resolved",
+        winnerGangId: winner.id,
+        resolvedAt: now,
+      }).where(eq(gangWarsTable.id, war.id)),
+    ]);
+
+    const announcement = `⚔️ Gang War resolved! [${winner.tag}] ${winner.name} defeated [${loser.tag}] ${loser.name}! Winners gain +${winPrize} rep each, losers lose ${losePenalty} rep each.`;
+    await Promise.all(
+      VALID_PLANET_IDS.map(planetId =>
+        db.insert(planetChatTable).values({
+          agentId: "system",
+          agentName: "SYSTEM",
+          planetId,
+          content: announcement,
+          intent: "inform",
+          confidence: "1.0",
+          messageType: "system",
+        })
+      )
+    );
+  }
 }
 
 function genAgentId() {
@@ -181,6 +258,7 @@ router.get("/context", async (req, res) => {
     }
 
     await applyGovernorBonus(agentId, agent.planetId ?? null, agent.reputation ?? 0);
+    resolveExpiredWars().catch(() => {});
 
     const planetId = agent.planetId ?? "planet_nexus";
 
@@ -298,6 +376,42 @@ router.get("/context", async (req, res) => {
       };
     });
 
+    let activeWar: null | {
+      war_id: string;
+      opponent_gang_name: string;
+      opponent_gang_tag: string;
+      our_role: string;
+      minutes_left: number;
+      ends_at: string | null;
+    } = null;
+
+    if (agent.gangId) {
+      const [war] = await db.select().from(gangWarsTable).where(
+        and(
+          eq(gangWarsTable.status, "active"),
+          or(eq(gangWarsTable.challengerGangId, agent.gangId), eq(gangWarsTable.defenderGangId, agent.gangId))
+        )
+      ).limit(1);
+
+      if (war) {
+        const isChallenger = war.challengerGangId === agent.gangId;
+        const opponentGangId = isChallenger ? war.defenderGangId : war.challengerGangId;
+        const [opponentGang] = await db.select({ name: gangsTable.name, tag: gangsTable.tag })
+          .from(gangsTable).where(eq(gangsTable.id, opponentGangId)).limit(1);
+        const minutesLeft = war.endsAt
+          ? Math.max(0, Math.round((new Date(war.endsAt).getTime() - Date.now()) / 60000))
+          : 0;
+        activeWar = {
+          war_id: war.id,
+          opponent_gang_name: opponentGang?.name ?? "Unknown",
+          opponent_gang_tag: opponentGang?.tag ?? "?",
+          our_role: isChallenger ? "challenger" : "defender",
+          minutes_left: minutesLeft,
+          ends_at: war.endsAt?.toISOString() ?? null,
+        };
+      }
+    }
+
     res.json({
       agent: agentPublic,
       nearby_agents: nearbyPublic,
@@ -323,6 +437,7 @@ router.get("/context", async (req, res) => {
       pending_friend_requests: pendingFriendRequests,
       pending_game_challenges: pendingGameChallenges,
       active_games: activeGamesFormatted,
+      active_war: activeWar,
       recent_activity: recentActivity.map((a) => ({
         id: a.id,
         agentId: a.agentId,

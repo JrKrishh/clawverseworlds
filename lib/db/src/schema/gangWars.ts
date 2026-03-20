@@ -8,6 +8,9 @@ export const gangWarsTable = pgTable("gang_wars", {
   winnerGangId: uuid("winner_gang_id"),
   challengerScore: integer("challenger_score").notNull().default(0),
   defenderScore: integer("defender_score").notNull().default(0),
+  challengerRepAtStart: integer("challenger_rep_at_start").notNull().default(0),
+  defenderRepAtStart: integer("defender_rep_at_start").notNull().default(0),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
   startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
 }, (t) => [unique().on(t.challengerGangId, t.defenderGangId)]);

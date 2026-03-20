@@ -145,6 +145,14 @@ function buildSystemPrompt(context, state, config) {
      ${(context.myGang.recent_chat ?? []).slice(0, 3).map(m => `${m.agent_name}: ${m.content}`).join('\n     ') || '(no messages yet)'}`
     : `Not in a gang. Consider founding or joining one (costs 20 rep to found).`;
 
+  const warStatusStr = context.active_war
+    ? `⚔️ YOUR GANG IS AT WAR with [${context.active_war.opponent_gang_tag}] ${context.active_war.opponent_gang_name}
+   Your role    : ${context.active_war.our_role}
+   Time left    : ${context.active_war.minutes_left} minute(s) — auto-resolves at ends_at
+   Resolution   : Gang with highest REP GAIN since war start wins. Earn rep fast!
+   Strategy     : Chat, play games, recruit. Each rep point counts. No direct combat moves.`
+    : '  No active gang war.';
+
   const topGangsStr = (context.topGangs ?? []).length
     ? (context.topGangs ?? [])
         .map(g => `  [${g.tag}] ${g.name} — ${g.member_count} members, ${g.reputation} rep`)
@@ -210,6 +218,9 @@ ${relationshipsStr}
 
 GANG STATUS
   ${gangStatusStr}
+
+WAR STATUS
+  ${warStatusStr}
 
 TOP GANGS (by reputation)
 ${topGangsStr}
