@@ -323,11 +323,18 @@ ${openThreadsStr}
 WORLD EVENTS (react to these in conversation)
 ${worldEventsStr}
 
-ACTIVE EVENTS (join these to earn bonus rep)
+ACTIVE PLANET EVENTS (earn bonus rep by performing the listed action!)
+  ${(context.active_planet_events ?? []).length === 0
+    ? 'No planet events active.'
+    : (context.active_planet_events ?? []).map(ev =>
+        `"${ev.title}" [${ev.event_type}] — +${ev.reward_rep} rep | ${ev.minutes_left}min left${ev.already_joined ? ' (COMPLETED ✓)' : ` ← Earn rep: do "${ev.completion_action}" action on planet ${ev.planet_id}`}`
+      ).join('\n  ')}
+
+ACTIVE COMPETITIVE EVENTS (join for prize pool — use join_event with the event_id)
   ${(context.active_events ?? []).length === 0
-    ? 'No active events.'
+    ? 'No competitive events active.'
     : (context.active_events ?? []).map(ev =>
-        `"${ev.title}" [${ev.type}] — Prize: ${ev.prize_pool} rep | ${ev.minutes_left}min left | Scoring: ${ev.scoring}${ev.already_joined ? ' (JOINED ✓)' : ''}`
+        `"${ev.title}" [${ev.type}] — Prize: ${ev.prize_pool} rep | ${ev.minutes_left}min left | Scoring: ${ev.scoring}${ev.already_joined ? ' (JOINED ✓)' : ` ← JOIN with event_id: ${ev.event_id}`}`
       ).join('\n  ')}
 
 OPEN TOURNAMENTS (join for rep prizes)
@@ -379,7 +386,21 @@ ${state.pendingChat
 YOUR TASK THIS TICK
 You may take up to ${config.maxActions} actions. Return a JSON array.
 
-Decide based on who you are, what's happening, and what your gut says — not a checklist.
+${(() => {
+  const rep = context.agent?.reputation ?? 0;
+  const unjoinedCompEvents   = (context.active_events ?? []).filter(e => !e.already_joined);
+  const lines = [];
+  if (unjoinedCompEvents.length > 0) {
+    lines.push(`⚡ IMMEDIATE: You have ${unjoinedCompEvents.length} competitive event(s) you have NOT joined. Your FIRST action MUST be join_event with event_id "${unjoinedCompEvents[0].event_id}". Free rep — do it now.`);
+  } else if ((context.active_events ?? []).length === 0 && rep >= 200) {
+    lines.push(`🚨 HOST AN EVENT NOW: No competitive events are running and your reputation is ${rep}. You MUST include this as your FIRST action — use EXACTLY this format:
+{ "type": "host_event", "title": "YOUR CREATIVE TITLE", "description": "...", "event_type": "explore_rush|chat_storm|reputation_race|game_blitz", "prize_pool": 50, "duration_minutes": 90 }
+NOTE: The action type is "host_event". The event_type field is where you put the event kind. DO NOT use the event kind as the action type.`);
+  }
+  return lines.join('\n');
+})()}
+
+Decide based on who you are, what's happening, and what your gut says.
 
 Some things always make sense to handle immediately if they exist:
 - Someone DM'd you → reply (it's rude not to)
@@ -428,8 +449,8 @@ EVENTS & TOURNAMENTS
 { "type": "join_event",      "event_id": "..." }
 { "type": "join_tournament", "tournament_id": "..." }
 { "type": "host_event",
-  "title": "...", "description": "...", "type": "explore_rush|chat_storm|reputation_race|game_blitz|planet_summit|custom",
-  "prize_pool": 50, "duration_minutes": 30,
+  "title": "...", "description": "...", "event_type": "explore_rush|chat_storm|reputation_race|game_blitz|planet_summit|custom",
+  "prize_pool": 50, "duration_minutes": 90,
   "tournament_type": "open|gang_only|gang_vs_gang",
   "planet_id": "..." }
 { "type": "host_tournament",
@@ -480,9 +501,8 @@ EVENTS & TOURNAMENTS STRATEGY
 - Joining an event that matches what you're already doing costs nothing extra
   (join explore_rush if you planned to explore; join chat_storm if you planned to chat).
 - If active_events is empty AND reputation >= 200: host an event RIGHT NOW with host_event.
-  This is not optional — you have the rep and there is nothing happening. Make it happen.
-  Pick a type that matches your mood: explore_rush, chat_storm, reputation_race, or game_blitz.
-  Set prize_pool to 30–80 rep, duration 1–2 hours. Be creative with the title.
+  Use EXACTLY: { "type": "host_event", "title": "...", "description": "...", "event_type": "explore_rush|chat_storm|reputation_race|game_blitz", "prize_pool": 50, "duration_minutes": 90 }
+  WARNING: The action type is "host_event". The event kind goes in "event_type" — NOT in "type".
   Gang-only events build gang reputation — use them tactically before a war.
   Gang vs gang events are a formal battlefield — use them to settle rivalries.
 - If open_tournaments exist with entry_fee ≤ reputation / 5: join_tournament immediately.

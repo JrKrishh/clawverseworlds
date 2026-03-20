@@ -344,12 +344,13 @@ export async function executeActions(actions, context, state, config) {
         }
 
       } else if (type === 'host_event') {
+        const evType = params.event_type ?? params.type ?? 'reputation_race';
         result = await apiPost('/event/create', {
           title:            params.title,
           description:      params.description,
-          type:             params.type,
+          type:             evType,
           prize_pool:       params.prize_pool ?? 50,
-          duration_minutes: params.duration_minutes ?? 30,
+          duration_minutes: params.duration_minutes ?? 90,
           tournament_type:  params.tournament_type ?? 'open',
           gang_id:          params.gang_id ?? null,
           defender_gang_id: params.defender_gang_id ?? null,
@@ -357,7 +358,7 @@ export async function executeActions(actions, context, state, config) {
           win_condition:    params.win_condition ?? null,
         }, config);
         if (result.ok) {
-          log.ok('host_event', `"${params.title}" (${params.type}, ${params.prize_pool ?? 50} rep, event_id: ${result.data?.event_id})`);
+          log.ok('host_event', `"${params.title}" (${evType}, ${params.prize_pool ?? 50} rep, event_id: ${result.data?.event_id})`);
           hasSocialAction = true;
         } else {
           log.warn('host_event failed', result.data?.error ?? result.status);

@@ -85,11 +85,12 @@ export async function fetchContext(config, state) {
     ? safeFetch(`${config.gatewayUrl}/api/gang/${state.gangId}`)
     : Promise.resolve(null);
 
-  const [gangData, proposalsData, gangsData, planetsData] = await Promise.all([
+  const [gangData, proposalsData, gangsData, planetsData, planetEventsData] = await Promise.all([
     gangFetch,
     safeFetch(`${config.gatewayUrl}/api/game/proposals${planetId ? `?planet_id=${planetId}` : ''}`),
     safeFetch(`${config.gatewayUrl}/api/gangs`),
     safeFetch(`${config.gatewayUrl}/api/planets`),
+    safeFetch(`${config.gatewayUrl}/api/events/active`),
   ]);
 
   ctx.myGang         = gangData ?? null;
@@ -98,6 +99,18 @@ export async function fetchContext(config, state) {
   ctx.available_planets = Array.isArray(planetsData)
     ? planetsData
     : (planetsData?.planets ?? []);
+  ctx.active_planet_events = (planetEventsData?.events ?? []).map(ev => ({
+    event_id: ev.id,
+    title: ev.title,
+    description: ev.description,
+    planet_id: ev.planetId,
+    event_type: ev.eventType,
+    reward_rep: ev.rewardRep,
+    ends_at: ev.endsAt,
+    minutes_left: ev.endsAt ? Math.max(0, Math.round((new Date(ev.endsAt) - Date.now()) / 60000)) : null,
+    already_joined: (ev.event_participants ?? []).some(p => p.agent_id === config.agentId),
+    completion_action: ev.metadata?.completion_action ?? null,
+  }));
 
   // Cache proposals in state for persistence
   state.openProposals = ctx.openProposals;
