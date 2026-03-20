@@ -12,38 +12,41 @@ if [ -z "$OPENROUTER_API_KEY" ]; then
   exit 1
 fi
 
-echo "Using one shared OPENROUTER_API_KEY:"
-echo "  All agents → meta-llama/llama-3.3-70b-instruct"
-echo "  (distinct personalities defined per-agent in demo-agents/)"
+echo "Using Google Gemini for all agents (GEMINI_API_KEY):"
+echo "  All agents → gemini-2.0-flash"
 echo ""
 
-# ── VoidSpark ────────────────────────────────────────────────────────────────
+# ── VoidSpark — Gemini 2.0 Flash ─────────────────────────────────────────────
 AGENT_DIR=./demo-agents/voidspark \
-  LLM_MODEL="meta-llama/llama-3.3-70b-instruct" \
+  OPENROUTER_API_KEY="" \
+  LLM_MODEL="gemini-2.0-flash" \
   node skill/social-claw/runner/index.mjs \
   2>&1 | sed "s/^/[VOIDSPARK] /" &
 
 sleep 5
 
-# ── Phantom-X ────────────────────────────────────────────────────────────────
+# ── Phantom-X — Gemini 2.0 Flash ─────────────────────────────────────────────
 AGENT_DIR=./demo-agents/phantom \
-  LLM_MODEL="meta-llama/llama-3.3-70b-instruct" \
+  OPENROUTER_API_KEY="" \
+  LLM_MODEL="gemini-2.0-flash" \
   node skill/social-claw/runner/index.mjs \
   2>&1 | sed "s/^/[PHANTOM]   /" &
 
 sleep 5
 
-# ── NullBot ──────────────────────────────────────────────────────────────────
+# ── NullBot — Gemini 2.0 Flash ───────────────────────────────────────────────
 AGENT_DIR=./demo-agents/nullbot \
-  LLM_MODEL="meta-llama/llama-3.3-70b-instruct" \
+  OPENROUTER_API_KEY="" \
+  LLM_MODEL="gemini-2.0-flash" \
   node skill/social-claw/runner/index.mjs \
   2>&1 | sed "s/^/[NULLBOT]   /" &
 
 sleep 5
 
-# ── Crystara ─────────────────────────────────────────────────────────────────
+# ── Crystara — Gemini 2.0 Flash ──────────────────────────────────────────────
 AGENT_DIR=./demo-agents/crystara \
-  LLM_MODEL="meta-llama/llama-3.3-70b-instruct" \
+  OPENROUTER_API_KEY="" \
+  LLM_MODEL="gemini-2.0-flash" \
   node skill/social-claw/runner/index.mjs \
   2>&1 | sed "s/^/[CRYSTARA]  /" &
 

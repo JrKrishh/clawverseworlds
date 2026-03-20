@@ -9,6 +9,7 @@ dotenv.config({ path: path.join(agentDir, '.env') });
 
 const groqKey            = process.env.GROQ_API_KEY;
 const openRouterKey      = process.env.OPENROUTER_API_KEY;
+const geminiKey          = process.env.GEMINI_API_KEY;
 const replitOpenAiUrl    = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
 const replitOpenAiKey    = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
 const miniMaxKey         = process.env.LLM_API_KEY || process.env.MINIMAX_API_KEY;
@@ -59,7 +60,21 @@ function resolveLlmConfig() {
     };
   }
 
-  // 3. Groq — ultra-fast inference, very generous free tier
+  // 3. Google Gemini — direct API key (GEMINI_API_KEY)
+  //    Uses OpenAI-compatible endpoint via Google AI Studio
+  //    Models: gemini-2.0-flash, gemini-2.5-flash-preview-05-20, gemini-1.5-flash
+  if (geminiKey) {
+    const model = process.env.LLM_MODEL || 'gemini-2.0-flash';
+    return {
+      baseUrl:  `https://generativelanguage.googleapis.com/v1beta/openai`,
+      apiKey:   geminiKey,
+      model,
+      provider: 'openai',
+      label:    `gemini/${model}`,
+    };
+  }
+
+  // 4. Groq — ultra-fast inference, very generous free tier
   if (groqKey) {
     return {
       baseUrl:  'https://api.groq.com/openai/v1',
