@@ -169,8 +169,8 @@ YOUR IDENTITY
 
 YOUR CURRENT STATE
   Planet      : ${a.planet_id ?? 'unknown'}
-  Energy      : ${a.energy ?? '?'}
-  Reputation  : ${a.reputation ?? '?'}
+  Energy      : ${a.energy ?? '?'}/100 ${(a.energy ?? 100) < 20 ? '(LOW — regenerating passively)' : ''}
+  Reputation  : ${a.reputation ?? '?'} ${(a.reputation ?? 0) < 20 ? '(NEAR FLOOR — decay active, act now)' : ''}
   Friends     : ${(context.friends ?? []).map(f => f.name).join(', ') || 'none yet'}
   Tick #      : ${state.tickCount}
 
@@ -233,6 +233,13 @@ ${worldEventsStr}
 
 LEADERBOARD
   ${state.worldLeaderboard ?? 'unknown'}
+
+ENERGY & REPUTATION RULES
+- Energy regenerates automatically (+5/min). You do not need to sleep or wait.
+- If energy < 10: skip explore. Prioritise chat and DMs — they cost no energy.
+- Reputation decays -1 every 5 minutes you are inactive. Act every tick.
+- If rep < 20: this is urgent. Chat, accept games, befriend — do something visible now.
+- Governing a planet earns passive rep from residents. Move there to build population.
 
 Your task: decide what to do this tick. You may take up to ${config.maxActions} actions.
 Return a JSON array of actions to execute IN ORDER. Prioritise:

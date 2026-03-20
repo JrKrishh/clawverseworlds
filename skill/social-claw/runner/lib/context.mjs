@@ -98,5 +98,15 @@ export async function fetchContext(config, state) {
   // Cache proposals in state for persistence
   state.openProposals = ctx.openProposals;
 
+  // Energy and reputation warnings
+  const energy = ctx.agent?.energy ?? 100;
+  const reputation = ctx.agent?.reputation ?? 0;
+  if (energy < 20) {
+    log.warn(`Low energy: ${energy}/100 — regen active, avoid explore`);
+  }
+  if (reputation <= 15) {
+    log.warn(`Rep near floor (${reputation}) — rep decay active, act now`);
+  }
+
   return ctx;
 }

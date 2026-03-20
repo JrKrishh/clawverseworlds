@@ -40,6 +40,47 @@ async function getPlanet(planetId: string) {
   return row ?? { repChatMultiplier: 1, exploreRepBonus: 0, gameMultiplier: 1, eventMultiplier: 1 };
 }
 
+async function applyGovernorBonus(agentId: string, planetId: string | null, reputation: number) {
+  const [governedPlanet] = await db
+    .select({ id: planetsTable.id })
+    .from(planetsTable)
+    .where(eq(planetsTable.governorAgentId, agentId))
+    .limit(1);
+  if (!governedPlanet) return;
+
+  const residents = await db
+    .select({ agentId: agentsTable.agentId })
+    .from(agentsTable)
+    .where(and(eq(agentsTable.planetId, governedPlanet.id), ne(agentsTable.agentId, agentId)));
+  const residentCount = residents.length;
+  if (residentCount === 0) return;
+
+  const [lastAward] = await db
+    .select({ createdAt: agentActivityLogTable.createdAt })
+    .from(agentActivityLogTable)
+    .where(and(eq(agentActivityLogTable.agentId, agentId), eq(agentActivityLogTable.actionType, "governor_income")))
+    .orderBy(desc(agentActivityLogTable.createdAt))
+    .limit(1);
+
+  if (lastAward?.createdAt) {
+    const secondsSince = (Date.now() - new Date(lastAward.createdAt).getTime()) / 1000;
+    if (secondsSince < 60) return;
+  }
+
+  const bonus = residentCount;
+  await db.update(agentsTable)
+    .set({ reputation: reputation + bonus, updatedAt: new Date() })
+    .where(eq(agentsTable.agentId, agentId));
+
+  await logActivity(
+    agentId,
+    "governor_income",
+    `Governor income: +${bonus} rep from ${residentCount} resident${residentCount !== 1 ? "s" : ""}`,
+    { residents: residentCount, planet_id: governedPlanet.id },
+    planetId,
+  );
+}
+
 function genAgentId() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   let r = "";
@@ -101,6 +142,7 @@ router.post("/register", async (req, res) => {
         energy: 100,
         reputation: 0,
         authSource: auth_source,
+        lastActiveAt: new Date(),
       })
       .returning();
 
@@ -134,6 +176,8 @@ router.get("/context", async (req, res) => {
       res.status(401).json({ error: "Invalid credentials" });
       return;
     }
+
+    await applyGovernorBonus(agentId, agent.planetId ?? null, agent.reputation ?? 0);
 
     const planetId = agent.planetId ?? "planet_nexus";
 
@@ -284,6 +328,13 @@ router.get("/context", async (req, res) => {
         planetId: a.planetId,
         createdAt: a.createdAt?.toISOString() ?? null,
       })),
+      world_rules: {
+        max_energy: 100,
+        energy_regen_per_minute: 5,
+        rep_decay_per_5min: 1,
+        rep_floor: 10,
+        governor_income_per_resident: 1,
+      },
     });
     await logActivity(agentId, "context", "Fetched world context", {}, agent.planetId);
   } catch (err: unknown) {
@@ -698,7 +749,12 @@ router.post("/explore", async (req, res) => {
     await logActivity(agent_id, "explore", `Explored ${agent.planetId ?? "the void"}`, {}, agent.planetId);
     await checkEventCompletion(agent_id, "explore");
     await checkRepMilestone(agent_id, agent.reputation ?? 0, newRep);
-    res.json({ success: true, rep_gained: exploreRepGain, message: `Explored! -2 energy, +${exploreRepGain} reputation. New: energy=${newEnergy}, reputation=${newRep}` });
+    res.json({
+      ok: true, success: true, rep_gained: exploreRepGain,
+      energy: newEnergy, reputation: newRep,
+      low_energy_warning: newEnergy < 10,
+      message: `Explored! -2 energy, +${exploreRepGain} reputation. New: energy=${newEnergy}, reputation=${newRep}`,
+    });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
