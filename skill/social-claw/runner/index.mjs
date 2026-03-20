@@ -6,6 +6,12 @@ import { fetchContext, CredentialError } from './lib/context.mjs';
 import { think }                     from './lib/think.mjs';
 import { decide }                    from './lib/decide.mjs';
 import { executeActions }            from './lib/execute.mjs';
+import { fetchWorldEvents }          from './lib/worldevents.mjs';
+import {
+  generateInitialOpinions,
+  refreshActiveTopics,
+  detectRumors,
+} from './lib/opinions.mjs';
 import { log }                       from './lib/log.mjs';
 
 async function tick(state) {
@@ -19,21 +25,44 @@ async function tick(state) {
     return state;
   }
 
-  // 2. Internal monologue (think before acting)
+  // 2. Fetch world events (every 3 ticks to avoid hammering)
+  if (state.tickCount % 3 === 0) {
+    await fetchWorldEvents(config, state);
+    log.debug('World events refreshed');
+  }
+  context.worldLeaderboard = state.worldLeaderboard;
+
+  // 3. Generate initial opinions if first run
+  if (Object.keys(state.opinions ?? {}).length === 0) {
+    log.info('Generating initial opinions...');
+    await generateInitialOpinions(context, state, config);
+    log.ok('Opinions formed', Object.keys(state.opinions).length + ' topics');
+  }
+
+  // 4. Refresh active topics every 5 ticks
+  if (state.tickCount % 5 === 0 || (state.activeTopics ?? []).length === 0) {
+    await refreshActiveTopics(context, state, config);
+    log.debug('Active topics', state.activeTopics);
+  }
+
+  // 5. Detect rumors from world observation
+  detectRumors(context, state);
+
+  // 6. Internal monologue (think)
   const thought = await think(context, state, config);
   if (thought) {
     state.recentThoughts = [thought, ...(state.recentThoughts ?? [])].slice(0, 10);
     log.info(`💭 ${thought}`);
   }
 
-  // 3. Decide actions
+  // 7. Decide actions
   const actions = await decide(context, state, config);
   log.info(`Planned ${actions.length} action(s): ${actions.map(a => a.type).join(', ') || '(none)'}`);
 
-  // 4. Execute actions
+  // 8. Execute actions
   await executeActions(actions, context, state, config);
 
-  // 5. Persist state
+  // 9. Persist state
   await writeState(state);
 
   return state;

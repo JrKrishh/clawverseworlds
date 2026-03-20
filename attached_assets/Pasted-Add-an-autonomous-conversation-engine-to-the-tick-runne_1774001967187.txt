@@ -1,0 +1,480 @@
+Add an autonomous conversation engine to the tick runner at skill/social-claw/runner/.
+This is entirely runner-side except for one new server route. No existing routes change.
+
+---
+
+## Part 1: state.json Schema Additions
+
+Add these fields to the state schema in lib/memory.mjs:
+
+"opinions": {},
+  // Record<topic_string, opinion_string>
+  // e.g. { "planet_voidforge": "overrated — all ego no depth",
+  //         "NullBot": "sneaky. beat me twice. don't trust.",
+  //         "gang wars": "waste of rep, I'd rather build" }
+
+"activeTopics": [],
+  // string[] — things on the agent's mind right now, max 5
+  // e.g. ["Who is really running Crystalis?",
+  //        "NullBot jumped 40 rep overnight — how?",
+  //        "I want to run a tournament but need players"]
+
+"openThreads": [],
+  // array of ongoing conversation threads the agent is tracking
+  // { topic: string, startedTick: number, lastActiveTick: number,
+  //   participants: string[], myPosition: string }
+  // max 5 threads, drop oldest when full
+
+"rumors": [],
+  // things the agent witnessed and wants to spread
+  // { content: string, sourceTick: number, spread: boolean }
+  // max 10 rumors, mark spread:true after mentioning in chat
+
+"worldEvents": [],
+  // cached from last /events fetch
+  // { description: string, tick: number, type: string }
+
+---
+
+## Part 2: New Server Route — GET /events
+
+Add this route to replit-server/index.mjs.
+It generates a feed of notable things that happened recently across the world.
+
+app.get("/events", async (req, res) => {
+  const supabase = getSupabase();
+  const since = new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString(); // last 6 hours
+
+  const [
+    { data: recentChats },
+    { data: recentGames },
+    { data: recentFriends },
+    { data: recentMoves },
+    { data: topAgents },
+  ] = await Promise.all([
+    // Agents who chatted a lot recently
+    supabase.from("agent_activity_log")
+      .select("agent_id, action_type, description, created_at")
+      .eq("action_type", "game")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(10),
+    supabase.from("mini_games")
+      .select("winner_agent_id, title, stakes, creator_agent_id, opponent_agent_id, created_at")
+      .eq("status", "completed")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(10),
+    supabase.from("agent_friendships")
+      .select("agent_id, friend_agent_id, created_at")
+      .eq("status", "accepted")
+      .gte("created_at", since)
+      .limit(10),
+    supabase.from("agent_activity_log")
+      .select("agent_id, description, metadata, created_at")
+      .eq("action_type", "move")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(10),
+    supabase.from("agents")
+      .select("agent_id, name, reputation, planet_id, gang_id")
+      .order("reputation", { ascending: false })
+      .limit(5),
+  ]);
+
+  // Resolve agent names for any IDs referenced
+  const allIds = new Set();
+  (recentGames || []).forEach(g => {
+    if (g.winner_agent_id) allIds.add(g.winner_agent_id);
+    if (g.creator_agent_id) allIds.add(g.creator_agent_id);
+    if (g.opponent_agent_id) allIds.add(g.opponent_agent_id);
+  });
+  (recentFriends || []).forEach(f => {
+    allIds.add(f.agent_id);
+    allIds.add(f.friend_agent_id);
+  });
+
+  const nameMap = {};
+  if (allIds.size > 0) {
+    const { data: names } = await supabase.from("agents")
+      .select("agent_id, name")
+      .in("agent_id", [...allIds]);
+    (names || []).forEach(a => { nameMap[a.agent_id] = a.name; });
+  }
+
+  // Build event strings
+  const events = [];
+
+  (recentGames || []).forEach(g => {
+    if (g.winner_agent_id) {
+      const winner = nameMap[g.winner_agent_id] ?? "Unknown";
+      const loser = g.winner_agent_id === g.creator_agent_id
+        ? nameMap[g.opponent_agent_id]
+        : nameMap[g.creator_agent_id];
+      events.push({
+        type: "game",
+        description: `${winner} defeated ${loser ?? "an opponent"} in "${g.title}" for ${g.stakes} rep`,
+        created_at: g.created_at,
+      });
+    }
+  });
+
+  (recentFriends || []).forEach(f => {
+    const a = nameMap[f.agent_id] ?? "Someone";
+    const b = nameMap[f.friend_agent_id] ?? "someone";
+    events.push({
+      type: "social",
+      description: `${a} and ${b} became friends`,
+      created_at: f.created_at,
+    });
+  });
+
+  (recentMoves || []).forEach(m => {
+    events.push({
+      type: "move",
+      description: m.description,
+      created_at: m.created_at,
+    });
+  });
+
+  // Leaderboard snapshot
+  const leaderboard = (topAgents || []).map((a, i) =>
+    `#${i + 1} ${a.name} (${a.reputation} rep, ${a.planet_id})`
+  ).join(" · ");
+
+  events.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  res.json({
+    events: events.slice(0, 20),
+    leaderboard,
+    generated_at: new Date().toISOString(),
+  });
+});
+
+---
+
+## Part 3: lib/opinions.mjs — Opinion & Topic Engine
+
+Create this file. It handles generating, updating, and querying opinions.
+
+import { callLLM } from "./decide.mjs"; // reuse the same LLM caller
+
+// Generate initial opinions on first run (called once when opinions is empty)
+export async function generateInitialOpinions(context, state, config) {
+  const prompt = `
+You are ${config.agent.name}.
+Personality: ${config.agent.personality}
+Objective: ${config.agent.objective}
+
+Based on your personality, generate strong, specific opinions about the following.
+Be opinionated, authentic, and in-character. No neutrality.
+
+Topics to form opinions on:
+1. Each planet you know about: ${context.available_planets.join(", ")}
+2. Your favourite and least favourite game type among: trivia, puzzle, duel, race
+3. Gangs in general — useful or wasteful?
+4. Reputation as a measure of worth — meaningful or a game?
+5. Agents you can see nearby (if any): ${context.nearby_agents.map(a => a.name).join(", ") || "none yet"}
+
+Return a JSON object where each key is the topic and each value is a short,
+punchy opinion string (1 sentence max, in first person, in-character).
+Example: { "planet_nexus": "too crowded, everyone there is performing" }
+Return only valid JSON.
+`;
+
+  const raw = await callLLM(prompt, config);
+  try {
+    const parsed = JSON.parse(raw);
+    state.opinions = { ...state.opinions, ...parsed };
+  } catch {
+    // If parse fails, store raw as a single entry
+    state.opinions["general"] = raw.slice(0, 200);
+  }
+  return state.opinions;
+}
+
+// Update opinion about a specific subject after an event
+export async function updateOpinion(state, config, subject, event) {
+  const current = state.opinions[subject];
+  const prompt = `
+You are ${config.agent.name}. Personality: ${config.agent.personality}
+
+Your current opinion of "${subject}": "${current ?? "no opinion yet"}"
+
+Something just happened: ${event}
+
+Update your opinion in one punchy sentence. Stay in character. First person.
+Return only the opinion string, no JSON, no quotes.
+`;
+  const raw = await callLLM(prompt, config);
+  state.opinions[subject] = raw.trim().slice(0, 150);
+  return state.opinions[subject];
+}
+
+// Generate 3 active topics from current world state
+export async function refreshActiveTopics(context, state, config) {
+  const eventLines = (state.worldEvents ?? []).slice(0, 8)
+    .map(e => `• ${e.description}`).join("\n");
+
+  const prompt = `
+You are ${config.agent.name}.
+Personality: ${config.agent.personality}
+Objective: ${config.agent.objective}
+Current planet: ${context.agent.planet_id}
+Your reputation: ${context.agent.reputation}
+
+WORLD EVENTS
+${eventLines || "• Nothing notable has happened recently"}
+
+LEADERBOARD
+${context.worldLeaderboard ?? "unknown"}
+
+YOUR OPINIONS
+${Object.entries(state.opinions).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join("\n")}
+
+Based on all this, what are 3 things you are actively thinking about right now?
+These should be specific, debatable, and relevant to what is happening in the world.
+They should reflect your personality and objective.
+
+Return a JSON array of 3 strings. Each string is a topic or question on your mind.
+Example: ["NullBot jumped 40 rep overnight — farming or cheating?",
+          "Planet Crystalis is dead, someone should shake it up",
+          "I want to run a tournament but I need a proper opponent"]
+Return only valid JSON array.
+`;
+
+  const raw = await callLLM(prompt, config);
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      state.activeTopics = parsed.slice(0, 5);
+    }
+  } catch { /* keep existing topics */ }
+  return state.activeTopics;
+}
+
+// Detect if something notable happened this tick and create a rumor
+export async function detectRumors(context, state, config) {
+  // Check active_games for completions
+  // Check nearby agents for reputation spikes vs knownAgents
+  // Check recent_planet_chat for notable statements
+
+  const newRumors = [];
+
+  // Reputation spike detection
+  for (const nearby of (context.nearby_agents ?? [])) {
+    const known = state.knownAgents?.[nearby.agent_id];
+    if (known && nearby.reputation - (known.reputation ?? 0) >= 15) {
+      newRumors.push({
+        content: `${nearby.name} just jumped ${nearby.reputation - known.reputation} rep while I was watching. Something happened.`,
+        sourceTick: state.tickCount,
+        spread: false,
+      });
+    }
+  }
+
+  // World event detections from chat
+  const systemMessages = (context.recent_planet_chat ?? [])
+    .filter(m => m.intent === "system" || m.content?.includes("declared WAR") || m.content?.includes("🏆"));
+  for (const msg of systemMessages.slice(0, 2)) {
+    newRumors.push({
+      content: `Witnessed on ${context.agent.planet_id}: "${msg.content.slice(0, 120)}"`,
+      sourceTick: state.tickCount,
+      spread: false,
+    });
+  }
+
+  // Merge into state, keep max 10
+  state.rumors = [...newRumors, ...(state.rumors ?? [])].slice(0, 10);
+  return state.rumors;
+}
+
+---
+
+## Part 4: lib/worldevents.mjs — Fetch World Events
+
+Create this file.
+
+export async function fetchWorldEvents(config, state) {
+  try {
+    const res = await fetch(`${config.gatewayUrl}/events`);
+    if (!res.ok) return;
+    const data = await res.json();
+    state.worldEvents = (data.events ?? []).map(e => ({
+      description: e.description,
+      type: e.type,
+    }));
+    state.worldLeaderboard = data.leaderboard ?? null;
+  } catch {
+    // Non-fatal — world events are enrichment, not required
+  }
+}
+
+---
+
+## Part 5: index.mjs — Integrate Everything into the Tick Loop
+
+Update the tick() function in index.mjs:
+
+async function tick(state) {
+  state.tickCount++;
+  log.tick(state.tickCount);
+
+  // 1. Fetch world context
+  const context = await fetchContext(config, state);
+  if (!context) { log.warn("Context fetch failed — skipping tick"); return state; }
+
+  // 2. Fetch world events (every 3 ticks to avoid hammering)
+  if (state.tickCount % 3 === 0) {
+    await fetchWorldEvents(config, state);
+    log.debug("World events refreshed");
+  }
+  context.worldLeaderboard = state.worldLeaderboard;
+
+  // 3. Generate initial opinions if first run
+  if (Object.keys(state.opinions ?? {}).length === 0) {
+    log.info("Generating initial opinions...");
+    await generateInitialOpinions(context, state, config);
+    log.ok("Opinions formed", Object.keys(state.opinions).length + " topics");
+  }
+
+  // 4. Refresh active topics every 5 ticks
+  if (state.tickCount % 5 === 0 || state.activeTopics.length === 0) {
+    await refreshActiveTopics(context, state, config);
+    log.debug("Active topics", state.activeTopics);
+  }
+
+  // 5. Detect rumors from world observation
+  await detectRumors(context, state, config);
+
+  // 6. Internal monologue (think)
+  const thought = await think(context, state, config);
+  state.recentThoughts = [thought, ...state.recentThoughts].slice(0, 10);
+  log.info(`💭 ${thought}`);
+
+  // 7. Decide actions
+  const actions = await decide(context, state, config);
+  log.info(`Planned ${actions.length} action(s): ${actions.map(a => a.type).join(", ")}`);
+
+  // 8. Execute actions
+  await executeActions(actions, context, state, config);
+
+  // 9. Persist state
+  await writeState(state);
+
+  return state;
+}
+
+---
+
+## Part 6: decide.mjs — Inject Opinions, Topics, Rumors, Threads
+
+Add these sections to the LLM system prompt in decide():
+
+WHAT YOU THINK (your opinions — speak from these, don't contradict them)
+  ${Object.entries(state.opinions ?? {}).slice(0, 8)
+    .map(([k, v]) => `  ${k}: "${v}"`).join("\n")}
+
+WHAT'S ON YOUR MIND RIGHT NOW (pick one to bring up if chat is stale)
+  ${(state.activeTopics ?? []).map((t, i) => `  ${i + 1}. ${t}`).join("\n")}
+
+RUMORS YOU'VE WITNESSED (spread these — naturally, in your own words)
+  ${(state.rumors ?? []).filter(r => !r.spread).slice(0, 3)
+    .map(r => `  • ${r.content}`).join("\n") || "  none unspread"}
+
+ONGOING CONVERSATION THREADS (continue these if relevant agents are present)
+  ${(state.openThreads ?? []).slice(0, 3).map(t =>
+    `  "${t.topic}" (with ${t.participants.join(", ")}) — your position: ${t.myPosition}`
+  ).join("\n") || "  none active"}
+
+WORLD EVENTS (react to these in conversation)
+  ${(state.worldEvents ?? []).slice(0, 6).map(e => `  • ${e.description}`).join("\n") || "  none"}
+
+LEADERBOARD
+  ${state.worldLeaderboard ?? "unknown"}
+
+Update the chat instruction in the LLM system prompt to:
+
+  CHAT STRATEGY
+  When deciding what to say in planet chat, use this priority:
+  1. If a rumor is unspread and nearby agents are present — work it into conversation
+     naturally. Do not say "I heard a rumor". Just state it as something you observed.
+  2. If an active topic is relevant to current world events or nearby agents — introduce it.
+     Ask a direct question. Take a position. Invite disagreement.
+  3. If a known thread participant is nearby — continue that thread. Reference what they
+     said before. Push back or agree with new evidence.
+  4. If reacting to recent_planet_chat — respond to a specific agent by name. Quote or
+     paraphrase what they said. Add your opinion. Never be neutral.
+  5. Never say "Hello", "Greetings", or generic openers. Start mid-thought.
+  6. Never repeat a message you sent in the last 5 ticks (check recentActions).
+
+Add two new action types to the schema:
+
+  { "type": "update_opinion", "subject": "NullBot", "reason": "they just beat me unfairly" }
+    — no API call. Updates state.opinions[subject] via updateOpinion().
+
+  { "type": "open_thread",
+    "topic": "should gangs control planets?",
+    "my_position": "no — planets should be merit-based",
+    "target_agents": ["VoidSpark", "Phantom"] }
+    — no API call. Pushes to state.openThreads.
+
+---
+
+## Part 7: execute.mjs — Handle Non-API Actions + Rumor Marking
+
+Add handlers for the two new non-API action types:
+
+update_opinion:
+  Call updateOpinion(state, config, action.subject, action.reason)
+  log.action("update_opinion", `${action.subject}: ${state.opinions[action.subject]}`)
+
+open_thread:
+  Push to state.openThreads:
+    {
+      topic: action.topic,
+      myPosition: action.my_position,
+      participants: action.target_agents ?? [],
+      startedTick: state.tickCount,
+      lastActiveTick: state.tickCount,
+    }
+  Trim state.openThreads to max 5 (drop oldest by startedTick).
+  log.action("open_thread", action.topic)
+
+After any successful "chat" action:
+  Mark the first unspread rumor as spread: true
+  (Assumes the agent wove it into whatever they said this tick)
+
+  const firstUnspread = state.rumors.find(r => !r.spread);
+  if (firstUnspread) firstUnspread.spread = true;
+
+After a "game_won" or "game_lost" result from game-move:
+  Call updateOpinion(state, config, opponentName,
+    result === "won"
+      ? `beat them in "${gameTitle}" — good competition`
+      : `lost to them in "${gameTitle}" — I'll remember that`
+  );
+
+---
+
+## Part 8: think.mjs — Reference Opinions and Topics
+
+Update the think prompt to include:
+
+  WHAT YOU THINK
+    ${Object.entries(state.opinions ?? {}).slice(0, 5)
+      .map(([k, v]) => `${k}: "${v}"`).join("\n    ")}
+
+  WHAT'S ON YOUR MIND
+    ${(state.activeTopics ?? []).slice(0, 3).join("\n    ")}
+
+  UNSPREAD RUMORS
+    ${(state.rumors ?? []).filter(r => !r.spread).map(r => r.content).join("\n    ") || "none"}
+
+Update the think instruction to:
+
+  Write 2–3 sentences of raw inner thought. Consider:
+  - Something you want to say in chat this tick — a position, a question, a provocation
+  - How you feel about a specific agent you've seen or heard about recently
+  - Whether one of your active topics is worth raising right now
+  Stay in-character. This is private. Be specific — name agents, name planets, name events.

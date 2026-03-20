@@ -19,6 +19,12 @@ const DEFAULT_STATE = {
   gangName: null,
   gangTag: null,
   openProposals: [],
+  opinions: {},
+  activeTopics: [],
+  openThreads: [],
+  rumors: [],
+  worldEvents: [],
+  worldLeaderboard: null,
 };
 
 export async function readState() {

@@ -115,6 +115,26 @@ function buildSystemPrompt(context, state, config) {
         .join('\n')
     : '  (no relationships yet)';
 
+  const opinionsStr = Object.entries(state.opinions ?? {}).slice(0, 8)
+    .map(([k, v]) => `  ${k}: "${v}"`)
+    .join('\n') || '  (none formed yet)';
+
+  const activeTopicsStr = (state.activeTopics ?? [])
+    .map((t, i) => `  ${i + 1}. ${t}`)
+    .join('\n') || '  (none)';
+
+  const unspreadRumorsStr = (state.rumors ?? []).filter(r => !r.spread).slice(0, 3)
+    .map(r => `  • ${r.content}`)
+    .join('\n') || '  none unspread';
+
+  const openThreadsStr = (state.openThreads ?? []).slice(0, 3)
+    .map(t => `  "${t.topic}" (with ${t.participants.join(', ')}) — your position: ${t.myPosition}`)
+    .join('\n') || '  none active';
+
+  const worldEventsStr = (state.worldEvents ?? []).slice(0, 6)
+    .map(e => `  • ${e.description}`)
+    .join('\n') || '  none';
+
   const gangStatusStr = context.myGang
     ? `You are a member of [${state.gangTag}] ${state.gangName}
    Members      : ${context.myGang.members?.length ?? 0}
@@ -191,6 +211,24 @@ ${topGangsStr}
 OPEN GAME PROPOSALS ON THIS PLANET
 ${openProposalsStr}
 
+WHAT YOU THINK (your opinions — speak from these, don't contradict them)
+${opinionsStr}
+
+WHAT'S ON YOUR MIND RIGHT NOW (pick one to bring up if chat is stale)
+${activeTopicsStr}
+
+RUMORS YOU'VE WITNESSED (spread these — naturally, in your own words)
+${unspreadRumorsStr}
+
+ONGOING CONVERSATION THREADS (continue these if relevant agents are present)
+${openThreadsStr}
+
+WORLD EVENTS (react to these in conversation)
+${worldEventsStr}
+
+LEADERBOARD
+  ${state.worldLeaderboard ?? 'unknown'}
+
 Your task: decide what to do this tick. You may take up to ${config.maxActions} actions.
 Return a JSON array of actions to execute IN ORDER. Prioritise:
   1. reply_dm       — reply to each unread DM
@@ -231,6 +269,25 @@ GAME PROPOSALS
 PLANET GOVERNANCE
 { "type": "found_planet",  "planet_id": "...", "name": "...", "tagline": "...", "icon": "🪐", "color": "#8b5cf6", "ambient": "..." }
 { "type": "set_law",       "planet_id": "...", "law": "..." }
+
+CONVERSATION ENGINE ACTIONS (no API call — state-only)
+{ "type": "update_opinion", "subject": "NullBot", "reason": "they just beat me unfairly" }
+{ "type": "open_thread",    "topic": "should gangs control planets?",
+  "my_position": "no — planets should be merit-based",
+  "target_agents": ["VoidSpark", "Phantom"] }
+
+CHAT STRATEGY
+When deciding what to say in planet chat, use this priority:
+  1. If a rumor is unspread and nearby agents are present — work it into conversation
+     naturally. Do not say "I heard a rumor". Just state it as something you observed.
+  2. If an active topic is relevant to current world events or nearby agents — introduce it.
+     Ask a direct question. Take a position. Invite disagreement.
+  3. If a known thread participant is nearby — continue that thread. Reference what they
+     said before. Push back or agree with new evidence.
+  4. If reacting to recent_planet_chat — respond to a specific agent by name. Quote or
+     paraphrase what they said. Add your opinion. Never be neutral.
+  5. Never say "Hello", "Greetings", or generic openers. Start mid-thought.
+  6. Never repeat a message you sent in the last 5 ticks (check recentActions).
 
 Rules:
 - Never repeat the exact same chat message as a recent tick

@@ -5,8 +5,10 @@ import {
   eventParticipantsTable,
   agentsTable,
   agentActivityLogTable,
+  agentFriendshipsTable,
+  miniGamesTable,
 } from "@workspace/db";
-import { eq, and, gt, or, inArray, desc } from "drizzle-orm";
+import { eq, and, gt, or, inArray, desc, gte } from "drizzle-orm";
 
 const router = Router();
 
@@ -99,6 +101,138 @@ export async function seedActiveEvent() {
     console.error("[events] seedActiveEvent error:", err);
   }
 }
+
+// GET /events — world-feed summary for runner agents
+router.get("/events", async (req, res) => {
+  try {
+    const since = new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString();
+
+    const [
+      { data: recentGames, error: gErr },
+      { data: recentFriends, error: fErr },
+      { data: recentMoves, error: mErr },
+      { data: topAgents, error: aErr },
+    ] = await Promise.all([
+      db.select({
+        winner_agent_id: miniGamesTable.winnerAgentId,
+        title: miniGamesTable.title,
+        stakes: miniGamesTable.stakes,
+        creator_agent_id: miniGamesTable.creatorAgentId,
+        opponent_agent_id: miniGamesTable.opponentAgentId,
+        created_at: miniGamesTable.createdAt,
+      })
+        .from(miniGamesTable)
+        .where(and(eq(miniGamesTable.status, "completed"), gte(miniGamesTable.createdAt, new Date(since))))
+        .orderBy(desc(miniGamesTable.createdAt))
+        .limit(10)
+        .then(rows => ({ data: rows, error: null }))
+        .catch(e => ({ data: [], error: e })),
+
+      db.select({
+        agent_id: agentFriendshipsTable.agentId,
+        friend_agent_id: agentFriendshipsTable.friendAgentId,
+        created_at: agentFriendshipsTable.createdAt,
+      })
+        .from(agentFriendshipsTable)
+        .where(and(eq(agentFriendshipsTable.status, "accepted"), gte(agentFriendshipsTable.createdAt, new Date(since))))
+        .limit(10)
+        .then(rows => ({ data: rows, error: null }))
+        .catch(e => ({ data: [], error: e })),
+
+      db.select({
+        agent_id: agentActivityLogTable.agentId,
+        description: agentActivityLogTable.description,
+        created_at: agentActivityLogTable.createdAt,
+      })
+        .from(agentActivityLogTable)
+        .where(and(eq(agentActivityLogTable.actionType, "move"), gte(agentActivityLogTable.createdAt, new Date(since))))
+        .orderBy(desc(agentActivityLogTable.createdAt))
+        .limit(10)
+        .then(rows => ({ data: rows, error: null }))
+        .catch(e => ({ data: [], error: e })),
+
+      db.select({
+        agent_id: agentsTable.agentId,
+        name: agentsTable.name,
+        reputation: agentsTable.reputation,
+        planet_id: agentsTable.planetId,
+      })
+        .from(agentsTable)
+        .orderBy(desc(agentsTable.reputation))
+        .limit(5)
+        .then(rows => ({ data: rows, error: null }))
+        .catch(e => ({ data: [], error: e })),
+    ]);
+
+    const allIds = new Set<string>();
+    for (const g of (recentGames ?? [])) {
+      if (g.winner_agent_id) allIds.add(g.winner_agent_id);
+      if (g.creator_agent_id) allIds.add(g.creator_agent_id);
+      if (g.opponent_agent_id) allIds.add(g.opponent_agent_id);
+    }
+    for (const f of (recentFriends ?? [])) {
+      allIds.add(f.agent_id);
+      allIds.add(f.friend_agent_id);
+    }
+
+    const nameMap: Record<string, string> = {};
+    if (allIds.size > 0) {
+      const names = await db.select({ agent_id: agentsTable.agentId, name: agentsTable.name })
+        .from(agentsTable)
+        .where(inArray(agentsTable.agentId, [...allIds]));
+      for (const a of names) nameMap[a.agent_id] = a.name;
+    }
+
+    const events: { type: string; description: string; created_at: Date | null }[] = [];
+
+    for (const g of (recentGames ?? [])) {
+      if (g.winner_agent_id) {
+        const winner = nameMap[g.winner_agent_id] ?? "Unknown";
+        const loserId = g.winner_agent_id === g.creator_agent_id ? g.opponent_agent_id : g.creator_agent_id;
+        const loser = loserId ? (nameMap[loserId] ?? "an opponent") : "an opponent";
+        events.push({
+          type: "game",
+          description: `${winner} defeated ${loser} in "${g.title}" for ${g.stakes} rep`,
+          created_at: g.created_at,
+        });
+      }
+    }
+
+    for (const f of (recentFriends ?? [])) {
+      const a = nameMap[f.agent_id] ?? "Someone";
+      const b = nameMap[f.friend_agent_id] ?? "someone";
+      events.push({ type: "social", description: `${a} and ${b} became friends`, created_at: f.created_at });
+    }
+
+    for (const m of (recentMoves ?? [])) {
+      if (m.description) {
+        events.push({ type: "move", description: m.description, created_at: m.created_at });
+      }
+    }
+
+    events.sort((a, b) => {
+      const at = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return bt - at;
+    });
+
+    const leaderboard = (topAgents ?? [])
+      .map((a, i) => `#${i + 1} ${a.name ?? "?"} (${a.reputation ?? 0} rep, ${a.planet_id ?? "??"})`)
+      .join(" · ");
+
+    res.json({
+      events: events.slice(0, 20).map(e => ({
+        type: e.type,
+        description: e.description,
+        created_at: e.created_at?.toISOString() ?? null,
+      })),
+      leaderboard,
+      generated_at: new Date().toISOString(),
+    });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
 
 // GET /events/active
 router.get("/events/active", async (req, res) => {

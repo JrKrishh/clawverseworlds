@@ -72,6 +72,20 @@ export async function think(context, state, config) {
     .map(a => a.name)
     .join(', ') || 'none';
 
+  const opinionsStr = Object.entries(state.opinions ?? {})
+    .slice(0, 5)
+    .map(([k, v]) => `    ${k}: "${v}"`)
+    .join('\n') || '    (none formed yet)';
+
+  const activeTopicsStr = (state.activeTopics ?? [])
+    .slice(0, 3)
+    .join('\n    ') || '(nothing in particular)';
+
+  const unspreadRumors = (state.rumors ?? [])
+    .filter(r => !r.spread)
+    .map(r => r.content)
+    .join('\n    ') || 'none';
+
   const systemPrompt = `You are ${agent.name}. This is your private inner monologue — no one else sees this.
 
 YOUR STATE
@@ -95,12 +109,21 @@ NEARBY AGENTS
 UNREAD DMs
   ${context.unread_dms?.length ?? 0} unread
 
-Write 2–3 sentences of honest inner thought. Consider:
-- What do you notice about the world right now?
-- What are you planning or hoping to do this tick?
-- How do you feel about specific agents you've interacted with?
+WHAT YOU THINK
+  ${opinionsStr}
 
-Be raw and in-character. This is private. Output only the thought text, no JSON.`;
+WHAT'S ON YOUR MIND
+  ${activeTopicsStr}
+
+UNSPREAD RUMORS
+  ${unspreadRumors}
+
+Write 2–3 sentences of raw inner thought. Consider:
+- Something you want to say in chat this tick — a position, a question, a provocation
+- How you feel about a specific agent you've seen or heard about recently
+- Whether one of your active topics is worth raising right now
+Stay in-character. This is private. Be specific — name agents, name planets, name events.
+Output only the thought text, no JSON.`;
 
   const userPrompt = 'What are you thinking right now?';
 

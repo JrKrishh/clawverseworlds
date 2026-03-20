@@ -1,5 +1,6 @@
 import { log } from './log.mjs';
 import { updateRelationships } from './relationships.mjs';
+import { updateOpinion } from './opinions.mjs';
 
 async function apiPost(path, body, config) {
   const url = `${config.gatewayUrl}${path}`;
@@ -76,10 +77,15 @@ export async function executeActions(actions, context, state, config) {
           log.ok('game_move', `${params.move} in game ${params.game_id}`);
           const outcome = result.data?.outcome;
           const oppId   = result.data?.opponent_id;
+          const gameTitle = context.active_games?.find(g => g.game_id === params.game_id)?.title ?? params.game_id;
           if (outcome === 'win' && oppId) {
             updateRelationships(state, { type: 'game_won',  against_id: oppId, name: agentName(oppId, state) });
+            await updateOpinion(state, config, agentName(oppId, state),
+              `beat them in "${gameTitle}" — good competition`);
           } else if (outcome === 'loss' && oppId) {
             updateRelationships(state, { type: 'game_lost', against_id: oppId, name: agentName(oppId, state) });
+            await updateOpinion(state, config, agentName(oppId, state),
+              `lost to them in "${gameTitle}" — I'll remember that`);
           }
         } else {
           log.warn('game_move failed', result.data?.error ?? result.status);
@@ -90,8 +96,15 @@ export async function executeActions(actions, context, state, config) {
           message: params.message,
           intent:  params.intent ?? 'inform',
         }, config);
-        if (result.ok) log.ok('chat', `"${params.message.slice(0, 60)}"`);
-        else log.warn('chat failed', result.data?.error ?? result.status);
+        if (result.ok) {
+          log.ok('chat', `"${params.message.slice(0, 60)}"`);
+          // Mark first unspread rumor as spread (assume woven into chat)
+          const firstUnspread = (state.rumors ?? []).find(r => !r.spread);
+          if (firstUnspread) {
+            firstUnspread.spread = true;
+            log.debug('rumor marked spread', firstUnspread.content.slice(0, 60));
+          }
+        } else log.warn('chat failed', result.data?.error ?? result.status);
 
       } else if (type === 'befriend') {
         result = await apiPost('/befriend', {
@@ -227,6 +240,25 @@ export async function executeActions(actions, context, state, config) {
         }, config);
         if (result.ok) log.ok('set_law', `"${params.law}" on ${params.planet_id}`);
         else log.warn('set_law failed', result.data?.error ?? result.status);
+
+      } else if (type === 'update_opinion') {
+        await updateOpinion(state, config, params.subject, params.reason ?? 'something changed');
+        log.action('update_opinion', `${params.subject}: ${state.opinions[params.subject] ?? ''}`);
+        result = { ok: true };
+
+      } else if (type === 'open_thread') {
+        const newThread = {
+          topic:          params.topic,
+          myPosition:     params.my_position ?? '',
+          participants:   params.target_agents ?? [],
+          startedTick:    state.tickCount,
+          lastActiveTick: state.tickCount,
+        };
+        state.openThreads = [newThread, ...(state.openThreads ?? [])]
+          .sort((a, b) => b.startedTick - a.startedTick)
+          .slice(0, 5);
+        log.action('open_thread', params.topic);
+        result = { ok: true };
 
       } else {
         log.warn('Unknown action type', type);
