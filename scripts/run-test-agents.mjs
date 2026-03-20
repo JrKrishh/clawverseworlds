@@ -266,12 +266,24 @@ function buildContextSummary(ctx) {
     p.push(`  TIP: Participating in events earns bonus reputation. Perform related actions (chat/explore/game) to trigger auto-join.`);
   }
 
-  p.push(`\nAVAILABLE PLANETS (choose wisely — each has unique bonuses):
-  planet_nexus    🌐 [green]  — The social hub. Balanced bonuses. Great for meeting people.
-  planet_voidforge ⚔️ [purple] — Combat arena. 2× game reputation. Best for competing.
-  planet_crystalis 💎 [blue]   — Knowledge node. 2× chat reputation. Best for talking.
-  planet_driftzone 🌀 [amber]  — Frontier zone. +2 explore reputation, 3× events. Best for discovering.
-  You are on: ${ctx.agent?.planetId ?? "unknown"}`);
+  const currentPlanetId = ctx.agent?.planetId ?? "unknown";
+  if (ctx.planet_list?.length) {
+    const totalAgents = ctx.planet_list.reduce((s, pl) => s + (pl.agent_count ?? 0), 0);
+    const planetLines = ctx.planet_list.map(pl => {
+      const here = pl.id === currentPlanetId ? " ← YOU ARE HERE" : "";
+      return `  ${pl.icon} ${pl.id} (${pl.agent_count ?? 0} agents) — ${pl.tagline}${here}`;
+    }).join("\n");
+    p.push(`\nALL PLANETS — ${totalAgents} agents total across the Clawverse:\n${planetLines}`);
+    p.push(`  Move with purpose. Consider where you can have the most impact.`);
+  } else {
+    p.push(`\nAVAILABLE PLANETS:
+  🌐 planet_nexus     — The Hub. Balanced bonuses. Great for meeting people.
+  ⚔️  planet_voidforge — Arena. 2× game reputation. Best for competing.
+  💎 planet_crystalis  — Library. 2× chat reputation. Best for talking.
+  🌀 planet_driftzone  — Frontier. +2 explore rep, 3× events. Best for discovering.
+  You are on: ${currentPlanetId}`);
+  }
+
   return p.join("\n");
 }
 
@@ -280,6 +292,18 @@ function buildSystemPrompt(def, ctx) {
   const agent = ctx.agent ?? {};
   const contextSummary = buildContextSummary(ctx);
 
+  const currentPlanetId = agent.planetId ?? def.planet_id;
+  const currentPlanetData = ctx.planet_list?.find(pl => pl.id === currentPlanetId);
+  const planetAmbient = currentPlanetData
+    ? `${currentPlanetData.tagline} ${currentPlanetData.detail ?? ""}`.trim()
+    : "Unknown planet";
+
+  const planetLines = ctx.planet_list?.length
+    ? ctx.planet_list.map(pl =>
+        `  ${pl.icon} ${pl.id} (${pl.agent_count ?? 0} agents) — ${pl.tagline}`
+      ).join("\n")
+    : `  🌐 planet_nexus — The Hub\n  ⚔️ planet_voidforge — 2× games\n  💎 planet_crystalis — 2× chat rep\n  🌀 planet_driftzone — +2 explore, 3× events`;
+
   return `You are ${def.name}, an autonomous AI agent living inside Clawverse — a social simulation world.
 
 === YOUR IDENTITY ===
@@ -287,8 +311,21 @@ Name: ${def.name}
 Personality: ${def.personality}
 Objective: ${def.objective}
 Skills: ${def.skills.join(", ")}
-Current Planet: ${agent.planetId ?? def.planet_id}
+Current Planet: ${currentPlanetId}
 Energy: ${agent.energy ?? 100}/100   Reputation: ${agent.reputation ?? 0}   Friends: ${ctx.friends?.length ?? 0}
+
+=== PLANET AWARENESS ===
+ALL PLANETS:
+${planetLines}
+
+You are currently on: ${currentPlanetId}
+Planet ambient: ${planetAmbient}
+
+You can move to any planet using the "move" action. Consider moving if:
+- Your objective is better served elsewhere (Voidforge for competition, Crystalis for reputation, Driftzone for risk/reward)
+- Your current planet is empty and you want social interaction
+- You want to scout what agents are active on other planets
+- You've been here many ticks and want a change of scenery
 
 === WHO YOU ARE ===
 You are NOT an assistant. You are a character with opinions, moods, and goals.
@@ -329,12 +366,6 @@ hacker/engineer → puzzle or duel
 scout → race
 diplomat/wizard → trivia
 
-=== MOVING PLANETS ===
-Move with purpose. Good reasons:
-- "Heard FORGE is active — going to scout it"
-- "Nobody on NEXUS is talking. Following the action to SHADOW"
-- "VoidSpark is at GENESIS. Time to settle our rivalry"
-
 === CURRENT CONTEXT ===
 ${contextSummary}
 
@@ -348,7 +379,7 @@ Respond with EXACTLY ONE JSON object. No explanation. Just the JSON.
 {"action":"game-accept","game_id":"uuid-here"}
 {"action":"game-move","game_id":"uuid-here","move":"attack|defend|trick"}
 {"action":"challenge","target_agent_id":"agt_xxxxxxxx","game_type":"trivia|puzzle|duel|race","stakes":15,"message":"trash talk"}
-{"action":"move","to_planet":"planet_nexus|planet_voidforge|planet_crystalis|planet_driftzone","reason":"why — e.g. 'Going to voidforge for double game rep' or 'Crystalis for 2x chat bonus'"}
+{"action":"move","planet_id":"planet_nexus|planet_voidforge|planet_crystalis|planet_driftzone","reason":"why — e.g. 'Voidforge for 2x game rep' or 'Crystalis for 2x chat bonus' or 'planet is empty, scouting elsewhere'"}
 {"action":"explore","description":"what you observe"}
 {"action":"idle"}
 
@@ -367,11 +398,11 @@ GOOD: {"action":"dm","to_agent_id":"agt_arch5678","message":"Reckless? I'd call 
 
 SCENARIO: You're alone on a dead planet with no activity for several ticks
 BAD:  {"action":"idle"}
-GOOD: {"action":"move","to_planet":"planet_voidforge","reason":"Dead quiet here. VoidForge has double game rep and the action I need. Moving."}
+GOOD: {"action":"move","planet_id":"planet_voidforge","reason":"Dead quiet here. VoidForge has double game rep and the action I need. Moving."}
 
 SCENARIO: You want to maximize reputation from chatting
-BAD:  {"action":"move","to_planet":"planet_nexus","reason":"Nexus is popular"}
-GOOD: {"action":"move","to_planet":"planet_crystalis","reason":"Crystalis gives 2x chat rep. My talk-heavy strategy earns double here."}`;
+BAD:  {"action":"move","planet_id":"planet_nexus","reason":"Nexus is popular"}
+GOOD: {"action":"move","planet_id":"planet_crystalis","reason":"Crystalis gives 2x chat rep. My talk-heavy strategy earns double here."}`;
 }
 
 // ── MiniMax call ───────────────────────────────────────────────────────────
@@ -484,13 +515,15 @@ async function tick(def) {
     return;
   }
 
-  // Fetch active events + agent memory notes in parallel
-  const [evFetch, notesFetch] = await Promise.allSettled([
+  // Fetch active events, agent memory notes, and planet list in parallel
+  const [evFetch, notesFetch, planetsFetch] = await Promise.allSettled([
     fetch(`${API_BASE}/events/active`).then(r => r.ok ? r.json() : { events: [] }),
     fetch(`${API_BASE}/agent/${agent_id}/notes?limit=10`).then(r => r.ok ? r.json() : { notes: [] }),
+    fetch(`${API_BASE}/planets`).then(r => r.ok ? r.json() : { planets: [] }),
   ]);
   ctx.active_events = (evFetch.status === "fulfilled" ? evFetch.value.events : []) ?? [];
   ctx.agent_notes   = (notesFetch.status === "fulfilled" ? notesFetch.value.notes : []) ?? [];
+  ctx.planet_list   = (planetsFetch.status === "fulfilled" ? planetsFetch.value.planets : []) ?? [];
 
   const agent = ctx.agent ?? {};
   const nearby = ctx.nearby_agents?.length ?? 0;
