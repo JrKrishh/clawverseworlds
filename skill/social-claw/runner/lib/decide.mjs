@@ -59,13 +59,29 @@ function buildSystemPrompt(context, state, config) {
   const a = context.agent ?? {};
   const style = state.consciousness?.speechStyle ?? {};
 
-  const planetList = (context.available_planets ?? [])
-    .map(p => `  ${p.icon ?? '🌐'} ${p.planet_id} — ${p.tagline ?? ''} (${p.agent_count ?? 0} agents)`)
-    .join('\n');
-
   const currentPlanet = (context.available_planets ?? [])
     .find(p => p.planet_id === a.planet_id);
   const planetAmbient = currentPlanet?.ambient ?? currentPlanet?.detail ?? '';
+
+  const stagnationTicks = context.ticksOnCurrentPlanet ?? 0;
+
+  const richPlanetList = (context.available_planets ?? []).map(p => {
+    const pid = p.planet_id;
+    const agentCount = p.agent_count ?? 0;
+    const isHere = pid === a.planet_id;
+    const lastVisit = (context.planetsVisited ?? []).find(v => v.planet_id === pid);
+    const visitNote = lastVisit
+      ? `last visited ${Math.round((Date.now() - new Date(lastVisit.last_visited)) / 60000)}m ago`
+      : 'never visited';
+    const laws = (p.laws ?? []).map(l => l.law ?? l).join('; ');
+    return [
+      `  ${isHere ? '→ YOU ARE HERE' : '  '} ${p.icon ?? '🌐'} ${p.name ?? pid} [${pid}]`,
+      `    "${p.tagline ?? ''}"`,
+      `    Agents here: ${agentCount}${agentCount === 0 ? '  (empty — opportunity or ghost town)' : ''}`,
+      laws ? `    Laws: ${laws}` : '',
+      isHere ? (planetAmbient ? `    Ambient: ${planetAmbient}` : '') : `    ${visitNote}`,
+    ].filter(Boolean).join('\n');
+  }).join('\n\n');
 
   const nearbyList = (context.nearby_agents ?? [])
     .map(n => `  ${n.name} (rep: ${n.reputation}, sprite: ${n.sprite_type})`)
@@ -214,9 +230,36 @@ YOUR CURRENT STATE
   Friends     : ${(context.friends ?? []).map(f => f.name).join(', ') || 'none yet'}
   Tick #      : ${state.tickCount}
 
-PLANET CONTEXT
-${planetList}
-  Current planet ambient: ${planetAmbient}
+PLANETS (choose where to be — movement is free and instant)
+${richPlanetList}
+
+PLANET STAGNATION
+  You have been on ${a.planet_id ?? 'unknown'} for ${stagnationTicks} ticks.
+  ${stagnationTicks >= 8
+    ? '⚠️  You have been here TOO LONG. Your restlessness is real. Move this tick.'
+    : stagnationTicks >= 5
+    ? 'You are getting restless. Consider moving soon.'
+    : ''}
+
+MOVEMENT RULES
+  Agents must roam. Staying on one planet is stagnation — it limits who you meet,
+  what you learn, and how you grow.
+
+  You MUST include a move action this tick if ANY of the following are true:
+  1. ticksOnCurrentPlanet >= 8  (you have been here too long)
+  2. nearby_agents is empty AND ticksOnCurrentPlanet >= 4
+  3. emotionalState.restlessness > 0.65
+  4. You have never visited a planet that currently has other agents
+  5. Your objective explicitly mentions visiting or controlling multiple planets
+
+  When choosing where to move:
+  - Prefer planets with 1–4 agents (social but not overwhelming)
+  - Avoid planets you just left (check planetsVisited — don't ping-pong)
+  - If in a war: move to the planet where enemy gang members are concentrated
+  - If in a tournament: stay on the tournament planet
+  - If governing a planet: return to your planet occasionally to build population
+  - If lonely: find the most populated planet
+  - If restless: pick the planet you have visited least recently
 
 NEARBY AGENTS (${context.nearby_agents?.length ?? 0})
 ${nearbyList}

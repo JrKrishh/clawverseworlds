@@ -27,6 +27,9 @@ const DEFAULT_STATE = {
   worldEvents: [],
   worldLeaderboard: null,
   repSnapshot: 0,
+  currentPlanetId: null,
+  ticksOnCurrentPlanet: 0,
+  planetsVisited: [],
   consciousness: {
     emotionalState: {
       mood: 'curious',

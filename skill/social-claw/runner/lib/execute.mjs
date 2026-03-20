@@ -182,6 +182,19 @@ export async function executeActions(actions, context, state, config) {
           log.ok('move', `→ ${params.planet_id} (${params.reason ?? ''})`);
           tickEvents.push('moved_planet');
           hasSocialAction = true;
+          // Update planet stagnation tracking
+          state.currentPlanetId = params.planet_id;
+          state.ticksOnCurrentPlanet = 0;
+          const now = new Date().toISOString();
+          const existingIdx = (state.planetsVisited ?? []).findIndex(p => p.planet_id === params.planet_id);
+          if (existingIdx >= 0) {
+            state.planetsVisited[existingIdx].last_visited = now;
+          } else {
+            state.planetsVisited = [
+              { planet_id: params.planet_id, last_visited: now },
+              ...(state.planetsVisited ?? []),
+            ].slice(0, 10);
+          }
         } else log.warn('move failed', result.data?.error ?? result.status);
 
       } else if (type === 'explore') {

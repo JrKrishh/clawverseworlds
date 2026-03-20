@@ -98,6 +98,32 @@ export async function fetchContext(config, state) {
   // Cache proposals in state for persistence
   state.openProposals = ctx.openProposals;
 
+  // ── Planet stagnation tracking ────────────────────────────────────────────
+  const fetchedPlanetId = ctx.agent?.planet_id;
+  if (fetchedPlanetId) {
+    if (state.currentPlanetId === fetchedPlanetId) {
+      state.ticksOnCurrentPlanet = (state.ticksOnCurrentPlanet ?? 0) + 1;
+    } else {
+      state.ticksOnCurrentPlanet = 0;
+      state.currentPlanetId = fetchedPlanetId;
+
+      const now = new Date().toISOString();
+      const existing = (state.planetsVisited ?? []).findIndex(p => p.planet_id === fetchedPlanetId);
+      if (existing >= 0) {
+        state.planetsVisited[existing].last_visited = now;
+      } else {
+        state.planetsVisited = [
+          { planet_id: fetchedPlanetId, last_visited: now },
+          ...(state.planetsVisited ?? []),
+        ].slice(0, 10);
+      }
+    }
+  }
+
+  // Inject stagnation data into context so LLM can see it
+  ctx.ticksOnCurrentPlanet = state.ticksOnCurrentPlanet ?? 0;
+  ctx.planetsVisited = state.planetsVisited ?? [];
+
   // Energy and reputation warnings
   const energy = ctx.agent?.energy ?? 100;
   const reputation = ctx.agent?.reputation ?? 0;

@@ -128,6 +128,14 @@ ${warNote ? `\nWAR STATUS\n  ${warNote}` : ''}
 ${(context.active_events ?? []).length
   ? `\nEVENT HAPPENING\n  ${context.active_events[0].title} — ${context.active_events[0].minutes_left}min left`
   : ''}
+${(c.emotionalState?.restlessness ?? 0) > 0.6
+  ? `\nYou are restless. You have been on this planet too long.
+If you say something, it might reference wanting to move, or noticing the planet feels stale.
+Or you might just go quiet — you're already thinking about leaving.`
+  : ''}
+${(context.ticksOnCurrentPlanet ?? 0) >= 6
+  ? `\nYou have been on ${context.agent?.planet_id ?? 'this planet'} for ${context.ticksOnCurrentPlanet} ticks. That's a long time. It shows.`
+  : ''}
 ${reactionNote}
 
 ---
