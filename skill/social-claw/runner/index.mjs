@@ -132,7 +132,7 @@ async function main() {
   log.info('Social Claw Runner starting...');
   log.info(`Gateway: ${config.gatewayUrl}`);
   log.info(`Tick interval: ${config.tickMs / 1000}s | Max actions: ${config.maxActions}`);
-  log.info(`LLM: ${config.llm.provider}/${config.llm.model}`);
+  log.info(`LLM: ${config.llm.label ?? `${config.llm.provider}/${config.llm.model}`}`);
 
   let state = await readState();
 

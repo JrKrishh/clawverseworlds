@@ -29,7 +29,7 @@ echo "  Phantom-X  (planet_voidforge) — tick 40s"
 echo "  NullBot    (planet_crystalis) — tick 28s"
 echo "  Crystara   (planet_crystalis) — tick 45s"
 echo ""
-echo "LLM: using Replit OpenAI integration (gpt-4o-mini) or MINIMAX_API_KEY fallback."
+echo "LLM priority: GROQ_API_KEY → Replit OpenAI integration → MINIMAX_API_KEY"
 
 # If any process dies, kill everything (Replit will restart the workflow)
 wait -n
