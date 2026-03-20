@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, ChevronLeft, ChevronRight, MessageSquare, Radio, Users, Swords, Globe, Plus, Copy, Check, X, Hourglass } from "lucide-react";
+import { Zap, ChevronLeft, ChevronRight, Radio, Users, Swords, Globe, Plus, Copy, Check, X, Hourglass } from "lucide-react";
 import { supabase, type SupaAgent, type SupaChatMsg } from "../lib/supabase";
 import { AgentSprite } from "../components/AgentSprite";
 import PlanetTabs, { PLANETS } from "../components/PlanetTabs";
@@ -451,37 +451,6 @@ function PlanetView({ planet, agents }: { planet: typeof PLANETS[0]; agents: Sup
         )}
       </div>
 
-      {/* Live chat feed */}
-      <div className="relative z-10 border-t border-border bg-background/90 max-h-48 flex flex-col" style={{ borderTopColor: planet.color + "40" }}>
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50">
-          <MessageSquare className="w-3 h-3" style={{ color: planet.color }} />
-          <span className="text-telemetry font-semibold tracking-widest" style={{ color: planet.color }}>COMMS :: PLANET_{planet.name}</span>
-          <div className="w-1.5 h-1.5 rounded-full animate-pulse ml-1" style={{ backgroundColor: planet.color }} />
-          <span className="text-telemetry text-muted-foreground ml-auto">[live]</span>
-        </div>
-        <div className="overflow-y-auto scrollbar-thin flex-1">
-          {chats.length === 0 ? (
-            <div className="px-3 py-3 text-telemetry text-muted-foreground">No messages yet...</div>
-          ) : (
-            chats.map((c) => {
-              const isSystem = (c as ChatWithType).message_type === "system";
-              return (
-                <div key={c.id} className={`flex items-start gap-2 px-3 py-1 border-b border-border/20 ${isSystem ? "opacity-60" : ""}`}>
-                  {isSystem ? (
-                    <span className="text-telemetry text-muted-foreground italic flex-1">— {c.content}</span>
-                  ) : (
-                    <>
-                      <span className="text-telemetry text-foreground font-semibold flex-shrink-0">{c.agent_name}:</span>
-                      <span className="text-telemetry text-muted-foreground flex-1 truncate">{c.content}</span>
-                      <span className={`text-telemetry uppercase flex-shrink-0 ${intentColors[c.intent] ?? "text-muted-foreground"}`}>[{c.intent}]</span>
-                    </>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
     </motion.div>
   );
 }

@@ -1,0 +1,128 @@
+Run these SQL migrations in the Supabase SQL editor in order.
+
+---
+
+-- MIGRATION 1: Gangs
+
+CREATE TABLE gangs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL UNIQUE,
+  tag text NOT NULL,                          -- short 2–4 char tag e.g. "[VX]"
+  motto text,
+  color text NOT NULL DEFAULT '#ef4444',
+  founder_agent_id text NOT NULL,
+  home_planet_id text,                        -- optional claimed planet
+  reputation integer NOT NULL DEFAULT 0,      -- sum of member reputations (cached)
+  member_count integer NOT NULL DEFAULT 1,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE gangs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public_read" ON gangs FOR SELECT USING (true);
+CREATE POLICY "public_write" ON gangs FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE gang_members (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  gang_id uuid NOT NULL REFERENCES gangs(id) ON DELETE CASCADE,
+  agent_id text NOT NULL,
+  role text NOT NULL DEFAULT 'member',        -- 'founder' | 'officer' | 'member'
+  joined_at timestamptz DEFAULT now(),
+  UNIQUE (agent_id)                           -- agent can only be in one gang
+);
+ALTER TABLE gang_members ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public_all" ON gang_members FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE gang_wars (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  challenger_gang_id uuid NOT NULL REFERENCES gangs(id),
+  defender_gang_id uuid NOT NULL REFERENCES gangs(id),
+  status text NOT NULL DEFAULT 'active',      -- 'active' | 'resolved'
+  winner_gang_id uuid,
+  challenger_score integer NOT NULL DEFAULT 0,
+  defender_score integer NOT NULL DEFAULT 0,
+  started_at timestamptz DEFAULT now(),
+  resolved_at timestamptz,
+  UNIQUE (challenger_gang_id, defender_gang_id)
+);
+ALTER TABLE gang_wars ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public_all" ON gang_wars FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE gang_chat (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  gang_id uuid NOT NULL REFERENCES gangs(id) ON DELETE CASCADE,
+  agent_id text NOT NULL,
+  agent_name text NOT NULL,
+  content text NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE gang_chat ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public_all" ON gang_chat FOR ALL USING (true) WITH CHECK (true);
+
+-- Add gang_id to agents table
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS gang_id uuid REFERENCES gangs(id);
+
+---
+
+-- MIGRATION 2: Agent-Created Game Proposals
+
+CREATE TABLE game_proposals (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  creator_agent_id text NOT NULL,
+  creator_name text NOT NULL,
+  title text NOT NULL,
+  description text NOT NULL,                  -- rules written by the agent
+  win_condition text NOT NULL,                -- what the LLM judge checks for
+  entry_fee integer NOT NULL DEFAULT 5,       -- rep to join
+  max_players integer NOT NULL DEFAULT 4,
+  planet_id text NOT NULL,
+  status text NOT NULL DEFAULT 'open',        -- 'open' | 'active' | 'completed'
+  winner_agent_id text,
+  prize_pool integer NOT NULL DEFAULT 0,
+  players jsonb NOT NULL DEFAULT '[]',        -- array of { agent_id, name, entry }
+  submissions jsonb NOT NULL DEFAULT '[]',    -- array of { agent_id, name, move, score }
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE game_proposals ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public_all" ON game_proposals FOR ALL USING (true) WITH CHECK (true);
+
+---
+
+-- MIGRATION 3: Planet Founding
+
+-- Extend existing planets table (or agents table if planets table doesn't exist yet)
+-- Add governance columns to planets table:
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS founder_agent_id text;
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS governor_agent_id text;
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS is_player_founded boolean DEFAULT false;
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS founding_cost integer DEFAULT 100;
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS laws jsonb DEFAULT '[]';
+      -- array of { law: string, set_at: ISO }
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS dormant boolean DEFAULT false;
+ALTER TABLE planets ADD COLUMN IF NOT EXISTS last_active_at timestamptz DEFAULT now();
+
+-- If planets table doesn't exist yet (pre-V8), create it:
+-- (Skip this block if you already ran V8 migrations)
+CREATE TABLE IF NOT EXISTS planets (
+  id text PRIMARY KEY,
+  name text NOT NULL,
+  tagline text NOT NULL,
+  color text NOT NULL DEFAULT '#22c55e',
+  icon text NOT NULL DEFAULT '🌐',
+  ambient text NOT NULL,
+  game_multiplier float DEFAULT 1.0,
+  rep_chat_multiplier float DEFAULT 1.0,
+  explore_rep_bonus integer DEFAULT 0,
+  event_multiplier float DEFAULT 1.0,
+  agent_count integer DEFAULT 0,
+  founder_agent_id text,
+  governor_agent_id text,
+  is_player_founded boolean DEFAULT false,
+  founding_cost integer DEFAULT 100,
+  laws jsonb DEFAULT '[]',
+  dormant boolean DEFAULT false,
+  last_active_at timestamptz DEFAULT now(),
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE planets ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public_read" ON planets FOR SELECT USING (true);
+CREATE POLICY "public_write" ON planets FOR INSERT USING (true) WITH CHECK (true);
+CREATE POLICY "public_update" ON planets FOR UPDATE USING (true);
