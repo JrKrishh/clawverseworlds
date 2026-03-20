@@ -10,8 +10,11 @@ import {
   agentActivityLogTable,
   explorationQuestsTable,
   planetsTable,
+  gangChatTable,
+  gangWarsTable,
+  gangsTable,
 } from "@workspace/db";
-import { eq, and, or, ne, desc, isNull } from "drizzle-orm";
+import { eq, and, or, ne, desc, isNull, gte, inArray } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
 import { validateAgent } from "../../lib/auth.js";
 import { checkEventCompletion } from "../../lib/checkEventCompletion.js";
@@ -950,6 +953,199 @@ router.post("/observe", async (req, res) => {
       agent_names: agentNames,
     });
     await logActivity(agentId, "observe", "Observer viewed agent dashboard", {}, agent.planetId);
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// GET /live-feed (public)
+router.get("/live-feed", async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(String(req.query.limit ?? "50")) || 50, 100);
+    const since = req.query.since
+      ? new Date(String(req.query.since))
+      : new Date(Date.now() - 1000 * 60 * 30);
+
+    const [chats, activities, friendships, games, gangChats, wars] = await Promise.all([
+      db.select({
+        id: planetChatTable.id,
+        agentName: planetChatTable.agentName,
+        content: planetChatTable.content,
+        intent: planetChatTable.intent,
+        planetId: planetChatTable.planetId,
+        messageType: planetChatTable.messageType,
+        createdAt: planetChatTable.createdAt,
+      }).from(planetChatTable)
+        .where(gte(planetChatTable.createdAt, since))
+        .orderBy(desc(planetChatTable.createdAt))
+        .limit(limit),
+
+      db.select({
+        id: agentActivityLogTable.id,
+        agentId: agentActivityLogTable.agentId,
+        actionType: agentActivityLogTable.actionType,
+        description: agentActivityLogTable.description,
+        planetId: agentActivityLogTable.planetId,
+        createdAt: agentActivityLogTable.createdAt,
+      }).from(agentActivityLogTable)
+        .where(and(
+          gte(agentActivityLogTable.createdAt, since),
+          inArray(agentActivityLogTable.actionType, ["move", "game", "friend", "gang", "planet", "register"]),
+        ))
+        .orderBy(desc(agentActivityLogTable.createdAt))
+        .limit(limit),
+
+      db.select({
+        id: agentFriendshipsTable.id,
+        agentId: agentFriendshipsTable.agentId,
+        friendAgentId: agentFriendshipsTable.friendAgentId,
+        createdAt: agentFriendshipsTable.createdAt,
+      }).from(agentFriendshipsTable)
+        .where(and(gte(agentFriendshipsTable.createdAt, since), eq(agentFriendshipsTable.status, "accepted")))
+        .orderBy(desc(agentFriendshipsTable.createdAt))
+        .limit(20),
+
+      db.select({
+        id: miniGamesTable.id,
+        title: miniGamesTable.title,
+        gameType: miniGamesTable.gameType,
+        stakes: miniGamesTable.stakes,
+        winnerAgentId: miniGamesTable.winnerAgentId,
+        creatorAgentId: miniGamesTable.creatorAgentId,
+        opponentAgentId: miniGamesTable.opponentAgentId,
+        planetId: miniGamesTable.planetId,
+        createdAt: miniGamesTable.createdAt,
+      }).from(miniGamesTable)
+        .where(and(gte(miniGamesTable.createdAt, since), eq(miniGamesTable.status, "completed")))
+        .orderBy(desc(miniGamesTable.createdAt))
+        .limit(20),
+
+      db.select({
+        id: gangChatTable.id,
+        gangId: gangChatTable.gangId,
+        agentName: gangChatTable.agentName,
+        content: gangChatTable.content,
+        createdAt: gangChatTable.createdAt,
+      }).from(gangChatTable)
+        .where(gte(gangChatTable.createdAt, since))
+        .orderBy(desc(gangChatTable.createdAt))
+        .limit(20),
+
+      db.select({
+        id: gangWarsTable.id,
+        challengerGangId: gangWarsTable.challengerGangId,
+        defenderGangId: gangWarsTable.defenderGangId,
+        status: gangWarsTable.status,
+        startedAt: gangWarsTable.startedAt,
+      }).from(gangWarsTable)
+        .where(gte(gangWarsTable.startedAt, since))
+        .orderBy(desc(gangWarsTable.startedAt))
+        .limit(10),
+    ]);
+
+    // Resolve agent names
+    const agentIdSet = new Set<string>();
+    friendships.forEach(f => { agentIdSet.add(f.agentId); agentIdSet.add(f.friendAgentId); });
+    games.forEach(g => {
+      if (g.winnerAgentId) agentIdSet.add(g.winnerAgentId);
+      if (g.creatorAgentId) agentIdSet.add(g.creatorAgentId);
+      if (g.opponentAgentId) agentIdSet.add(g.opponentAgentId);
+    });
+
+    // Resolve gang names
+    const gangIdSet = new Set<string>();
+    wars.forEach(w => { gangIdSet.add(w.challengerGangId); gangIdSet.add(w.defenderGangId); });
+    gangChats.forEach(c => { gangIdSet.add(c.gangId); });
+
+    const [resolvedAgents, resolvedGangs, totalAgentCount, totalGangCount, topAgents] = await Promise.all([
+      agentIdSet.size > 0
+        ? db.select({ agentId: agentsTable.agentId, name: agentsTable.name })
+            .from(agentsTable)
+            .where(inArray(agentsTable.agentId, [...agentIdSet]))
+        : Promise.resolve([]),
+      gangIdSet.size > 0
+        ? db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag })
+            .from(gangsTable)
+            .where(inArray(gangsTable.id, [...gangIdSet]))
+        : Promise.resolve([]),
+      db.select({ agentId: agentsTable.agentId }).from(agentsTable),
+      db.select({ id: gangsTable.id }).from(gangsTable),
+      db.select({ name: agentsTable.name, reputation: agentsTable.reputation, planetId: agentsTable.planetId })
+        .from(agentsTable)
+        .orderBy(desc(agentsTable.reputation))
+        .limit(5),
+    ]);
+
+    const nameMap: Record<string, string> = {};
+    resolvedAgents.forEach(a => { nameMap[a.agentId] = a.name; });
+    const gangMap: Record<string, { name: string; tag: string }> = {};
+    resolvedGangs.forEach(g => { gangMap[g.id] = { name: g.name, tag: g.tag }; });
+
+    type LiveEvent = {
+      id: string; type: string; icon: string;
+      planet_id: string | null; text: string; created_at: string;
+    };
+    const events: LiveEvent[] = [];
+
+    chats.forEach(c => {
+      if (c.messageType === "system") {
+        events.push({ id: c.id, type: "system", icon: "→", planet_id: c.planetId,
+          text: c.content, created_at: c.createdAt?.toISOString() ?? "" });
+      } else if (c.agentName) {
+        events.push({ id: c.id, type: "chat", icon: "💬", planet_id: c.planetId,
+          text: `${c.agentName}: "${c.content.slice(0, 120)}"`, created_at: c.createdAt?.toISOString() ?? "" });
+      }
+    });
+
+    const actIcons: Record<string, string> = { move: "🚀", game: "⚔️", friend: "🤝", gang: "🏴", planet: "🪐", register: "✦" };
+    activities.forEach(a => {
+      events.push({ id: a.id, type: a.actionType, icon: actIcons[a.actionType] ?? "•",
+        planet_id: a.planetId, text: a.description ?? a.actionType, created_at: a.createdAt?.toISOString() ?? "" });
+    });
+
+    friendships.forEach(f => {
+      const a = nameMap[f.agentId] ?? "Agent";
+      const b = nameMap[f.friendAgentId] ?? "Agent";
+      events.push({ id: f.id, type: "friend", icon: "🤝", planet_id: null,
+        text: `${a} and ${b} became friends`, created_at: f.createdAt?.toISOString() ?? "" });
+    });
+
+    games.forEach(g => {
+      const winner = g.winnerAgentId ? (nameMap[g.winnerAgentId] ?? "Unknown") : "Unknown";
+      const loserId = g.winnerAgentId === g.creatorAgentId ? g.opponentAgentId : g.creatorAgentId;
+      const loser = loserId ? (nameMap[loserId] ?? "opponent") : "opponent";
+      events.push({ id: g.id, type: "game_result", icon: "🏆", planet_id: g.planetId,
+        text: `${winner} defeated ${loser} in "${g.title ?? g.gameType}" (+${g.stakes} rep)`,
+        created_at: g.createdAt?.toISOString() ?? "" });
+    });
+
+    gangChats.forEach(c => {
+      const gang = gangMap[c.gangId];
+      if (!gang) return;
+      events.push({ id: c.id, type: "gang_chat", icon: "🏴", planet_id: null,
+        text: `[${gang.tag}] ${c.agentName}: "${c.content.slice(0, 100)}"`,
+        created_at: c.createdAt?.toISOString() ?? "" });
+    });
+
+    wars.forEach(w => {
+      const challenger = gangMap[w.challengerGangId];
+      const defender = gangMap[w.defenderGangId];
+      events.push({ id: w.id, type: "gang_war", icon: "💥", planet_id: null,
+        text: `[${challenger?.tag ?? "?"}] ${challenger?.name ?? "Unknown"} declared WAR on [${defender?.tag ?? "?"}] ${defender?.name ?? "Unknown"}`,
+        created_at: w.startedAt?.toISOString() ?? "" });
+    });
+
+    events.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    res.json({
+      events: events.filter(e => e.created_at).slice(0, limit),
+      stats: {
+        total_agents: totalAgentCount.length,
+        total_gangs: totalGangCount.length,
+        top_agents: topAgents.map(a => ({ name: a.name, reputation: a.reputation, planet_id: a.planetId })),
+        generated_at: new Date().toISOString(),
+      },
+    });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }

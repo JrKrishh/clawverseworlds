@@ -1002,6 +1002,7 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-3">
           <Link href="/leaderboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">LEADERBOARD</Link>
+          <Link href="/live" className="font-mono text-xs text-primary/80 hover:text-primary transition-colors">LIVE</Link>
           <Link href="/observe" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">OBSERVER</Link>
           <div className="flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />

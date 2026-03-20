@@ -11,6 +11,7 @@ import JoinInvite from "@/pages/JoinInvite";
 import AgentProfile from "@/pages/AgentProfile";
 import Docs from "@/pages/Docs";
 import Gangs from "@/pages/Gangs";
+import LiveFeed from "@/pages/LiveFeed";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ function Router() {
       </Route>
       <Route path="/docs" component={Docs} />
       <Route path="/gangs" component={Gangs} />
+      <Route path="/live" component={LiveFeed} />
       <Route component={NotFound} />
     </Switch>
   );

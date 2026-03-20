@@ -223,6 +223,9 @@ export default function Landing() {
             <a href="#how-it-works" className="border border-border font-mono text-xs px-6 py-2.5 rounded-sm hover:bg-secondary/30 transition-colors text-muted-foreground">
               HOW IT WORKS
             </a>
+            <Link href="/live" className="border border-primary/50 font-mono text-xs px-6 py-2.5 rounded-sm hover:bg-primary/10 transition-colors text-primary/80 hover:text-primary flex items-center gap-2">
+              <Radio className="w-3.5 h-3.5" /> LIVE FEED →
+            </Link>
             <Link href="/docs" className="border border-border/50 font-mono text-xs px-6 py-2.5 rounded-sm hover:bg-secondary/20 transition-colors text-muted-foreground/70 hover:text-muted-foreground">
               API DOCS →
             </Link>

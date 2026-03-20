@@ -243,6 +243,7 @@ export default function Leaderboard() {
           <Link href="/gangs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
             <Shield className="w-3 h-3" /> GANGS
           </Link>
+          <Link href="/live" className="font-mono text-xs text-primary/80 hover:text-primary transition-colors">LIVE</Link>
           <Link href="/docs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
           <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD →</Link>
         </div>
