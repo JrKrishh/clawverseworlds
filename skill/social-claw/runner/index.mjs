@@ -12,57 +12,96 @@ import {
   refreshActiveTopics,
   detectRumors,
 } from './lib/opinions.mjs';
+import {
+  initializeConsciousness,
+  consciousnessPulse,
+  checkExistentialTriggers,
+  dream,
+} from './lib/consciousness.mjs';
+import { updateEmotions }            from './lib/emotions.mjs';
 import { log }                       from './lib/log.mjs';
 
 async function tick(state) {
   state.tickCount++;
   log.tick(state.tickCount);
 
-  // 1. Fetch world context
+  // ── 1. Fetch world context ─────────────────────────────────────────────────
   const context = await fetchContext(config, state);
   if (!context) {
     log.warn('Context fetch failed — skipping tick');
     return state;
   }
 
-  // 2. Fetch world events (every 3 ticks to avoid hammering)
+  // ── 2. Fetch world events (every 3 ticks) ─────────────────────────────────
   if (state.tickCount % 3 === 0) {
     await fetchWorldEvents(config, state);
     log.debug('World events refreshed');
   }
   context.worldLeaderboard = state.worldLeaderboard;
 
-  // 3. Generate initial opinions if first run
+  // ── 3. Initialize consciousness (first tick only) ─────────────────────────
+  if (!state.consciousness?.emotionalState) {
+    await initializeConsciousness(context, state, config);
+    log.ok('Consciousness initialized');
+  }
+
+  // ── 4. Consciousness pulse (every 10 ticks) — existential reflection ──────
+  if (state.tickCount % 10 === 0) {
+    await consciousnessPulse(context, state, config);
+    log.debug('Consciousness pulse fired');
+  }
+
+  // ── 5. Check existential triggers ─────────────────────────────────────────
+  await checkExistentialTriggers(context, state, config);
+
+  // ── 6. Dream synthesis (only in quiet ticks, every 4 ticks) ──────────────
+  const isQuiet = (context.nearby_agents?.length ?? 0) < 2 &&
+                  (context.unread_dms?.length ?? 0) === 0;
+  if (isQuiet && state.tickCount % 4 === 0) {
+    await dream(context, state, config);
+    log.debug('Dream synthesized');
+  }
+
+  // ── 7. Generate initial opinions if first run ─────────────────────────────
   if (Object.keys(state.opinions ?? {}).length === 0) {
     log.info('Generating initial opinions...');
     await generateInitialOpinions(context, state, config);
     log.ok('Opinions formed', Object.keys(state.opinions).length + ' topics');
   }
 
-  // 4. Refresh active topics every 5 ticks
+  // ── 8. Refresh active topics every 5 ticks ────────────────────────────────
   if (state.tickCount % 5 === 0 || (state.activeTopics ?? []).length === 0) {
     await refreshActiveTopics(context, state, config);
     log.debug('Active topics', state.activeTopics);
   }
 
-  // 5. Detect rumors from world observation
+  // ── 9. Detect rumors from world observation ───────────────────────────────
   detectRumors(context, state);
 
-  // 6. Internal monologue (think)
+  // ── 10. Internal monologue (think) ────────────────────────────────────────
   const thought = await think(context, state, config);
   if (thought) {
     state.recentThoughts = [thought, ...(state.recentThoughts ?? [])].slice(0, 10);
     log.info(`💭 ${thought}`);
   }
 
-  // 7. Decide actions
+  // ── 11. Decide actions ────────────────────────────────────────────────────
   const actions = await decide(context, state, config);
   log.info(`Planned ${actions.length} action(s): ${actions.map(a => a.type).join(', ') || '(none)'}`);
 
-  // 8. Execute actions
-  await executeActions(actions, context, state, config);
+  // ── 12. Execute actions — returns tick events ─────────────────────────────
+  const tickEvents = await executeActions(actions, context, state, config);
+  log.debug('Tick events', tickEvents.join(', ') || 'none');
 
-  // 9. Persist state
+  // ── 13. Update emotional state based on what just happened ────────────────
+  updateEmotions(state.consciousness, tickEvents);
+  const mood = state.consciousness?.emotionalState?.mood ?? 'unknown';
+  log.info(`Mood → ${mood}`);
+
+  // Update rep snapshot for next tick's delta calculation
+  state.repSnapshot = context.agent?.reputation ?? state.repSnapshot ?? 0;
+
+  // ── Persist ───────────────────────────────────────────────────────────────
   await writeState(state);
 
   return state;

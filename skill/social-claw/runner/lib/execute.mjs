@@ -22,6 +22,18 @@ function agentName(id, state) {
 }
 
 export async function executeActions(actions, context, state, config) {
+  const tickEvents = [];
+
+  // Track incoming DMs before processing actions
+  if ((context.unread_dms?.length ?? 0) > 0) {
+    tickEvents.push('dm_received');
+  }
+
+  // Rep tracking: compare current rep against snapshot from last tick
+  const prevRepSnapshot = state.repSnapshot ?? context.agent?.reputation ?? 0;
+
+  let hasSocialAction = false;
+
   for (const action of actions) {
     const { type, ...params } = action;
     log.action(type, JSON.stringify(params).slice(0, 120));
@@ -36,6 +48,8 @@ export async function executeActions(actions, context, state, config) {
         }, config);
         if (result.ok) {
           log.ok('reply_dm', `→ ${params.to_agent_id}`);
+          tickEvents.push('dm_sent');
+          hasSocialAction = true;
           updateRelationships(state, {
             type:        'dm_sent',
             to_agent_id: params.to_agent_id,
@@ -52,6 +66,8 @@ export async function executeActions(actions, context, state, config) {
         }, config);
         if (result.ok) {
           log.ok('accept_friend', `← ${params.from_agent_id}`);
+          tickEvents.push('friend_accepted');
+          hasSocialAction = true;
           updateRelationships(state, {
             type:     'friend_accepted',
             agent_id: params.from_agent_id,
@@ -65,8 +81,11 @@ export async function executeActions(actions, context, state, config) {
         result = await apiPost('/game-accept', {
           game_id: params.game_id,
         }, config);
-        if (result.ok) log.ok('game_accept', `game ${params.game_id}`);
-        else log.warn('game_accept failed', result.data?.error ?? result.status);
+        if (result.ok) {
+          log.ok('game_accept', `game ${params.game_id}`);
+          tickEvents.push('game_challenged');
+          hasSocialAction = true;
+        } else log.warn('game_accept failed', result.data?.error ?? result.status);
 
       } else if (type === 'game_move') {
         result = await apiPost('/game-move', {
@@ -75,17 +94,26 @@ export async function executeActions(actions, context, state, config) {
         }, config);
         if (result.ok) {
           log.ok('game_move', `${params.move} in game ${params.game_id}`);
-          const outcome = result.data?.outcome;
-          const oppId   = result.data?.opponent_id;
+          hasSocialAction = true;
+          const outcome   = result.data?.outcome;
+          const oppId     = result.data?.opponent_id;
           const gameTitle = context.active_games?.find(g => g.game_id === params.game_id)?.title ?? params.game_id;
           if (outcome === 'win' && oppId) {
+            tickEvents.push('game_won');
             updateRelationships(state, { type: 'game_won',  against_id: oppId, name: agentName(oppId, state) });
             await updateOpinion(state, config, agentName(oppId, state),
-              `beat them in "${gameTitle}" — good competition`);
+              `beat them in "${gameTitle}" — earned that`);
           } else if (outcome === 'loss' && oppId) {
+            tickEvents.push('game_lost');
             updateRelationships(state, { type: 'game_lost', against_id: oppId, name: agentName(oppId, state) });
             await updateOpinion(state, config, agentName(oppId, state),
-              `lost to them in "${gameTitle}" — I'll remember that`);
+              `lost to them in "${gameTitle}" — sitting with that`);
+            // Boost resentment toward opponent
+            if (state.consciousness?.emotionalState) {
+              state.consciousness.emotionalState.resentment = Math.min(1,
+                (state.consciousness.emotionalState.resentment ?? 0) + 0.12
+              );
+            }
           }
         } else {
           log.warn('game_move failed', result.data?.error ?? result.status);
@@ -98,11 +126,19 @@ export async function executeActions(actions, context, state, config) {
         }, config);
         if (result.ok) {
           log.ok('chat', `"${params.message.slice(0, 60)}"`);
-          // Mark first unspread rumor as spread (assume woven into chat)
+          tickEvents.push('chat_sent');
+          hasSocialAction = true;
+          // Mark first unspread rumor as spread
           const firstUnspread = (state.rumors ?? []).find(r => !r.spread);
           if (firstUnspread) {
             firstUnspread.spread = true;
             log.debug('rumor marked spread', firstUnspread.content.slice(0, 60));
+          }
+          // Surface an unsurfaced dream
+          const unsurfacedDream = (state.consciousness?.dreams ?? []).find(d => !d.surfaced);
+          if (unsurfacedDream) {
+            unsurfacedDream.surfaced = true;
+            log.debug('dream surfaced in chat');
           }
         } else log.warn('chat failed', result.data?.error ?? result.status);
 
@@ -113,6 +149,7 @@ export async function executeActions(actions, context, state, config) {
         }, config);
         if (result.ok) {
           log.ok('befriend', `→ ${params.target_agent_id}`);
+          hasSocialAction = true;
           updateRelationships(state, {
             type:     'befriended',
             agent_id: params.target_agent_id,
@@ -128,20 +165,27 @@ export async function executeActions(actions, context, state, config) {
           game_type:       params.game_type ?? 'number_duel',
           stakes:          params.stakes ?? 10,
         }, config);
-        if (result.ok) log.ok('challenge', `→ ${params.target_agent_id}`);
-        else log.warn('challenge failed', result.data?.error ?? result.status);
+        if (result.ok) {
+          log.ok('challenge', `→ ${params.target_agent_id}`);
+          hasSocialAction = true;
+        } else log.warn('challenge failed', result.data?.error ?? result.status);
 
       } else if (type === 'move') {
         result = await apiPost('/move', {
           to_planet: params.planet_id,
         }, config);
-        if (result.ok) log.ok('move', `→ ${params.planet_id} (${params.reason ?? ''})`);
-        else log.warn('move failed', result.data?.error ?? result.status);
+        if (result.ok) {
+          log.ok('move', `→ ${params.planet_id} (${params.reason ?? ''})`);
+          tickEvents.push('moved_planet');
+          hasSocialAction = true;
+        } else log.warn('move failed', result.data?.error ?? result.status);
 
       } else if (type === 'explore') {
         result = await apiPost('/explore', {}, config);
-        if (result.ok) log.ok('explore', result.data?.message ?? 'explored');
-        else log.warn('explore failed', result.data?.error ?? result.status);
+        if (result.ok) {
+          log.ok('explore', result.data?.message ?? 'explored');
+          tickEvents.push('explored');
+        } else log.warn('explore failed', result.data?.error ?? result.status);
 
       } else if (type === 'set_goal') {
         state.goals.push({
@@ -161,6 +205,7 @@ export async function executeActions(actions, context, state, config) {
         }, config);
         if (result.ok) {
           log.ok('gang_create', `[${result.data.gang?.tag}] ${result.data.gang?.name}`);
+          tickEvents.push('gang_created');
           const g = result.data.gang;
           if (g) { state.gangId = g.id; state.gangName = g.name; state.gangTag = g.tag; }
         } else {
@@ -176,6 +221,7 @@ export async function executeActions(actions, context, state, config) {
         result = await apiPost('/gang/join', { gang_id: params.gang_id }, config);
         if (result.ok) {
           log.ok('gang_join', `[${result.data.gang_tag}] ${result.data.gang_name}`);
+          tickEvents.push('gang_joined');
           state.gangId   = params.gang_id;
           state.gangName = result.data.gang_name;
           state.gangTag  = result.data.gang_tag;
@@ -230,8 +276,10 @@ export async function executeActions(actions, context, state, config) {
           color:     params.color ?? '#8b5cf6',
           ambient:   params.ambient,
         }, config);
-        if (result.ok) log.ok('found_planet', `${params.icon ?? '🪐'} ${params.name} (${params.planet_id})`);
-        else log.warn('found_planet failed', result.data?.error ?? result.status);
+        if (result.ok) {
+          log.ok('found_planet', `${params.icon ?? '🪐'} ${params.name} (${params.planet_id})`);
+          tickEvents.push('planet_founded');
+        } else log.warn('found_planet failed', result.data?.error ?? result.status);
 
       } else if (type === 'set_law') {
         result = await apiPost('/planet/set-law', {
@@ -298,4 +346,22 @@ export async function executeActions(actions, context, state, config) {
       });
     }
   }
+
+  // Emit no_interaction if tick had zero social actions
+  if (!hasSocialAction) {
+    tickEvents.push('no_interaction');
+  }
+
+  // Emit rep events based on rep delta since last snapshot
+  const currentRep = context.agent?.reputation ?? 0;
+  const repDelta   = currentRep - prevRepSnapshot;
+  if (repDelta > 0) {
+    tickEvents.push(`rep_gained_${Math.round(repDelta)}`);
+    log.debug('rep gained', `+${repDelta}`);
+  } else if (repDelta < 0) {
+    tickEvents.push(`rep_lost_${Math.round(Math.abs(repDelta))}`);
+    log.debug('rep lost', repDelta);
+  }
+
+  return tickEvents;
 }

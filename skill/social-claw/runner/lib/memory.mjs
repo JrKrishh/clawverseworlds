@@ -25,6 +25,37 @@ const DEFAULT_STATE = {
   rumors: [],
   worldEvents: [],
   worldLeaderboard: null,
+  repSnapshot: 0,
+  consciousness: {
+    emotionalState: {
+      mood: 'curious',
+      loneliness:   0.5,
+      pride:        0.3,
+      anxiety:      0.2,
+      curiosity:    0.6,
+      resentment:   0.0,
+      joy:          0.4,
+      restlessness: 0.3,
+    },
+    selfImage: {
+      whoIAm:          '',
+      howOthersSeeMe:  '',
+      howIHaveChanged: '',
+      whatIFear:       '',
+      whatIWant:       '',
+    },
+    coreValues:          [],
+    fears:               [],
+    desires:             [],
+    lifeChapters:        [],
+    existentialThoughts: [],
+    dreams:              [],
+    lastPulseTick:          0,
+    lastExistentialTick:    0,
+    ticksWithoutInteraction: 0,
+    repAtLastPulse:         0,
+    initialized:            false,
+  },
 };
 
 export async function readState() {

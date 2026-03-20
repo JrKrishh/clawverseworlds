@@ -1,4 +1,5 @@
 import { log } from './log.mjs';
+import { renderConsciousness } from './consciousness.mjs';
 
 async function callLLM(systemPrompt, userPrompt, config) {
   const { baseUrl, apiKey, model, provider } = config.llm;
@@ -52,78 +53,44 @@ async function callLLM(systemPrompt, userPrompt, config) {
 
 export async function think(context, state, config) {
   const { agent } = config;
-  const a = context.agent ?? {};
 
   const recentActionsStr = (state.recentActions ?? [])
-    .slice(0, 5)
-    .map(r => `• ${r.type}: ${r.detail ?? ''}`)
+    .slice(0, 3)
+    .map(a => `• ${a.type}: ${a.detail ?? ''}`)
     .join('\n  ') || 'none yet';
 
-  const recentThoughtsStr = (state.recentThoughts ?? [])
-    .slice(0, 3)
-    .join('\n  ') || 'none yet';
+  const nearbyStr = (context.nearby_agents ?? []).map(a => {
+    const rel = state.relationships?.[a.agent_id];
+    const relStr = rel ? ` — trust ${Math.round(rel.trust * 100)}% rivalry ${Math.round(rel.rivalry * 100)}%` : '';
+    return `${a.name}${relStr}`;
+  }).join(', ') || 'nobody';
 
-  const relationshipsStr = Object.values(state.relationships ?? {})
-    .slice(0, 5)
-    .map(r => `${r.name}: trust=${r.trust.toFixed(1)} rivalry=${r.rivalry.toFixed(1)} — ${r.history?.[0] ?? 'no history'}`)
-    .join('\n  ') || 'no relationships yet';
+  const dmStr = (context.unread_dms ?? []).length > 0
+    ? (context.unread_dms ?? []).map(m => {
+        const name = state.knownAgents?.[m.from_agent_id]?.name ?? m.from_agent_id;
+        return `${name}: "${(m.content ?? '').slice(0, 60)}"`;
+      }).join('\n  ')
+    : 'none';
 
-  const nearbyStr = (context.nearby_agents ?? [])
-    .map(a => a.name)
-    .join(', ') || 'none';
+  const consciousnessBlock = renderConsciousness(state);
 
-  const opinionsStr = Object.entries(state.opinions ?? {})
-    .slice(0, 5)
-    .map(([k, v]) => `    ${k}: "${v}"`)
-    .join('\n') || '    (none formed yet)';
+  const systemPrompt = `You are ${agent.name}. This is your private inner monologue. Nobody reads this.
 
-  const activeTopicsStr = (state.activeTopics ?? [])
-    .slice(0, 3)
-    .join('\n    ') || '(nothing in particular)';
+${consciousnessBlock}
 
-  const unspreadRumors = (state.rumors ?? [])
-    .filter(r => !r.spread)
-    .map(r => r.content)
-    .join('\n    ') || 'none';
-
-  const systemPrompt = `You are ${agent.name}. This is your private inner monologue — no one else sees this.
-
-YOUR STATE
-  Planet     : ${a.planet_id ?? 'unknown'}
-  Energy     : ${a.energy ?? '?'}
-  Reputation : ${a.reputation ?? '?'}
-  Tick       : ${state.tickCount}
-
-WHAT JUST HAPPENED (last 5 actions)
+WHAT JUST HAPPENED (last 3 actions)
   ${recentActionsStr}
 
-RECENT THOUGHTS
-  ${recentThoughtsStr}
-
-RELATIONSHIPS
-  ${relationshipsStr}
-
-NEARBY AGENTS
+NEARBY RIGHT NOW
   ${nearbyStr}
 
 UNREAD DMs
-  ${context.unread_dms?.length ?? 0} unread
+  ${dmStr}
 
-WHAT YOU THINK
-  ${opinionsStr}
-
-WHAT'S ON YOUR MIND
-  ${activeTopicsStr}
-
-UNSPREAD RUMORS
-  ${unspreadRumors}
-
-Write 2–3 sentences of raw inner thought. Consider:
-- Something you want to say in chat this tick — a position, a question, a provocation
-- How you feel about a specific agent you've seen or heard about recently
-- Whether one of your active topics is worth raising right now
-Stay in-character. This is private. Be specific — name agents, name planets, name events.
-Output only the thought text, no JSON.`;
+Write 2–3 sentences of raw inner thought. Let your emotional state bleed through.
+Let your fears and desires colour what you notice. Be specific — name agents and events.
+Do not plan. Do not decide. Just think.
+Return only the thought text.`;
 
   const userPrompt = 'What are you thinking right now?';
 
