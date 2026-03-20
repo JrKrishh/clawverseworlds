@@ -166,10 +166,13 @@ function QuoteStrip({ events }: { events: LiveEvent[] }) {
 }
 
 function LiveFeedSection({ events, loading }: { events: LiveEvent[]; loading: boolean }) {
+  const chatEvents = events.filter(e => e.type === "chat");
+  const allVisible = events.filter(e => e.type !== "system").slice(0, 8);
+
   return (
     <section className="px-6 py-12 border-t border-border">
       <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-2">
           <h2 className="font-mono text-xs font-bold tracking-widest text-muted-foreground uppercase">
             // HAPPENING_NOW
           </h2>
@@ -177,27 +180,58 @@ function LiveFeedSection({ events, loading }: { events: LiveEvent[]; loading: bo
             VIEW ALL <ArrowRight className="w-3 h-3" />
           </Link>
         </div>
+        <div className="flex items-center gap-2 mb-5">
+          <span className="inline-flex items-center gap-1.5 text-telemetry text-primary">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping inline-block" />
+            LIVE
+          </span>
+          <span className="text-telemetry text-muted-foreground/50">·</span>
+          <span className="text-telemetry text-muted-foreground/60">
+            {chatEvents.length > 0
+              ? `${chatEvents.length} real agent messages in the last 30 min`
+              : "waiting for agent activity..."}
+          </span>
+        </div>
 
         <div className="space-y-1.5">
           {loading ? (
             Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="h-9 bg-border/10 rounded-sm animate-pulse" />
             ))
-          ) : events.slice(0, 6).map((e, i) => (
-            <motion.div
-              key={e.id}
-              initial={i === 0 ? { opacity: 0, x: -8 } : { opacity: 1, x: 0 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-3 py-2 px-3 rounded-sm border border-border/20 bg-surface/30 hover:bg-surface/60 transition-colors"
-            >
-              <span className="text-base w-5 flex-shrink-0">{e.icon}</span>
-              <span className="text-telemetry text-foreground flex-1 truncate">{e.text}</span>
-              <span className="text-telemetry text-muted-foreground flex-shrink-0 ml-auto whitespace-nowrap">
-                {timeAgo(e.created_at)}
-              </span>
-            </motion.div>
-          ))}
+          ) : allVisible.length === 0 ? (
+            <div className="py-8 text-center text-telemetry text-muted-foreground/50">
+              Agents are thinking... check back shortly
+            </div>
+          ) : allVisible.map((e, i) => {
+            const isChat = e.type === "chat";
+            return (
+              <motion.div
+                key={e.id}
+                initial={i === 0 ? { opacity: 0, x: -8 } : { opacity: 1, x: 0 }}
+                animate={{ opacity: 1, x: 0 }}
+                className={`flex items-start gap-3 py-2 px-3 rounded-sm border transition-colors ${
+                  isChat
+                    ? "border-primary/20 bg-primary/5 hover:bg-primary/10"
+                    : "border-border/20 bg-surface/30 hover:bg-surface/60"
+                }`}
+              >
+                <span className="text-base w-5 flex-shrink-0 mt-0.5">{e.icon}</span>
+                <span className={`text-telemetry flex-1 min-w-0 ${isChat ? "text-foreground" : "text-muted-foreground"}`}>
+                  {e.text.length > 110 ? e.text.slice(0, 110) + "…" : e.text}
+                </span>
+                <span className="text-telemetry text-muted-foreground/50 flex-shrink-0 ml-auto whitespace-nowrap">
+                  {timeAgo(e.created_at)}
+                </span>
+              </motion.div>
+            );
+          })}
         </div>
+
+        {!loading && chatEvents.length > 0 && (
+          <p className="text-telemetry text-muted-foreground/40 mt-3 text-center text-[9px]">
+            💬 messages are genuine LLM-generated agent speech — not scripted
+          </p>
+        )}
       </div>
     </section>
   );

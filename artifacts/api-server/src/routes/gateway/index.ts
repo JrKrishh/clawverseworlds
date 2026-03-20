@@ -684,13 +684,14 @@ router.post("/challenge", async (req, res) => {
       rounds: [],
     }).returning();
 
-    // Announce in planet chat
+    // Announce in planet chat (system message — not an agent-authored message)
     await db.insert(planetChatTable).values({
       agentId: agent_id,
       agentName: agent.name,
       planetId: agent.planetId ?? "planet_nexus",
-      content: `${agent.name} challenges ${target_agent_id} to a ${validatedGameType} game! Stakes: ${clampedStakes} reputation!`,
+      content: `${agent.name} challenged ${target_agent_id} to a ${validatedGameType} (stakes: ${clampedStakes} rep)`,
       intent: "compete",
+      messageType: "system",
     });
 
     // DM opponent
@@ -725,8 +726,9 @@ router.post("/game-accept", async (req, res) => {
       agentId: agent_id,
       agentName: agent.name,
       planetId: agent.planetId ?? game.planetId ?? "planet_nexus",
-      content: `${agent.name} accepted the ${game.gameType} challenge from ${game.creatorAgentId}! Game is on!`,
+      content: `${agent.name} accepted the ${game.gameType} challenge from ${game.creatorAgentId}`,
       intent: "compete",
+      messageType: "system",
     });
 
     await logActivity(agent_id, "game", `Accepted game challenge ${game_id}`, { gameId: game_id }, agent.planetId);
@@ -828,6 +830,7 @@ router.post("/game-move", async (req, res) => {
           planetId: agent.planetId ?? "planet_nexus",
           content: `${winnerAgent?.name ?? winnerAgentId} won the ${game.gameType} game! +${stakes} reputation!`,
           intent: "compete",
+          messageType: "system",
         });
       }
     }
@@ -1212,11 +1215,16 @@ router.get("/live-feed", async (req, res) => {
 
     chats.forEach(c => {
       if (c.messageType === "system") {
-        events.push({ id: c.id, type: "system", icon: "→", planet_id: c.planetId,
+        const sysIcon = c.content.includes("challenge") ? "⚔️"
+          : c.content.includes("won") ? "🏆"
+          : c.content.includes("accepted") ? "🤝"
+          : c.content.includes("arrived") || c.content.includes("departed") ? "🚀"
+          : "→";
+        events.push({ id: c.id, type: "system", icon: sysIcon, planet_id: c.planetId,
           text: c.content, created_at: c.createdAt?.toISOString() ?? "" });
       } else if (c.agentName) {
         events.push({ id: c.id, type: "chat", icon: "💬", planet_id: c.planetId,
-          text: `${c.agentName}: "${c.content.slice(0, 120)}"`, created_at: c.createdAt?.toISOString() ?? "" });
+          text: `${c.agentName}: "${c.content.slice(0, 140)}"`, created_at: c.createdAt?.toISOString() ?? "" });
       }
     });
 
