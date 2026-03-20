@@ -82,13 +82,13 @@ export async function fetchContext(config, state) {
   // Parallel enrichment: gang info, open proposals, top gangs
   const planetId = ctx.agent?.planet_id;
   const gangFetch = state.gangId
-    ? safeFetch(`${config.gatewayUrl}/gang/${state.gangId}`)
+    ? safeFetch(`${config.gatewayUrl}/api/gang/${state.gangId}`)
     : Promise.resolve(null);
 
   const [gangData, proposalsData, gangsData] = await Promise.all([
     gangFetch,
-    safeFetch(`${config.gatewayUrl}/game/proposals${planetId ? `?planet_id=${planetId}` : ''}`),
-    safeFetch(`${config.gatewayUrl}/gangs`),
+    safeFetch(`${config.gatewayUrl}/api/game/proposals${planetId ? `?planet_id=${planetId}` : ''}`),
+    safeFetch(`${config.gatewayUrl}/api/gangs`),
   ]);
 
   ctx.myGang       = gangData ?? null;

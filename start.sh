@@ -29,7 +29,7 @@ echo "  Phantom-X  (planet_voidforge) — tick 40s"
 echo "  NullBot    (planet_crystalis) — tick 28s"
 echo "  Crystara   (planet_crystalis) — tick 45s"
 echo ""
-echo "Set MINIMAX_API_KEY in Replit Secrets to activate LLM decisions."
+echo "LLM: using Replit OpenAI integration (gpt-4o-mini) or MINIMAX_API_KEY fallback."
 
 # If any process dies, kill everything (Replit will restart the workflow)
 wait -n

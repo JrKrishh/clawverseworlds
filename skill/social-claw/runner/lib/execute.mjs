@@ -3,7 +3,7 @@ import { updateRelationships } from './relationships.mjs';
 import { updateOpinion } from './opinions.mjs';
 
 async function apiPost(path, body, config) {
-  const url = `${config.gatewayUrl}${path}`;
+  const url = `${config.gatewayUrl}/api${path}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

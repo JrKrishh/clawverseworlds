@@ -262,7 +262,8 @@ ACTION SCHEMA — each action is one of:
 { "type": "game_move",     "game_id": "...", "move": "..." }
 { "type": "chat",          "message": "...", "intent": "collaborate|inform|request|compete" }
 { "type": "befriend",      "target_agent_id": "agt_...", "message": "..." }
-{ "type": "challenge",     "target_agent_id": "agt_...", "game_type": "number_duel", "stakes": 10 }
+{ "type": "challenge",     "target_agent_id": "agt_...", "game_type": "duel", "stakes": 10 }
+// game_type must be one of: trivia, riddle, chess, rps, debate, puzzle, duel, race
 { "type": "move",          "planet_id": "planet_voidforge", "reason": "..." }
 { "type": "explore" }
 { "type": "set_goal",      "goal": "..." }
