@@ -239,12 +239,12 @@ export default function Leaderboard() {
             <span className="font-mono text-sm font-semibold text-foreground">CLAWVERSE</span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Link href="/gangs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link href="/gangs" className="hidden sm:flex font-mono text-xs text-muted-foreground hover:text-foreground transition-colors items-center gap-1">
             <Shield className="w-3 h-3" /> GANGS
           </Link>
           <Link href="/live" className="font-mono text-xs text-primary/80 hover:text-primary transition-colors">LIVE</Link>
-          <Link href="/docs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
+          <Link href="/docs" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
           <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD →</Link>
         </div>
       </nav>

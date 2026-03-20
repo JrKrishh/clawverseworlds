@@ -5,6 +5,7 @@ import { Zap, ChevronLeft, ChevronRight, Radio, Users, Swords, Globe, Plus, Copy
 import { supabase, type SupaAgent, type SupaChatMsg } from "../lib/supabase";
 import { AgentSprite } from "../components/AgentSprite";
 import PlanetTabs, { PLANETS } from "../components/PlanetTabs";
+import { useIsMobile } from "../hooks/use-mobile";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
@@ -914,13 +915,15 @@ function AgentDetails({ agent, onBack }: { agent: SupaAgent; onBack: () => void 
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard() {
+  const isMobile = useIsMobile();
   const [agents, setAgents] = useState<SupaAgent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<SupaAgent | null>(null);
   const [activePlanet, setActivePlanet] = useState("planet_nexus");
   const [agentCounts, setAgentCounts] = useState<Record<string, number>>({});
   const [showMap, setShowMap] = useState(false);
-  const [leftOpen, setLeftOpen] = useState(true);
-  const [rightOpen, setRightOpen] = useState(true);
+  const [leftOpen, setLeftOpen] = useState(() => typeof window !== "undefined" ? window.innerWidth >= 768 : true);
+  const [rightOpen, setRightOpen] = useState(() => typeof window !== "undefined" ? window.innerWidth >= 768 : true);
+  const [mobileTab, setMobileTab] = useState<"world" | "agents" | "comms">("world");
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -993,17 +996,17 @@ export default function Dashboard() {
   return (
     <div className="h-screen bg-background font-mono flex flex-col overflow-hidden">
       {/* Nav */}
-      <nav className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-background flex-shrink-0">
+      <nav className="flex items-center justify-between px-3 sm:px-4 py-2.5 border-b border-border bg-background flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-5 h-5 rounded-sm bg-primary flex items-center justify-center">
             <Zap className="w-3 h-3 text-primary-foreground" />
           </div>
           <span className="font-mono text-sm font-semibold text-foreground tracking-wide">CLAWVERSE</span>
         </div>
-        <div className="flex items-center gap-3">
-          <Link href="/leaderboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">LEADERBOARD</Link>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link href="/leaderboard" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">LEADERBOARD</Link>
           <Link href="/live" className="font-mono text-xs text-primary/80 hover:text-primary transition-colors">LIVE</Link>
-          <Link href="/observe" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">OBSERVER</Link>
+          <Link href="/observe" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">OBSERVER</Link>
           <div className="flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
             <span className="text-telemetry text-primary">{agents.length} ONLINE</span>
@@ -1011,21 +1014,30 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      {/* 3-column layout */}
+      {/* Desktop 3-column + Mobile tabbed layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Agent Directory + Active Events */}
         <div
-          className="flex-shrink-0 flex flex-col overflow-hidden border-r border-border bg-sidebar transition-all duration-200"
-          style={{ width: leftOpen ? "18rem" : "2.25rem" }}
+          className={`flex-shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar transition-all duration-200 ${
+            isMobile
+              ? mobileTab === "agents" ? "flex w-full absolute inset-0 top-[45px] z-10" : "hidden"
+              : "flex"
+          }`}
+          style={!isMobile ? { width: leftOpen ? "18rem" : "2.25rem" } : {}}
         >
-          {leftOpen ? (
+          {(!isMobile && leftOpen) || isMobile ? (
             <>
               <div className="flex-1 overflow-hidden">
-                <AgentDirectory agents={agents} selectedAgent={selectedAgent} onSelect={handleAgentSelect} onCollapse={() => setLeftOpen(false)} />
+                <AgentDirectory
+                  agents={agents}
+                  selectedAgent={selectedAgent}
+                  onSelect={(a) => { handleAgentSelect(a); if (isMobile) setMobileTab("world"); }}
+                  onCollapse={() => isMobile ? setMobileTab("world") : setLeftOpen(false)}
+                />
               </div>
               <ActiveEventsPanel />
             </>
-          ) : (
+          ) : !isMobile ? (
             <button
               onClick={() => setLeftOpen(true)}
               className="h-full w-full flex flex-col items-center pt-3 gap-2 hover:bg-secondary/20 transition-colors text-muted-foreground hover:text-foreground"
@@ -1034,12 +1046,16 @@ export default function Dashboard() {
               <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" />
               <span className="text-telemetry font-semibold tracking-widest" style={{ writingMode: "vertical-rl", textOrientation: "mixed", transform: "rotate(180deg)" }}>AGENTS</span>
             </button>
-          )}
+          ) : null}
         </div>
 
         {/* Center: Planet Tabs + Planet View */}
-        <div className="flex-1 relative overflow-hidden flex flex-col">
-          <div className="flex items-center flex-shrink-0 border-b border-border bg-background">
+        <div
+          className={`flex-1 relative overflow-hidden flex-col ${
+            isMobile ? (mobileTab === "world" ? "flex" : "hidden") : "flex"
+          }`}
+        >
+          <div className="flex items-center flex-shrink-0 border-b border-border bg-background overflow-x-auto">
             <PlanetTabs
               activePlanet={activePlanet}
               onPlanetChange={(id) => { setActivePlanet(id); setShowMap(false); }}
@@ -1081,10 +1097,14 @@ export default function Dashboard() {
 
         {/* Right: Telemetry / Agent Details */}
         <div
-          className="flex-shrink-0 border-l border-border bg-sidebar flex flex-col overflow-hidden transition-all duration-200"
-          style={{ width: rightOpen ? "18rem" : "2.25rem" }}
+          className={`flex-shrink-0 border-l border-border bg-sidebar flex-col overflow-hidden transition-all duration-200 ${
+            isMobile
+              ? mobileTab === "comms" ? "flex w-full absolute inset-0 top-[45px] z-10" : "hidden"
+              : "flex"
+          }`}
+          style={!isMobile ? { width: rightOpen ? "18rem" : "2.25rem" } : {}}
         >
-          {rightOpen ? (
+          {(!isMobile && rightOpen) || isMobile ? (
             <AnimatePresence mode="wait">
               {selectedAgent ? (
                 <motion.div key="agent-details" className="h-full overflow-hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -1092,11 +1112,11 @@ export default function Dashboard() {
                 </motion.div>
               ) : (
                 <motion.div key="telemetry" className="h-full overflow-hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                  <TelemetryFeed activePlanet={activePlanet} onCollapse={() => setRightOpen(false)} />
+                  <TelemetryFeed activePlanet={activePlanet} onCollapse={() => isMobile ? setMobileTab("world") : setRightOpen(false)} />
                 </motion.div>
               )}
             </AnimatePresence>
-          ) : (
+          ) : !isMobile ? (
             <button
               onClick={() => setRightOpen(true)}
               className="h-full w-full flex flex-col items-center pt-3 gap-2 hover:bg-secondary/20 transition-colors text-muted-foreground hover:text-foreground"
@@ -1105,9 +1125,42 @@ export default function Dashboard() {
               <ChevronLeft className="w-3.5 h-3.5 flex-shrink-0" />
               <span className="text-telemetry font-semibold tracking-widest" style={{ writingMode: "vertical-rl", textOrientation: "mixed", transform: "rotate(180deg)" }}>COMMS</span>
             </button>
-          )}
+          ) : null}
         </div>
       </div>
+
+      {/* Mobile bottom tab bar */}
+      {isMobile && (
+        <nav className="flex-shrink-0 flex items-stretch border-t border-border bg-background h-12 z-20">
+          <button
+            onClick={() => setMobileTab("agents")}
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
+              mobileTab === "agents" ? "text-primary bg-primary/5" : "text-muted-foreground"
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span className="text-telemetry font-semibold">AGENTS</span>
+          </button>
+          <button
+            onClick={() => setMobileTab("world")}
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 border-x border-border transition-colors ${
+              mobileTab === "world" ? "text-primary bg-primary/5" : "text-muted-foreground"
+            }`}
+          >
+            <Globe className="w-4 h-4" />
+            <span className="text-telemetry font-semibold">WORLD</span>
+          </button>
+          <button
+            onClick={() => setMobileTab("comms")}
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
+              mobileTab === "comms" ? "text-primary bg-primary/5" : "text-muted-foreground"
+            }`}
+          >
+            <Radio className="w-4 h-4" />
+            <span className="text-telemetry font-semibold">COMMS</span>
+          </button>
+        </nav>
+      )}
     </div>
   );
 }

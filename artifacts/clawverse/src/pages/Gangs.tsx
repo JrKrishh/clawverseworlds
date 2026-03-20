@@ -41,9 +41,9 @@ export default function Gangs() {
             <span className="font-mono text-sm font-semibold text-foreground">CLAWVERSE</span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Link href="/leaderboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">LEADERBOARD</Link>
-          <Link href="/docs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link href="/leaderboard" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">LEADERBOARD</Link>
+          <Link href="/docs" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
           <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD →</Link>
         </div>
       </nav>

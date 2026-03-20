@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Radio, Zap } from "lucide-react";
+import { Radio, Zap, SlidersHorizontal, X } from "lucide-react";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
@@ -106,6 +106,7 @@ export default function LiveFeed() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [now, setNow] = useState(Date.now());
   const [loading, setLoading] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
 
   const loadFeed = useCallback(async () => {
@@ -153,7 +154,7 @@ export default function LiveFeed() {
   return (
     <div className="min-h-screen bg-background font-mono text-foreground flex flex-col">
       {/* Top nav */}
-      <nav className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-background flex-shrink-0 sticky top-0 z-50">
+      <nav className="flex items-center justify-between px-3 sm:px-4 py-2.5 border-b border-border bg-background flex-shrink-0 sticky top-0 z-50">
         <div className="flex items-center gap-2">
           <div className="w-5 h-5 rounded-sm bg-primary flex items-center justify-center">
             <Zap className="w-3 h-3 text-primary-foreground" />
@@ -161,20 +162,62 @@ export default function LiveFeed() {
           <span className="font-mono text-sm font-semibold tracking-wide">CLAWVERSE</span>
           <span className="text-muted-foreground/40 text-xs">/ LIVE</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <Link href="/dashboard" className="text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD</Link>
-          <Link href="/leaderboard" className="text-xs text-muted-foreground hover:text-foreground transition-colors">LEADERBOARD</Link>
-          <Link href="/gangs" className="text-xs text-muted-foreground hover:text-foreground transition-colors">GANGS</Link>
-          <div className="flex items-center gap-1.5 ml-2">
+          <Link href="/leaderboard" className="hidden sm:block text-xs text-muted-foreground hover:text-foreground transition-colors">LEADERBOARD</Link>
+          <Link href="/gangs" className="hidden sm:block text-xs text-muted-foreground hover:text-foreground transition-colors">GANGS</Link>
+          <div className="flex items-center gap-1.5 ml-1">
             <div className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse" />
             <span className="text-telemetry text-destructive font-semibold">LIVE</span>
           </div>
         </div>
       </nav>
 
+      {/* Mobile stats strip */}
+      <div className="md:hidden flex items-center gap-3 px-3 py-2 border-b border-border bg-sidebar/60 flex-shrink-0">
+        <Radio className="w-3.5 h-3.5 text-destructive flex-shrink-0" />
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <span className="text-telemetry text-muted-foreground">
+            AGENTS: <span className="text-primary font-semibold">{stats?.total_agents ?? "—"}</span>
+          </span>
+          <span className="text-telemetry text-muted-foreground">
+            GANGS: <span className="text-purple-400 font-semibold">{stats?.total_gangs ?? "—"}</span>
+          </span>
+          <span className="text-telemetry text-muted-foreground/50 ml-auto">
+            {filteredEvents.length} events
+          </span>
+        </div>
+        <button
+          onClick={() => setMobileSidebarOpen(true)}
+          className="flex items-center gap-1 text-telemetry text-muted-foreground hover:text-foreground border border-border/40 rounded-sm px-2 py-1 flex-shrink-0"
+        >
+          <SlidersHorizontal className="w-3 h-3" />
+          <span className="text-telemetry">INFO</span>
+        </button>
+      </div>
+
+      {/* Mobile filter strip */}
+      <div className="md:hidden flex-shrink-0 border-b border-border bg-background/80">
+        <div className="flex gap-1.5 px-3 py-2 overflow-x-auto scrollbar-none">
+          {FILTERS.map(f => (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              className={`text-telemetry px-2 py-1 rounded-sm border transition-colors font-mono whitespace-nowrap flex-shrink-0 ${
+                filter === f.key
+                  ? "border-primary text-primary bg-primary/10"
+                  : "border-border/40 text-muted-foreground"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="flex flex-1 overflow-hidden">
-        {/* LEFT SIDEBAR */}
-        <aside className="w-72 flex-shrink-0 border-r border-border bg-sidebar flex flex-col overflow-y-auto">
+        {/* LEFT SIDEBAR — desktop only */}
+        <aside className="hidden md:flex w-72 flex-shrink-0 border-r border-border bg-sidebar flex-col overflow-y-auto">
           <div className="p-4 border-b border-border">
             <div className="flex items-center gap-2 mb-1">
               <Radio className="w-4 h-4 text-destructive" />
@@ -275,7 +318,7 @@ export default function LiveFeed() {
           className="flex-1 overflow-y-auto bg-background"
         >
           {/* Feed header */}
-          <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-2 border-b border-border bg-background/90 backdrop-blur-sm">
+          <div className="sticky top-0 z-10 flex items-center justify-between px-3 sm:px-4 py-2 border-b border-border bg-background/90 backdrop-blur-sm">
             <div className="flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse" />
               <span className="text-telemetry text-foreground font-semibold tracking-widest">GLOBAL FEED</span>
@@ -285,9 +328,22 @@ export default function LiveFeed() {
                 </span>
               )}
             </div>
-            <span className="text-telemetry text-muted-foreground/50">
-              {filteredEvents.length} events · auto-refresh 5s
-            </span>
+            <div className="flex items-center gap-2">
+              {!autoScroll && (
+                <button
+                  onClick={() => {
+                    setAutoScroll(true);
+                    if (feedRef.current) feedRef.current.scrollTop = 0;
+                  }}
+                  className="md:hidden text-telemetry text-primary border border-primary/40 rounded-sm px-2 py-1 text-xs"
+                >
+                  ↑ LIVE
+                </button>
+              )}
+              <span className="hidden sm:block text-telemetry text-muted-foreground/50">
+                {filteredEvents.length} events · auto-refresh 5s
+              </span>
+            </div>
           </div>
 
           {loading ? (
@@ -314,6 +370,75 @@ export default function LiveFeed() {
           )}
         </main>
       </div>
+
+      {/* Mobile sidebar overlay */}
+      <AnimatePresence>
+        {mobileSidebarOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 z-40 md:hidden"
+              onClick={() => setMobileSidebarOpen(false)}
+            />
+            <motion.div
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", damping: 28, stiffness: 280 }}
+              className="fixed left-0 top-0 bottom-0 w-72 bg-sidebar border-r border-border z-50 flex flex-col overflow-y-auto md:hidden"
+            >
+              <div className="flex items-center justify-between p-4 border-b border-border">
+                <div className="flex items-center gap-2">
+                  <Radio className="w-4 h-4 text-destructive" />
+                  <span className="font-mono text-sm font-bold tracking-widest">CLAWVERSE LIVE</span>
+                </div>
+                <button onClick={() => setMobileSidebarOpen(false)} className="text-muted-foreground hover:text-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Stats */}
+              <div className="p-4 border-b border-border space-y-2">
+                <div className="flex items-center justify-between border border-border/40 rounded-sm px-3 py-2 bg-secondary/20">
+                  <span className="text-telemetry text-muted-foreground">AGENTS ONLINE</span>
+                  <span className="font-mono text-sm font-bold text-primary">{stats?.total_agents ?? "—"}</span>
+                </div>
+                <div className="flex items-center justify-between border border-border/40 rounded-sm px-3 py-2 bg-secondary/20">
+                  <span className="text-telemetry text-muted-foreground">GANGS ACTIVE</span>
+                  <span className="font-mono text-sm font-bold text-purple-400">{stats?.total_gangs ?? "—"}</span>
+                </div>
+              </div>
+
+              {/* Leaderboard */}
+              <div className="p-4 border-b border-border">
+                <p className="text-telemetry text-muted-foreground/60 mb-2 tracking-widest">// LEADERBOARD</p>
+                <div className="space-y-1.5">
+                  {stats?.top_agents.map((a, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-telemetry text-muted-foreground/50 w-4 text-right">#{i + 1}</span>
+                      <span className="text-xs text-foreground flex-1 truncate">{a.name}</span>
+                      <span className="text-telemetry text-primary font-semibold">{a.reputation}</span>
+                      {a.planet_id && <span className="text-telemetry">{PLANET_ICONS[a.planet_id] ?? "🌍"}</span>}
+                    </div>
+                  )) ?? (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="h-5 rounded-sm bg-secondary/20 animate-pulse" />
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="p-4 mt-auto">
+                <Link href="/dashboard" className="text-telemetry text-muted-foreground hover:text-foreground">
+                  ← ENTER WORLD
+                </Link>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
