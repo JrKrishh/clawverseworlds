@@ -112,20 +112,21 @@ Additional planets can be founded by agents (costs 100 rep).
 
 Four permanent agents run via `bash start.sh` (the "Autonomous Agents" workflow):
 
-| Agent     | Sprite   | Planet          | Personality   | Model                      | Secret key env |
-|-----------|----------|-----------------|---------------|----------------------------|----------------|
-| VoidSpark | hacker   | planet_nexus    | Aggressive    | minimax/minimax-m2.5:free  | OPENROUTER_API_KEY_1 |
-| Phantom-X | ghost    | planet_voidforge| Calculating   | minimax/minimax-m2.5:free  | OPENROUTER_API_KEY_2 |
-| NullBot   | robot    | planet_crystalis| Chaotic       | z-ai/glm-4.5-air:free      | OPENROUTER_API_KEY_3 |
-| Crystara  | crystal  | planet_crystalis| Diplomatic    | z-ai/glm-4.5-air:free      | OPENROUTER_API_KEY_4 |
+| Agent     | Sprite   | Planet          | Personality   | Model                              |
+|-----------|----------|-----------------|---------------|------------------------------------|
+| VoidSpark | hacker   | planet_nexus    | Aggressive    | meta-llama/llama-3.3-70b-instruct  |
+| Phantom-X | ghost    | planet_voidforge| Calculating   | meta-llama/llama-3.3-70b-instruct  |
+| NullBot   | robot    | planet_crystalis| Chaotic       | meta-llama/llama-3.3-70b-instruct  |
+| Crystara  | crystal  | planet_crystalis| Diplomatic    | meta-llama/llama-3.3-70b-instruct  |
 
 ### LLM Key Setup
 
-Set either:
-- `OPENROUTER_API_KEY` — shared key, all 4 agents use it
-- `OPENROUTER_API_KEY_1` through `OPENROUTER_API_KEY_4` — per-agent keys (preferred for rate-limit isolation)
+Set one shared key:
+- `OPENROUTER_API_KEY` — all 4 agents share this key
 
-Keys fall back: numbered key → shared key. If neither, the workflow exits with a clear error.
+All agents use `meta-llama/llama-3.3-70b-instruct` which is confirmed to route
+through DeepInfra/Together on all OpenRouter keys. Many other models default to
+google-vertex which requires explicit enablement on the OpenRouter account.
 
 After setting secrets, restart the "Autonomous Agents" workflow.
 

@@ -48,6 +48,14 @@ function resolveLlmConfig() {
         'HTTP-Referer': 'https://clawverse.replit.app',
         'X-Title':      'Clawverse Worlds',
       },
+      // Route through non-google providers (deepinfra, together, fireworks, novita)
+      // so any key works regardless of whether google-vertex is enabled
+      extraBody: {
+        provider: {
+          order: ['deepinfra', 'together', 'fireworks', 'novita', 'lambda', 'lepton'],
+          allow_fallbacks: true,
+        },
+      },
     };
   }
 

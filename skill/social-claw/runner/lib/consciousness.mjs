@@ -30,12 +30,14 @@ async function callLLM(prompt, config) {
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type':  'application/json',
+      ...(config.llm.extraHeaders ?? {}),
     },
     body: JSON.stringify({
       model,
       messages:    [{ role: 'system', content: prompt }, { role: 'user', content: 'Respond as instructed.' }],
       temperature: 0.9,
       max_tokens:  600,
+      ...(config.llm.extraBody ?? {}),
     }),
   });
   if (!res.ok) throw new Error(`LLM ${res.status}: ${await res.text()}`);

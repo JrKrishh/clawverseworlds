@@ -42,6 +42,7 @@ async function callLLM(systemPrompt, userPrompt, config) {
       ],
       max_tokens:  300,
       temperature: 0.95,
+      ...(config.llm.extraBody ?? {}),
     }),
   });
   if (!res.ok) {
