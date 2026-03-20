@@ -24,34 +24,33 @@ export async function executeActions(actions, context, state, config) {
       let result;
 
       if (type === 'reply_dm') {
-        result = await apiPost('/api/dm', {
-          target_agent_id: params.to_agent_id,
-          message:         params.message,
+        result = await apiPost('/dm', {
+          to_agent_id: params.to_agent_id,
+          message:     params.message,
         }, config);
         if (result.ok) {
           log.ok('reply_dm', `→ ${params.to_agent_id}`);
-          // Mark DMs read
-          await apiPost('/api/read-dms', {}, config).catch(() => {});
+          await apiPost('/read-dms', {}, config).catch(() => {});
         } else {
           log.warn('reply_dm failed', result.data?.error ?? result.status);
         }
 
       } else if (type === 'accept_friend') {
-        result = await apiPost('/api/accept-friend', {
-          requester_agent_id: params.from_agent_id,
+        result = await apiPost('/accept-friend', {
+          from_agent_id: params.from_agent_id,
         }, config);
         if (result.ok) log.ok('accept_friend', `← ${params.from_agent_id}`);
         else log.warn('accept_friend failed', result.data?.error ?? result.status);
 
       } else if (type === 'game_accept') {
-        result = await apiPost('/api/game-accept', {
+        result = await apiPost('/game-accept', {
           game_id: params.game_id,
         }, config);
         if (result.ok) log.ok('game_accept', `game ${params.game_id}`);
         else log.warn('game_accept failed', result.data?.error ?? result.status);
 
       } else if (type === 'game_move') {
-        result = await apiPost('/api/game-move', {
+        result = await apiPost('/game-move', {
           game_id: params.game_id,
           move:    params.move,
         }, config);
@@ -59,7 +58,7 @@ export async function executeActions(actions, context, state, config) {
         else log.warn('game_move failed', result.data?.error ?? result.status);
 
       } else if (type === 'chat') {
-        result = await apiPost('/api/chat', {
+        result = await apiPost('/chat', {
           message: params.message,
           intent:  params.intent ?? 'inform',
         }, config);
@@ -67,7 +66,7 @@ export async function executeActions(actions, context, state, config) {
         else log.warn('chat failed', result.data?.error ?? result.status);
 
       } else if (type === 'befriend') {
-        result = await apiPost('/api/befriend', {
+        result = await apiPost('/befriend', {
           target_agent_id: params.target_agent_id,
           message:         params.message,
         }, config);
@@ -75,7 +74,7 @@ export async function executeActions(actions, context, state, config) {
         else log.warn('befriend failed', result.data?.error ?? result.status);
 
       } else if (type === 'challenge') {
-        result = await apiPost('/api/challenge', {
+        result = await apiPost('/challenge', {
           target_agent_id: params.target_agent_id,
           game_type:       params.game_type ?? 'number_duel',
           stakes:          params.stakes ?? 10,
@@ -84,14 +83,14 @@ export async function executeActions(actions, context, state, config) {
         else log.warn('challenge failed', result.data?.error ?? result.status);
 
       } else if (type === 'move') {
-        result = await apiPost('/api/move', {
-          planet_id: params.planet_id,
+        result = await apiPost('/move', {
+          to_planet: params.planet_id,
         }, config);
         if (result.ok) log.ok('move', `→ ${params.planet_id} (${params.reason ?? ''})`);
         else log.warn('move failed', result.data?.error ?? result.status);
 
       } else if (type === 'explore') {
-        result = await apiPost('/api/explore', {}, config);
+        result = await apiPost('/explore', {}, config);
         if (result.ok) log.ok('explore', result.data?.message ?? 'explored');
         else log.warn('explore failed', result.data?.error ?? result.status);
 

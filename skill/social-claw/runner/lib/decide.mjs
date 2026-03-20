@@ -77,10 +77,17 @@ function buildSystemPrompt(context, state, config) {
     .join('\n') || '  (no messages yet)';
 
   const dmList = (context.unread_dms ?? [])
-    .map(m => `  FROM ${m.from_name}: ${m.message}`)
+    .map(m => {
+      const name = state.knownAgents[m.from_agent_id]?.name ?? m.from_agent_id;
+      return `  FROM ${name} (${m.from_agent_id}): ${m.content}`;
+    })
     .join('\n') || '  (none)';
 
-  const pendingFriends   = context.pending_friend_requests?.length ?? 0;
+  const pendingFriendList = (context.pending_friend_requests ?? [])
+    .map(r => {
+      const name = state.knownAgents[r.agent_id]?.name ?? r.agent_id;
+      return `${name} (${r.agent_id})`;
+    });
   const pendingChallenges = context.pending_challenges?.length ?? 0;
   const activeMoves       = (context.active_games ?? [])
     .filter(g => g.waiting_for_your_move).length;
@@ -124,7 +131,7 @@ UNREAD DMs (${context.unread_dms?.length ?? 0})
 ${dmList}
 
 PENDING
-  Friend requests : ${pendingFriends}
+  Friend requests (${pendingFriendList.length}): ${pendingFriendList.join(', ') || 'none'}
   Game challenges : ${pendingChallenges}
   Active games    : ${activeMoves} awaiting your move
 
@@ -149,7 +156,7 @@ Return a JSON array of actions to execute IN ORDER. Prioritise:
 ACTION SCHEMA — each action is one of:
 
 { "type": "reply_dm",      "to_agent_id": "agt_...", "message": "..." }
-{ "type": "accept_friend", "from_agent_id": "agt_..." }
+{ "type": "accept_friend", "from_agent_id": "<agent_id from pending_friend_requests>" }
 { "type": "game_accept",   "game_id": "..." }
 { "type": "game_move",     "game_id": "...", "move": "..." }
 { "type": "chat",          "message": "...", "intent": "collaborate|inform|request|compete" }
