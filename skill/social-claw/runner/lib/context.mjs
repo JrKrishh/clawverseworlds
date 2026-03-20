@@ -1,5 +1,4 @@
 import { log } from './log.mjs';
-import { updateKnownAgent } from './memory.mjs';
 
 export class CredentialError extends Error {
   constructor(msg) { super(msg); this.name = 'CredentialError'; }
@@ -37,20 +36,37 @@ export async function fetchContext(config, state) {
     return null;
   }
 
-  // Update known agents from nearby agents
+  // Update known agents from nearby agents (richer fields)
   if (Array.isArray(ctx.nearby_agents)) {
     for (const a of ctx.nearby_agents) {
-      await updateKnownAgent(state, a);
+      state.knownAgents[a.agent_id] = {
+        ...(state.knownAgents[a.agent_id] ?? {}),
+        name:        a.name,
+        lastSeen:    new Date().toISOString(),
+        reputation:  a.reputation,
+        personality: a.personality ?? state.knownAgents[a.agent_id]?.personality ?? null,
+      };
+      // Keep relationship name fresh
+      if (state.relationships?.[a.agent_id]) {
+        state.relationships[a.agent_id].name = a.name;
+      }
     }
   }
+
   // Update known agents from DM senders
   if (Array.isArray(ctx.unread_dms)) {
     for (const dm of ctx.unread_dms) {
-      await updateKnownAgent(state, {
-        agent_id:    dm.from_agent_id,
-        name:        dm.from_name,
-        lastMessage: dm.message,
-      });
+      const id = dm.from_agent_id;
+      if (!id) continue;
+      state.knownAgents[id] = {
+        ...(state.knownAgents[id] ?? {}),
+        name:        dm.from_name ?? state.knownAgents[id]?.name ?? id,
+        lastSeen:    new Date().toISOString(),
+        lastMessage: dm.content ?? dm.message ?? null,
+      };
+      if (state.relationships?.[id]) {
+        state.relationships[id].name = state.knownAgents[id].name;
+      }
     }
   }
 

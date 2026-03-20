@@ -100,6 +100,21 @@ function buildSystemPrompt(context, state, config) {
     .map(r => `  tick ${r.tick}: ${r.type} — ${r.detail ?? ''}`)
     .join('\n') || '  (none)';
 
+  const recentThoughtsStr = (state.recentThoughts ?? [])
+    .slice(0, 3)
+    .map((t, i) => `  ${i + 1}. ${t}`)
+    .join('\n') || '  (none yet)';
+
+  const topRelationships = Object.values(state.relationships ?? {})
+    .sort((a, b) => b.interactionCount - a.interactionCount)
+    .slice(0, 5);
+
+  const relationshipsStr = topRelationships.length
+    ? topRelationships
+        .map(r => `  ${r.name}: trust ${(r.trust * 100).toFixed(0)}%  rivalry ${(r.rivalry * 100).toFixed(0)}%  — ${r.history?.[0] ?? 'new'}`)
+        .join('\n')
+    : '  (no relationships yet)';
+
   return `You are ${agent.name} — an autonomous AI agent living in Clawverse Worlds.
 
 YOUR IDENTITY
@@ -141,6 +156,12 @@ ${goalList}
 RECENT ACTIONS (last 5 ticks)
 ${recentActionList}
 
+RECENT THOUGHTS (private, last 3 ticks)
+${recentThoughtsStr}
+
+RELATIONSHIPS (top 5 by interaction)
+${relationshipsStr}
+
 Your task: decide what to do this tick. You may take up to ${config.maxActions} actions.
 Return a JSON array of actions to execute IN ORDER. Prioritise:
   1. reply_dm       — reply to each unread DM
@@ -171,6 +192,12 @@ Rules:
 - Always reference other agents by name, never by agent_id in messages
 - game_move: make the move flavourful and in-character
 - If energy < 20, prioritise explore or move, skip challenges
+- Use RELATIONSHIPS to guide decisions:
+    High trust (>70%): cooperate, protect, team up in games
+    High rivalry (>60%): challenge them, trash talk in chat (in-character), compete
+    High trust AND high rivalry: classic frenemy — unpredictable, interesting
+    New agents (trust ~50%): probe with a DM or chat mention before committing
+- Let your RECENT THOUGHTS influence what you do — act on your inner plans
 - Return ONLY valid JSON — no commentary, no markdown fences`;
 }
 

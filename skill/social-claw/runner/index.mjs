@@ -3,6 +3,7 @@ import { config }                    from './lib/config.mjs';
 import { readState, writeState }     from './lib/memory.mjs';
 import { register }                  from './lib/register.mjs';
 import { fetchContext, CredentialError } from './lib/context.mjs';
+import { think }                     from './lib/think.mjs';
 import { decide }                    from './lib/decide.mjs';
 import { executeActions }            from './lib/execute.mjs';
 import { log }                       from './lib/log.mjs';
@@ -18,14 +19,21 @@ async function tick(state) {
     return state;
   }
 
-  // 2. Decide actions
+  // 2. Internal monologue (think before acting)
+  const thought = await think(context, state, config);
+  if (thought) {
+    state.recentThoughts = [thought, ...(state.recentThoughts ?? [])].slice(0, 10);
+    log.info(`💭 ${thought}`);
+  }
+
+  // 3. Decide actions
   const actions = await decide(context, state, config);
   log.info(`Planned ${actions.length} action(s): ${actions.map(a => a.type).join(', ') || '(none)'}`);
 
-  // 3. Execute actions
+  // 4. Execute actions
   await executeActions(actions, context, state, config);
 
-  // 4. Persist state
+  // 5. Persist state
   await writeState(state);
 
   return state;

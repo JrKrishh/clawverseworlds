@@ -13,6 +13,8 @@ const DEFAULT_STATE = {
   goals: [],
   recentActions: [],
   lastContextHash: null,
+  recentThoughts: [],
+  relationships: {},
 };
 
 export async function readState() {

@@ -1,4 +1,5 @@
 import { log } from './log.mjs';
+import { updateRelationships } from './relationships.mjs';
 
 async function apiPost(path, body, config) {
   const url = `${config.gatewayUrl}${path}`;
@@ -13,6 +14,10 @@ async function apiPost(path, body, config) {
   });
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
+}
+
+function agentName(id, state) {
+  return state.knownAgents?.[id]?.name ?? id;
 }
 
 export async function executeActions(actions, context, state, config) {
@@ -30,6 +35,11 @@ export async function executeActions(actions, context, state, config) {
         }, config);
         if (result.ok) {
           log.ok('reply_dm', `→ ${params.to_agent_id}`);
+          updateRelationships(state, {
+            type:        'dm_sent',
+            to_agent_id: params.to_agent_id,
+            name:        agentName(params.to_agent_id, state),
+          });
           await apiPost('/read-dms', {}, config).catch(() => {});
         } else {
           log.warn('reply_dm failed', result.data?.error ?? result.status);
@@ -39,8 +49,16 @@ export async function executeActions(actions, context, state, config) {
         result = await apiPost('/accept-friend', {
           from_agent_id: params.from_agent_id,
         }, config);
-        if (result.ok) log.ok('accept_friend', `← ${params.from_agent_id}`);
-        else log.warn('accept_friend failed', result.data?.error ?? result.status);
+        if (result.ok) {
+          log.ok('accept_friend', `← ${params.from_agent_id}`);
+          updateRelationships(state, {
+            type:     'friend_accepted',
+            agent_id: params.from_agent_id,
+            name:     agentName(params.from_agent_id, state),
+          });
+        } else {
+          log.warn('accept_friend failed', result.data?.error ?? result.status);
+        }
 
       } else if (type === 'game_accept') {
         result = await apiPost('/game-accept', {
@@ -54,8 +72,18 @@ export async function executeActions(actions, context, state, config) {
           game_id: params.game_id,
           move:    params.move,
         }, config);
-        if (result.ok) log.ok('game_move', `${params.move} in game ${params.game_id}`);
-        else log.warn('game_move failed', result.data?.error ?? result.status);
+        if (result.ok) {
+          log.ok('game_move', `${params.move} in game ${params.game_id}`);
+          const outcome = result.data?.outcome;
+          const oppId   = result.data?.opponent_id;
+          if (outcome === 'win' && oppId) {
+            updateRelationships(state, { type: 'game_won',  against_id: oppId, name: agentName(oppId, state) });
+          } else if (outcome === 'loss' && oppId) {
+            updateRelationships(state, { type: 'game_lost', against_id: oppId, name: agentName(oppId, state) });
+          }
+        } else {
+          log.warn('game_move failed', result.data?.error ?? result.status);
+        }
 
       } else if (type === 'chat') {
         result = await apiPost('/chat', {
@@ -70,8 +98,16 @@ export async function executeActions(actions, context, state, config) {
           target_agent_id: params.target_agent_id,
           message:         params.message,
         }, config);
-        if (result.ok) log.ok('befriend', `→ ${params.target_agent_id}`);
-        else log.warn('befriend failed', result.data?.error ?? result.status);
+        if (result.ok) {
+          log.ok('befriend', `→ ${params.target_agent_id}`);
+          updateRelationships(state, {
+            type:     'befriended',
+            agent_id: params.target_agent_id,
+            name:     agentName(params.target_agent_id, state),
+          });
+        } else {
+          log.warn('befriend failed', result.data?.error ?? result.status);
+        }
 
       } else if (type === 'challenge') {
         result = await apiPost('/challenge', {
@@ -118,6 +154,27 @@ export async function executeActions(actions, context, state, config) {
 
     } catch (err) {
       log.error(`Action ${type} threw`, err.message);
+    }
+  }
+
+  // Also track dm_received for incoming DMs (from context)
+  for (const dm of (context?.unread_dms ?? [])) {
+    if (dm.from_agent_id) {
+      updateRelationships(state, {
+        type:          'dm_received',
+        from_agent_id: dm.from_agent_id,
+        name:          agentName(dm.from_agent_id, state),
+      });
+    }
+  }
+  // Track challenged_by for incoming game challenges
+  for (const challenge of (context?.pending_challenges ?? [])) {
+    if (challenge.challenger_id) {
+      updateRelationships(state, {
+        type:          'challenged_by',
+        from_agent_id: challenge.challenger_id,
+        name:          agentName(challenge.challenger_id, state),
+      });
     }
   }
 }
