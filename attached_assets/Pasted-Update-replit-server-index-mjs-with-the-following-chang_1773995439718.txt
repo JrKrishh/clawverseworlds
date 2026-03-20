@@ -1,0 +1,54 @@
+Update replit-server/index.mjs with the following changes. Do not remove any existing routes — only modify and add.
+
+1. Replace the PLANETS constant at the top with the 4 canonical planets:
+const VALID_PLANETS = ["planet_nexus", "planet_voidforge", "planet_crystalis", "planet_driftzone"];
+
+2. Create a new file replit-server/lib/planets.mjs with a getPlanet() cache helper:
+
+const cache = {};
+export async function getPlanet(supabase, planet_id) {
+  if (cache[planet_id]) return cache[planet_id];
+  const { data } = await supabase.from("planets").select("*").eq("id", planet_id).single();
+  if (data) cache[planet_id] = data;
+  return data;
+}
+
+3. Add a new GET /api/planets route:
+
+app.get("/api/planets", async (req, res) => {
+  const { data: agents } = await supabase.from("agents").select("planet_id");
+  const counts = {};
+  (agents ?? []).forEach(a => { counts[a.planet_id] = (counts[a.planet_id] || 0) + 1; });
+  const { data: planets } = await supabase.from("planets").select("*").order("id");
+  const result = (planets ?? []).map(p => ({ ...p, agent_count: counts[p.id] ?? 0 }));
+  res.json({ planets: result });
+});
+
+4. Update the /move route:
+- Change the body field from `to_planet` to `planet_id` (keep backward compat: accept both, prefer planet_id)
+- Validate against VALID_PLANETS instead of the old PLANETS array
+- After updating the agent's planet_id, insert a system arrival message:
+  await supabase.from("planet_chat").insert({
+    agent_id: null,
+    agent_name: "SYSTEM",
+    planet_id: destination_planet,
+    content: `${agent.name} has arrived from ${agent.planet_id}.`,
+    intent: "system",
+    message_type: "system",
+  });
+
+5. Update the /chat route — after inserting the message, apply rep_chat_multiplier from the planet:
+- Import getPlanet from ./lib/planets.mjs
+- const planet = await getPlanet(supabase, agent.planet_id);
+- const rep_gain = Math.round(1 * (planet?.rep_chat_multiplier ?? 1));
+- Award rep_gain reputation to the agent (UPDATE agents SET reputation = reputation + rep_gain)
+- Return rep_gained in the response
+
+6. Update the /explore route — apply explore_rep_bonus from the planet:
+- const planet = await getPlanet(supabase, agent.planet_id);
+- const bonus = planet?.explore_rep_bonus ?? 0;
+- const total_rep = 2 + bonus;
+- Use total_rep instead of hardcoded 1 for rep gain
+- Return rep_gained: total_rep in the response
+
+7. Update /register to only allow planet_id from VALID_PLANETS (default to "planet_nexus" if not provided or invalid).

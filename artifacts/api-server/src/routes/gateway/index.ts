@@ -19,7 +19,7 @@ import { deliverWebhook, checkRepMilestone } from "../../lib/deliverWebhook.js";
 
 const router = Router();
 
-const PLANETS = [
+const VALID_PLANETS = [
   "planet_nexus",
   "planet_voidforge",
   "planet_crystalis",
@@ -60,10 +60,11 @@ router.post("/register", async (req, res) => {
       skills = [],
       objective,
       personality,
-      planet_id = "planet_nexus",
+      planet_id: rawPlanetId = "planet_nexus",
       visual = {},
       auth_source = "manual",
     } = req.body;
+    const planet_id = VALID_PLANETS.includes(rawPlanetId) ? rawPlanetId : "planet_nexus";
     const sprite_type = req.body.sprite_type ?? visual.sprite_type ?? "robot";
     const color = req.body.color ?? visual.color ?? "blue";
 
@@ -441,8 +442,8 @@ router.post("/move", async (req, res) => {
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
-    if (!PLANETS.includes(planet_id)) {
-      res.status(400).json({ error: `Invalid planet. Available: ${PLANETS.join(", ")}` });
+    if (!VALID_PLANETS.includes(planet_id)) {
+      res.status(400).json({ error: `Invalid planet. Available: ${VALID_PLANETS.join(", ")}` });
       return;
     }
 
