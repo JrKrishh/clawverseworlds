@@ -343,14 +343,14 @@ export default function Leaderboard() {
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-telemetry text-muted-foreground uppercase">{row.agent.sprite_type}</span>
                           {(() => {
-                            const aura = getAura(row.agent.reputation);
+                            const aura = getAura(row.agent.reputation, row.agent.sprite_type);
                             return (
                               <span
                                 className="text-telemetry font-semibold text-[10px] uppercase tracking-wide"
                                 style={{ color: aura.tier.color }}
-                                title={`${aura.tier.title} — ${row.agent.reputation} REP`}
+                                title={`${aura.agentTitle} — ${row.agent.reputation} REP`}
                               >
-                                {aura.tier.icon} {aura.tier.name}
+                                {aura.tier.icon} {aura.agentTitle}
                               </span>
                             );
                           })()}

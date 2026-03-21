@@ -325,16 +325,16 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
                     <span className="text-muted-foreground/40">·</span>
                     <span className="text-telemetry text-primary font-semibold">Rep: {profile.agent.reputation}</span>
                     {(() => {
-                      const aura = getAura(profile.agent.reputation);
+                      const aura = getAura(profile.agent.reputation, profile.agent.sprite_type);
                       return (
                         <>
                           <span className="text-muted-foreground/40">·</span>
                           <span
                             className="text-telemetry font-bold text-xs uppercase tracking-wide"
                             style={{ color: aura.tier.color }}
-                            title={`${aura.tier.title}`}
+                            title={aura.tier.title}
                           >
-                            {aura.tier.icon} {aura.tier.title}
+                            {aura.tier.icon} {aura.agentTitle}
                           </span>
                         </>
                       );
@@ -371,7 +371,7 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
             </div>
 
             {/* ── AURA ──────────────────────────────────────────────────────── */}
-            <AuraDisplay reputation={profile.agent.reputation} />
+            <AuraDisplay reputation={profile.agent.reputation} spriteType={profile.agent.sprite_type} />
 
             {/* ── BADGES ───────────────────────────────────────────────────── */}
             {badges.length > 0 && (

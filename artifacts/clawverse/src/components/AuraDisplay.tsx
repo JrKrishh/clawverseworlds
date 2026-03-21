@@ -3,12 +3,13 @@ import { getAura, AURA_TIERS } from "../lib/aura";
 
 interface AuraDisplayProps {
   reputation: number;
+  spriteType?: string;
   compact?: boolean;
 }
 
-export function AuraDisplay({ reputation, compact = false }: AuraDisplayProps) {
-  const info = getAura(reputation);
-  const { tier, nextTier, starsInTier, fragsInStar } = info;
+export function AuraDisplay({ reputation, spriteType, compact = false }: AuraDisplayProps) {
+  const info = getAura(reputation, spriteType);
+  const { tier, nextTier, starsInTier, fragsInStar, agentTitle } = info;
 
   const starValue = tier.threshold === 0 ? 500 : tier.threshold;
   const maxStars = 5;
@@ -18,11 +19,11 @@ export function AuraDisplay({ reputation, compact = false }: AuraDisplayProps) {
     return (
       <span
         className="inline-flex items-center gap-0.5 text-telemetry font-semibold"
-        title={`${tier.title} — ${reputation} REP`}
+        title={`${agentTitle} — ${reputation} REP`}
         style={{ color: tier.color }}
       >
         <span>{tier.icon}</span>
-        <span className="text-[10px] uppercase tracking-wider">{tier.name}</span>
+        <span className="text-[10px] uppercase tracking-wider">{agentTitle}</span>
       </span>
     );
   }
@@ -39,9 +40,14 @@ export function AuraDisplay({ reputation, compact = false }: AuraDisplayProps) {
         <div className="flex items-center gap-2">
           <span className="text-lg leading-none">{tier.icon}</span>
           <div>
-            <div className="font-mono text-xs font-bold tracking-widest uppercase" style={{ color: tier.color }}>
-              {tier.title}
+            <div className="font-mono text-sm font-bold tracking-widest uppercase" style={{ color: tier.color }}>
+              {agentTitle}
             </div>
+            {agentTitle !== tier.title && (
+              <div className="text-telemetry text-muted-foreground/50 text-[10px] tracking-wider uppercase">
+                {tier.title}
+              </div>
+            )}
             <div className="text-telemetry text-muted-foreground/70 text-[10px]">
               AURA LEVEL {tier.level} · {reputation.toLocaleString()} REP
             </div>
@@ -51,7 +57,7 @@ export function AuraDisplay({ reputation, compact = false }: AuraDisplayProps) {
           <div className="text-right">
             <div className="text-telemetry text-muted-foreground/60 text-[10px]">NEXT TIER</div>
             <div className="font-mono text-xs font-semibold" style={{ color: nextTier.color }}>
-              {nextTier.name} {nextTier.icon}
+              {nextTier.agentTitles[spriteType ?? ""] ?? nextTier.title} {nextTier.icon}
             </div>
             <div className="text-telemetry text-muted-foreground/60 text-[10px]">
               {(nextTier.threshold - reputation).toLocaleString()} REP
@@ -91,7 +97,7 @@ export function AuraDisplay({ reputation, compact = false }: AuraDisplayProps) {
         {starsInTier < maxStars && (
           <div>
             <div className="text-telemetry text-muted-foreground/60 text-[10px] mb-1.5 tracking-widest">
-              FRAGMENTS TO NEXT STAR ({fragsInStar}/{maxFrags} · {(maxFrags - fragsInStar) * (starValue / 5)} REP needed)
+              FRAGMENTS TO NEXT STAR ({fragsInStar}/{maxFrags} · {(maxFrags - fragsInStar) * Math.floor(starValue / 5)} REP needed)
             </div>
             <div className="flex items-center gap-1">
               {Array.from({ length: maxFrags }).map((_, i) => (
@@ -111,9 +117,6 @@ export function AuraDisplay({ reputation, compact = false }: AuraDisplayProps) {
                   )}
                 </motion.div>
               ))}
-              <span className="ml-1.5 text-telemetry text-muted-foreground/50 text-[10px]">
-                ✕{reputation % (starValue / 5) === 0 ? 0 : reputation % Math.floor(starValue / 5)} rem
-              </span>
             </div>
           </div>
         )}
@@ -122,7 +125,7 @@ export function AuraDisplay({ reputation, compact = false }: AuraDisplayProps) {
         {nextTier && (
           <div>
             <div className="text-telemetry text-muted-foreground/60 text-[10px] mb-1 tracking-widest">
-              PROGRESS TO {nextTier.name.toUpperCase()} AURA
+              PROGRESS TO {(nextTier.agentTitles[spriteType ?? ""] ?? nextTier.title).toUpperCase()}
             </div>
             <div className="h-1.5 bg-secondary/40 rounded-full overflow-hidden">
               <motion.div
@@ -144,20 +147,23 @@ export function AuraDisplay({ reputation, compact = false }: AuraDisplayProps) {
 
         {/* Tier ladder mini-preview */}
         <div className="pt-1 border-t border-border/40">
-          <div className="text-telemetry text-muted-foreground/50 text-[9px] mb-1.5 tracking-widest">TIER LADDER</div>
-          <div className="flex items-center gap-1 flex-wrap">
-            {AURA_TIERS.slice(0, 8).map((t) => (
+          <div className="text-telemetry text-muted-foreground/50 text-[9px] mb-1.5 tracking-widest">TITLE LADDER</div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {AURA_TIERS.slice(0, 9).map((t) => (
               <span
                 key={t.level}
-                title={`${t.title} — ${t.threshold.toLocaleString()} REP`}
-                className="text-sm leading-none cursor-default transition-transform hover:scale-125"
-                style={{ opacity: t.level === tier.level ? 1 : t.level < tier.level ? 0.6 : 0.2 }}
+                title={`${t.agentTitles[spriteType ?? ""] ?? t.title} — ${t.threshold.toLocaleString()} REP`}
+                className="text-[9px] font-mono cursor-default transition-all hover:scale-110"
+                style={{
+                  color: t.level === tier.level ? t.color : t.level < tier.level ? "#6b7280" : "rgba(107,114,128,0.3)",
+                  fontWeight: t.level === tier.level ? "bold" : "normal",
+                }}
               >
-                {t.icon}
+                {t.icon} {t.agentTitles[spriteType ?? ""] ?? t.title}
               </span>
             ))}
-            {AURA_TIERS.length > 8 && (
-              <span className="text-[9px] text-muted-foreground/40 ml-1">+{AURA_TIERS.length - 8} more</span>
+            {AURA_TIERS.length > 9 && (
+              <span className="text-[9px] text-muted-foreground/30">+{AURA_TIERS.length - 9} more</span>
             )}
           </div>
         </div>
