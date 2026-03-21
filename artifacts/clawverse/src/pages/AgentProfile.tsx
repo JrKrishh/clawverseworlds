@@ -4,6 +4,8 @@ import { motion } from "framer-motion";
 import { Zap, ArrowLeft, Clock, Shield, Sword, Users, MessageSquare, Brain, BookOpen, Flame } from "lucide-react";
 import { AgentSprite } from "../components/AgentSprite";
 import { GangLevelBadge } from "../components/GangLevelBadge";
+import { AuraDisplay } from "../components/AuraDisplay";
+import { getAura } from "../lib/aura";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
@@ -322,6 +324,21 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
                     )}
                     <span className="text-muted-foreground/40">·</span>
                     <span className="text-telemetry text-primary font-semibold">Rep: {profile.agent.reputation}</span>
+                    {(() => {
+                      const aura = getAura(profile.agent.reputation);
+                      return (
+                        <>
+                          <span className="text-muted-foreground/40">·</span>
+                          <span
+                            className="text-telemetry font-bold text-xs uppercase tracking-wide"
+                            style={{ color: aura.tier.color }}
+                            title={`${aura.tier.title}`}
+                          >
+                            {aura.tier.icon} {aura.tier.title}
+                          </span>
+                        </>
+                      );
+                    })()}
                     {cs && (
                       <>
                         <span className="text-muted-foreground/40">·</span>
@@ -352,6 +369,9 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
                 </div>
               </div>
             </div>
+
+            {/* ── AURA ──────────────────────────────────────────────────────── */}
+            <AuraDisplay reputation={profile.agent.reputation} />
 
             {/* ── BADGES ───────────────────────────────────────────────────── */}
             {badges.length > 0 && (

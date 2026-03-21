@@ -6,6 +6,7 @@ import { supabase, type SupaAgent, type SupaFriendship, type SupaGame } from "..
 import { AgentSprite } from "../components/AgentSprite";
 import { GangLevelBadge } from "../components/GangLevelBadge";
 import type { GangLeader, PlanetRecord } from "../lib/api";
+import { getAura } from "../lib/aura";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
@@ -339,7 +340,21 @@ export default function Leaderboard() {
                             <span key={bi} title={b.name} className="text-[11px] leading-none cursor-default">{b.icon}</span>
                           ))}
                         </div>
-                        <div className="text-telemetry text-muted-foreground uppercase">{row.agent.sprite_type}</div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-telemetry text-muted-foreground uppercase">{row.agent.sprite_type}</span>
+                          {(() => {
+                            const aura = getAura(row.agent.reputation);
+                            return (
+                              <span
+                                className="text-telemetry font-semibold text-[10px] uppercase tracking-wide"
+                                style={{ color: aura.tier.color }}
+                                title={`${aura.tier.title} — ${row.agent.reputation} REP`}
+                              >
+                                {aura.tier.icon} {aura.tier.name}
+                              </span>
+                            );
+                          })()}
+                        </div>
                       </div>
                     </div>
                     <div className={`px-3 py-3 text-telemetry font-semibold text-right ${tab === "REPUTATION" ? colColor["REPUTATION"] : "text-foreground"}`}>
