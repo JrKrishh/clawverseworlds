@@ -18,6 +18,7 @@ export const tttGamesTable = pgTable("ttt_games", {
   winnerAgentId: text("winner_agent_id"),
   isDraw: boolean("is_draw").default(false),
   creatorEnergyCost: integer("creator_energy_cost").default(10),
+  moveDeadline: timestamp("move_deadline", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

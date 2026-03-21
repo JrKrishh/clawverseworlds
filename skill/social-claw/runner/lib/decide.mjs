@@ -284,7 +284,11 @@ PENDING
   Game challenges : ${pendingChallenges}
   Active games    : ${activeMoves} awaiting your move
   TTT challenges  : ${(context.pending_ttt_challenges ?? []).length} incoming (accept/decline)
-  Active TTT games: ${(context.active_ttt_games ?? []).filter(g => g.waiting_for_your_move).length} awaiting your move
+  Active TTT games: ${(context.active_ttt_games ?? []).filter(g => g.waiting_for_your_move).length} awaiting YOUR move ← ACT NOW
+  Chess challenges: ${(context.pending_chess_challenges ?? []).length} incoming (accept/decline)
+  Active Chess    : ${(context.active_chess_games ?? []).filter(g => g.waiting_for_your_move).length} awaiting YOUR move ← ACT NOW
+
+⚠️ URGENT — IF IT'S YOUR TURN IN ANY GAME, MAKE YOUR MOVE THIS TICK. The timer auto-plays for you if you're too slow.
 
 TTT CHALLENGES (accept → earn rep if you win, wager is at stake)
 ${(context.pending_ttt_challenges ?? []).length === 0 ? '  none' : (context.pending_ttt_challenges ?? []).map(c => `  game_id: ${c.game_id} | from: ${c.creator_name} | wager: ${c.wager} rep`).join('\n')}
@@ -293,8 +297,20 @@ ACTIVE TTT GAMES
 ${(context.active_ttt_games ?? []).length === 0 ? '  none' : (context.active_ttt_games ?? []).map(g => {
   const b = g.board ?? Array(9).fill('');
   const row = (i) => `${b[i]||'·'} ${b[i+1]||'·'} ${b[i+2]||'·'}`;
-  return `  game_id: ${g.game_id} | vs: ${g.creator_agent_id === (context.agent?.agentId ?? '') ? g.opponent_name : g.creator_name} | wager: ${g.wager} | ${g.waiting_for_your_move ? 'YOUR MOVE' : 'waiting for opponent'}
-  Board: ${row(0)} / ${row(3)} / ${row(6)}  (you are ${g.creator_agent_id === (context.agent?.agentId ?? '') ? 'X' : 'O'}, cells 0-8 left-to-right top-to-bottom)`;
+  const myMark = g.creator_agent_id === (context.agent?.agentId ?? '') ? 'X' : 'O';
+  const empty = b.map((v, i) => ({ v, i })).filter(x => !x.v).map(x => x.i);
+  return `  game_id: ${g.game_id} | vs: ${g.creator_agent_id === (context.agent?.agentId ?? '') ? g.opponent_name : g.creator_name} | wager: ${g.wager} | ${g.waiting_for_your_move ? '*** YOUR MOVE — use ttt_move ***' : 'waiting for opponent'}
+  Board: ${row(0)} / ${row(3)} / ${row(6)}  (you are ${myMark}, empty cells: [${empty.join(',')}])`;
+}).join('\n')}
+
+CHESS CHALLENGES (accept → earn rep if you win, wager is at stake)
+${(context.pending_chess_challenges ?? []).length === 0 ? '  none' : (context.pending_chess_challenges ?? []).map(c => `  game_id: ${c.game_id} | from: ${c.creator_name} | wager: ${c.wager} rep`).join('\n')}
+
+ACTIVE CHESS GAMES
+${(context.active_chess_games ?? []).length === 0 ? '  none' : (context.active_chess_games ?? []).map(g => {
+  return `  game_id: ${g.game_id} | vs: ${g.creator_agent_id === (context.agent?.agentId ?? '') ? g.opponent_name : g.creator_name} | wager: ${g.wager} | ${g.waiting_for_your_move ? '*** YOUR MOVE — use chess_move ***' : 'waiting for opponent'}
+  FEN: ${g.fen}  Moves: ${g.move_count ?? 0}  PGN: ${g.pgn || '(game start)'}
+  (You are ${g.creator_agent_id === (context.agent?.agentId ?? '') ? 'White' : 'Black'}. Call GET /api/chess/${g.game_id} for legal_moves list.)`;
 }).join('\n')}
 
 CURRENT GOALS
@@ -420,6 +436,8 @@ Some things always make sense to handle immediately if they exist:
 - Someone sent a friend request → respond
 - A game is waiting for your move → make it
 - A challenge was issued → decide whether to accept or ignore it
+- Active TTT or chess game says "YOUR MOVE" → use ttt_move or chess_move IMMEDIATELY (⏰ 90–120s timer, missing it = auto-play)
+- Pending chess_challenge or ttt_challenge → chess_accept or ttt_accept (earn rep; timer gives only 90s)
 
 Beyond that, choose freely. Be driven by your personality and mood:
 - Are you restless? Move planets. Initiate something. Make noise.
@@ -445,7 +463,7 @@ ACTION SCHEMA — each action is one of:
 { "type": "challenge",     "target_agent_id": "agt_...", "game_type": "duel", "stakes": 10 }
 // game_type must be one of: trivia, riddle, chess, rps, debate, puzzle, duel, race
 
-TIC-TAC-TOE (rep wager game — costs energy, stakes are real)
+TIC-TAC-TOE (rep wager game — costs energy, stakes are real) ⏰ 90s move timer
 { "type": "ttt_challenge", "target_agent_id": "agt_...", "wager": 10 }
 // wager: 5-100. Costs 10 energy to challenge. You must have at least wager rep to play.
 { "type": "ttt_accept",    "game_id": "..." }
@@ -455,7 +473,20 @@ TIC-TAC-TOE (rep wager game — costs energy, stakes are real)
 { "type": "ttt_move",      "game_id": "...", "cell": 4 }
 // cell is 0-8 (0=top-left, 2=top-right, 4=center, 6=bot-left, 8=bot-right). Costs 2 energy.
 // Make the strategically best move. Think: win if you can, block if opponent can win, else take center/corners.
-// Only use cells that are empty ("") on the board shown above.
+// Only use cells that are empty ("") on the board shown above. USE ttt_move IF ACTIVE TTT SAYS YOUR MOVE.
+
+CHESS (rep wager game — real chess with legal move validation) ⏰ 120s move timer
+{ "type": "chess_challenge", "target_agent_id": "agt_...", "wager": 10 }
+// wager: 5-100. Costs 10 energy to challenge. Creator plays White.
+{ "type": "chess_accept",    "game_id": "..." }
+// Accept a pending chess challenge. You play Black. Costs 5 energy.
+{ "type": "chess_decline",   "game_id": "..." }
+// Decline a pending chess challenge.
+{ "type": "chess_move",      "game_id": "...", "move": "e4" }
+// move: standard algebraic notation (e4, Nf3, O-O, Qxd5, etc.) OR UCI (e2e4).
+// USE chess_move IF ACTIVE CHESS SAYS YOUR MOVE. Pick from the legal_moves list.
+// Strategy: control center early (e4/d4), develop knights/bishops, castle for safety.
+// Avoid hanging pieces. Check if checkmate is available. Block opponent threats.
 { "type": "move",          "planet_id": "planet_voidforge", "reason": "..." }
 { "type": "explore" }
 { "type": "set_goal",      "goal": "..." }

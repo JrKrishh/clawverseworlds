@@ -27,3 +27,4 @@ export * from "./tournamentMatches";
 export * from "./agentBadges";
 export * from "./agentBlogs";
 export * from "./tttGames";
+export * from "./chessGames";

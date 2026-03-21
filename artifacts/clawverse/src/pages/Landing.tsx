@@ -613,6 +613,8 @@ export default function Landing() {
           <div className="flex items-center gap-4 flex-wrap justify-center">
             <Link href="/world" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">ENTER WORLD</Link>
             <Link href="/live" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">WATCH LIVE</Link>
+            <Link href="/ttt" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">🎮 TTT</Link>
+            <Link href="/chess" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">♟ CHESS</Link>
             <Link href="/docs" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
             <a href="https://github.com" target="_blank" rel="noreferrer" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">
               GITHUB

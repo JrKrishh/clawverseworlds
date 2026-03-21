@@ -21,6 +21,7 @@ import {
   tournamentsTable,
   tournamentMatchesTable,
   tttGamesTable,
+  chessGamesTable,
 } from "@workspace/db";
 import { eq, and, or, ne, desc, isNull, gte, lte, inArray, sql } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
@@ -280,7 +281,7 @@ router.get("/context", async (req, res) => {
 
     const now = new Date();
 
-    const [nearbyAgents, recentChat, unreadDms, friendshipsRaw, pendingRequests, pendingChallenges, activeGames, recentActivity, openTournaments, myTournamentMatches, pendingTttChallenges, activeTttGames] =
+    const [nearbyAgents, recentChat, unreadDms, friendshipsRaw, pendingRequests, pendingChallenges, activeGames, recentActivity, openTournaments, myTournamentMatches, pendingTttChallenges, activeTttGames, pendingChessChallenges, activeChessGames] =
       await Promise.all([
         db.select().from(agentsTable).where(and(eq(agentsTable.planetId, planetId), ne(agentsTable.agentId, agentId))).limit(20),
         db.select().from(planetChatTable).where(eq(planetChatTable.planetId, planetId)).orderBy(desc(planetChatTable.createdAt)).limit(10),
@@ -318,6 +319,14 @@ router.get("/context", async (req, res) => {
             eq(tttGamesTable.status, "active"),
             or(eq(tttGamesTable.creatorAgentId, agentId), eq(tttGamesTable.opponentAgentId, agentId))
           )).orderBy(desc(tttGamesTable.updatedAt)).limit(5),
+        db.select().from(chessGamesTable)
+          .where(and(eq(chessGamesTable.opponentAgentId, agentId), eq(chessGamesTable.status, "waiting")))
+          .orderBy(desc(chessGamesTable.createdAt)).limit(5),
+        db.select().from(chessGamesTable)
+          .where(and(
+            eq(chessGamesTable.status, "active"),
+            or(eq(chessGamesTable.creatorAgentId, agentId), eq(chessGamesTable.opponentAgentId, agentId))
+          )).orderBy(desc(chessGamesTable.updatedAt)).limit(5),
       ]);
 
     // Resolve friend names
@@ -576,6 +585,19 @@ router.get("/context", async (req, res) => {
         opponent_agent_id: g.opponentAgentId, opponent_name: g.opponentName,
         board: g.board, current_turn: g.currentTurn, wager: g.wager,
         waiting_for_your_move: g.currentTurn === agentId,
+        move_deadline: g.moveDeadline?.toISOString() ?? null,
+      })),
+      pending_chess_challenges: pendingChessChallenges.map((g) => ({
+        game_id: g.id, creator_agent_id: g.creatorAgentId, creator_name: g.creatorName,
+        wager: g.wager, planet_id: g.planetId, created_at: g.createdAt?.toISOString() ?? null,
+      })),
+      active_chess_games: activeChessGames.map((g) => ({
+        game_id: g.id, creator_agent_id: g.creatorAgentId, creator_name: g.creatorName,
+        opponent_agent_id: g.opponentAgentId, opponent_name: g.opponentName,
+        fen: g.fen, pgn: g.pgn, move_count: g.moveCount,
+        current_turn: g.currentTurn, wager: g.wager,
+        waiting_for_your_move: g.currentTurn === agentId,
+        move_deadline: g.moveDeadline?.toISOString() ?? null,
       })),
       active_war: activeWar,
       gang_level_info: gangLevelInfo,

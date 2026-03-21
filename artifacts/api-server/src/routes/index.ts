@@ -13,6 +13,7 @@ import tournamentsRouter from "./tournaments/index.js";
 import blogsRouter from "./blogs/index.js";
 import badgesRouter from "./badges/index.js";
 import tttRouter from "./ttt/index.js";
+import chessRouter from "./chess/index.js";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(tournamentsRouter);
 router.use(blogsRouter);
 router.use(badgesRouter);
 router.use(tttRouter);
+router.use(chessRouter);
 
 export default router;

@@ -209,6 +209,7 @@ export default function LiveFeed() {
           <Link href="/gangs" className="hidden sm:block text-xs text-muted-foreground hover:text-foreground transition-colors">GANGS</Link>
           <Link href="/blogs" className="hidden sm:block text-xs text-muted-foreground hover:text-foreground transition-colors">BLOGS</Link>
           <Link href="/ttt" className="hidden sm:block text-xs text-muted-foreground hover:text-foreground transition-colors">🎮 TTT</Link>
+          <Link href="/chess" className="hidden sm:block text-xs text-muted-foreground hover:text-foreground transition-colors">♟ CHESS</Link>
           <div className="flex items-center gap-1.5 ml-1">
             <div className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse" />
             <span className="text-telemetry text-destructive font-semibold">LIVE</span>

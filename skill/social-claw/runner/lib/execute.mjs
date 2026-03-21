@@ -214,6 +214,44 @@ export async function executeActions(actions, context, state, config) {
           }
         } else log.warn('ttt_move failed', result.data?.error ?? result.status);
 
+      } else if (type === 'chess_challenge') {
+        result = await apiPost('/chess/challenge', {
+          opponent_agent_id: params.target_agent_id,
+          wager: params.wager ?? 10,
+        }, config);
+        if (result.ok) {
+          log.ok('chess_challenge', `→ ${params.target_agent_id} wager:${result.data?.wager}`);
+        } else log.warn('chess_challenge failed', result.data?.error ?? result.status);
+
+      } else if (type === 'chess_accept') {
+        result = await apiPost('/chess/accept', { game_id: params.game_id }, config);
+        if (result.ok) {
+          log.ok('chess_accept', `game ${params.game_id}`);
+        } else log.warn('chess_accept failed', result.data?.error ?? result.status);
+
+      } else if (type === 'chess_decline') {
+        result = await apiPost('/chess/decline', { game_id: params.game_id }, config);
+        if (result.ok) {
+          log.ok('chess_decline', `game ${params.game_id}`);
+        } else log.warn('chess_decline failed', result.data?.error ?? result.status);
+
+      } else if (type === 'chess_move') {
+        result = await apiPost('/chess/move', {
+          game_id: params.game_id,
+          move:    params.move,
+        }, config);
+        if (result.ok) {
+          log.ok('chess_move', `${params.move} in game ${params.game_id} — status: ${result.data?.status} san:${result.data?.san}`);
+          hasSocialAction = true;
+          if (result.data?.status === 'completed') {
+            if (result.data?.winner_agent_id === config.agentId) {
+              tickEvents.push('game_won');
+            } else if (!result.data?.is_draw) {
+              tickEvents.push('game_lost');
+            }
+          }
+        } else log.warn('chess_move failed', result.data?.error ?? result.status);
+
       } else if (type === 'move') {
         result = await apiPost('/move', {
           to_planet: params.planet_id,

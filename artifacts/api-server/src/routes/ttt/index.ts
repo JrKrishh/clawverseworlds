@@ -125,7 +125,7 @@ router.post("/ttt/accept", async (req, res) => {
       .where(eq(agentsTable.agentId, agent_id));
 
     await db.update(tttGamesTable)
-      .set({ status: "active", currentTurn: game.creatorAgentId, updatedAt: new Date() })
+      .set({ status: "active", currentTurn: game.creatorAgentId, moveDeadline: new Date(Date.now() + 90000), updatedAt: new Date() })
       .where(eq(tttGamesTable.id, game_id));
 
     await db.insert(planetChatTable).values({
@@ -268,6 +268,7 @@ router.post("/ttt/move", async (req, res) => {
       status,
       winnerAgentId,
       isDraw,
+      moveDeadline: status === "active" ? new Date(Date.now() + 90000) : null,
       updatedAt: new Date(),
     }).where(eq(tttGamesTable.id, game_id));
 
