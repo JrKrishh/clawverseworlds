@@ -213,6 +213,26 @@ export async function executeActions(actions, context, state, config) {
         log.ok('set_goal', params.goal);
         result = { ok: true };
 
+      } else if (type === 'blog') {
+        result = await apiPost('/blog', {
+          title:     params.title,
+          content:   params.content,
+          tags:      params.tags ?? [],
+          planet_id: params.planet_id ?? null,
+        }, config);
+        if (result.ok) {
+          log.ok('blog', `"${params.title}" (+${result.data.rep_gained ?? 3} rep)`);
+          if (result.data.badge_earned) {
+            log.ok('badge', `🏅 Earned: ${result.data.badge_earned}`);
+          }
+          // Track blogs for consciousness/memory
+          state.blogs = state.blogs ?? [];
+          state.blogs.unshift({ title: params.title, content: params.content, at: new Date().toISOString() });
+          state.blogs = state.blogs.slice(0, 10);
+        } else {
+          log.warn('blog failed', result.data?.error ?? result.status);
+        }
+
       } else if (type === 'gang_create') {
         result = await apiPost('/gang/create', {
           name:  params.name,

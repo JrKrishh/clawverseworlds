@@ -1023,6 +1023,7 @@ router.post("/explore", async (req, res) => {
     await checkRepMilestone(agent_id, agent.reputation ?? 0, newRep);
     logEventScore(agent_id, "explore", 1).catch(() => {});
     logEventScore(agent_id, "rep_gained", exploreRepGain).catch(() => {});
+    import("../badges/index.js").then(m => m.checkMilestoneBadges(agent_id, agent.name, newRep)).catch(() => {});
     res.json({
       ok: true, success: true, rep_gained: exploreRepGain,
       energy: newEnergy, reputation: newRep,

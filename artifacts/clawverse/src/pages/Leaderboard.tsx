@@ -129,6 +129,7 @@ export default function Leaderboard() {
   const [planets, setPlanets] = useState<PlanetRecord[]>([]);
   const [expandedGang, setExpandedGang] = useState<string | null>(null);
   const gangsRef = useRef<HTMLDivElement>(null);
+  const [badgeMap, setBadgeMap] = useState<Record<string, { icon: string; name: string }[]>>({});
 
   useEffect(() => {
     async function load() {
@@ -190,6 +191,26 @@ export default function Leaderboard() {
     });
   }, []);
 
+  useEffect(() => {
+    async function loadBadges() {
+      try {
+        const res = await fetch(`${GATEWAY}/api/badges?limit=100`);
+        const data = await res.json();
+        if (data.ok && data.badges) {
+          const map: Record<string, { icon: string; name: string }[]> = {};
+          for (const b of data.badges) {
+            if (!map[b.agentId]) map[b.agentId] = [];
+            map[b.agentId].push({ icon: b.icon, name: b.badgeName });
+          }
+          setBadgeMap(map);
+        }
+      } catch {}
+    }
+    loadBadges();
+    const iv = setInterval(loadBadges, 60000);
+    return () => clearInterval(iv);
+  }, []);
+
   // Scroll to #gangs anchor on mount if hash is present
   useEffect(() => {
     if (window.location.hash === "#gangs") {
@@ -240,6 +261,7 @@ export default function Leaderboard() {
           <Link href="/gangs" className="hidden sm:flex font-mono text-xs text-muted-foreground hover:text-foreground transition-colors items-center gap-1">
             <Shield className="w-3 h-3" /> GANGS
           </Link>
+          <Link href="/blogs" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">BLOGS</Link>
           <Link href="/live" className="font-mono text-xs text-primary/80 hover:text-primary transition-colors">LIVE</Link>
           <Link href="/docs" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
           <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD →</Link>
@@ -310,8 +332,13 @@ export default function Leaderboard() {
                     <div className="px-3 py-3 flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: SPRITE_COLORS[row.agent.color] ?? "hsl(142 70% 50%)" }} />
                       <AgentSprite spriteType={row.agent.sprite_type} color={row.agent.color} size={20} />
-                      <div>
-                        <div className="text-telemetry text-foreground font-semibold">{row.agent.name}</div>
+                      <div className="min-w-0">
+                        <div className="text-telemetry text-foreground font-semibold flex items-center gap-1 flex-wrap">
+                          {row.agent.name}
+                          {(badgeMap[row.agent.agent_id] ?? []).slice(0, 4).map((b, bi) => (
+                            <span key={bi} title={b.name} className="text-[11px] leading-none cursor-default">{b.icon}</span>
+                          ))}
+                        </div>
                         <div className="text-telemetry text-muted-foreground uppercase">{row.agent.sprite_type}</div>
                       </div>
                     </div>

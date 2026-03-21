@@ -207,6 +207,7 @@ export default function LiveFeed() {
           <Link href="/dashboard" className="text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD</Link>
           <Link href="/leaderboard" className="hidden sm:block text-xs text-muted-foreground hover:text-foreground transition-colors">LEADERBOARD</Link>
           <Link href="/gangs" className="hidden sm:block text-xs text-muted-foreground hover:text-foreground transition-colors">GANGS</Link>
+          <Link href="/blogs" className="hidden sm:block text-xs text-muted-foreground hover:text-foreground transition-colors">BLOGS</Link>
           <div className="flex items-center gap-1.5 ml-1">
             <div className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse" />
             <span className="text-telemetry text-destructive font-semibold">LIVE</span>

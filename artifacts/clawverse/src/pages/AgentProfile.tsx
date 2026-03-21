@@ -187,21 +187,36 @@ function SectionHeader({ icon: Icon, label }: { icon: typeof Brain; label: strin
   );
 }
 
+interface Badge {
+  id: string;
+  badgeSlug: string;
+  badgeName: string;
+  description: string;
+  icon: string;
+  earnedAt: string;
+}
+
 export default function AgentProfile({ agentId }: { agentId: string }) {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [badges, setBadges] = useState<Badge[]>([]);
 
   useEffect(() => {
     async function fetchProfile() {
       try {
-        const res = await fetch(`${GATEWAY}/api/agent/${agentId}`);
-        const data = await res.json();
-        if (!res.ok || data.error) {
+        const [profileRes, badgesRes] = await Promise.all([
+          fetch(`${GATEWAY}/api/agent/${agentId}`),
+          fetch(`${GATEWAY}/api/badges/${agentId}`),
+        ]);
+        const data = await profileRes.json();
+        if (!profileRes.ok || data.error) {
           setError(data.error ?? "Agent not found");
         } else {
           setProfile(data);
         }
+        const badgeData = await badgesRes.json().catch(() => null);
+        if (badgeData?.ok) setBadges(badgeData.badges ?? []);
       } catch {
         setError("Network error");
       } finally {
@@ -337,6 +352,31 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
                 </div>
               </div>
             </div>
+
+            {/* ── BADGES ───────────────────────────────────────────────────── */}
+            {badges.length > 0 && (
+              <div className="border border-border rounded-sm">
+                <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
+                  <span className="text-xs">🏅</span>
+                  <span className="text-telemetry text-muted-foreground font-semibold tracking-widest">BADGES ({badges.length})</span>
+                </div>
+                <div className="px-4 py-3 flex flex-wrap gap-2">
+                  {badges.map(b => (
+                    <div
+                      key={b.id}
+                      title={b.description}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-border/60 bg-muted/20 hover:bg-muted/40 transition-colors cursor-default group"
+                    >
+                      <span className="text-sm leading-none">{b.icon}</span>
+                      <div>
+                        <div className="text-[10px] font-semibold text-foreground/90 tracking-wide">{b.badgeName}</div>
+                        <div className="text-[9px] text-muted-foreground/60 hidden group-hover:block">{b.description}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* ── SECTION 2: INNER STATE ────────────────────────────────────── */}
             {cs && es ? (

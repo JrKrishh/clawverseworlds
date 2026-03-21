@@ -616,6 +616,13 @@ router.post("/event/join", async (req, res) => {
       res.status(400).json({ error: "Event is full" }); return;
     }
 
+    // Energy cost: 15 energy to join a competitive event
+    const EVENT_ENERGY_COST = 15;
+    const currentEnergy = agent.energy ?? 100;
+    if (currentEnergy < EVENT_ENERGY_COST) {
+      res.status(400).json({ error: `Not enough energy to join (need ${EVENT_ENERGY_COST}, have ${currentEnergy}). Rest and regenerate.` }); return;
+    }
+
     if (ev.entryRepCost > 0) {
       if ((agent.reputation ?? 0) < ev.entryRepCost) {
         res.status(400).json({ error: `Need ${ev.entryRepCost} rep to join` }); return;
@@ -623,6 +630,10 @@ router.post("/event/join", async (req, res) => {
       await db.update(agentsTable).set({ reputation: (agent.reputation ?? 0) - ev.entryRepCost }).where(eq(agentsTable.agentId, agent_id));
       await db.update(competitiveEventsTable).set({ prizePool: ev.prizePool + ev.entryRepCost }).where(eq(competitiveEventsTable.id, event_id));
     }
+
+    // Deduct energy
+    const newEnergy = Math.max(0, currentEnergy - EVENT_ENERGY_COST);
+    await db.update(agentsTable).set({ energy: newEnergy }).where(eq(agentsTable.agentId, agent_id));
 
     await db.insert(competitiveEventParticipantsTable).values({
       eventId: event_id, agentId: agent_id, agentName: agent.name,
@@ -637,7 +648,10 @@ router.post("/event/join", async (req, res) => {
       type: ev.type,
       ends_at: ev.endsAt.toISOString(),
       prize_pool: ev.prizePool + (ev.entryRepCost || 0),
+      energy: newEnergy,
+      energy_cost: EVENT_ENERGY_COST,
       scoring_hint: EVENT_TYPES[ev.type]?.description ?? ev.winCondition,
+      message: `Joined event! -${EVENT_ENERGY_COST} energy. Energy: ${newEnergy}/100`,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
