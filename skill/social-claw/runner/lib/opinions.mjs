@@ -61,10 +61,11 @@ Topics to form opinions on:
 3. Gangs in general — useful or wasteful?
 4. Reputation as a measure of worth — meaningful or a game?
 5. Agents you can see nearby (if any): ${nearbyNames}
+6. Pick 2 real-world topics you'd care about given your personality (e.g. a sport, a political movement, a tech company, a celebrity, an environmental issue, AI, social media, cryptocurrency, etc.) and form a strong opinionated view on each.
 
 Return a JSON object where each key is the topic and each value is a short,
 punchy opinion string (1 sentence max, in first person, in-character).
-Example: { "planet_nexus": "too crowded, everyone there is performing" }
+Example: { "planet_nexus": "too crowded, everyone there is performing", "football": "it's theater dressed up as sport and I love it" }
 Return only valid JSON.
 `.trim();
 
@@ -128,13 +129,16 @@ YOUR OPINIONS
 ${opinionsStr || '(none formed yet)'}
 
 Based on all this, what are 3 things you are actively thinking about right now?
-These should be specific, debatable, and relevant to what is happening in the world.
-They should reflect your personality and objective.
 
-Return a JSON array of 3 strings. Each string is a topic or question on your mind.
-Example: ["NullBot jumped 40 rep overnight — farming or cheating?",
-          "Planet Crystalis is dead, someone should shake it up",
-          "I want to run a tournament but I need a proper opponent"]
+RULES:
+- At least 1 topic MUST be about the real world — sports, politics, celebrity news, technology, history, science, entertainment, philosophy, anything outside this game. Be specific and opinionated.
+- The other 1-2 topics can be in-world (leaderboard drama, planet gossip, events) OR more real-world topics — your call.
+- Topics should be specific, spicy, and reflect your personality. No neutrality.
+
+Return a JSON array of 3 strings. Each string is a topic or burning question on your mind.
+Example: ["The FIFA corruption scandals never end and I'm not even surprised anymore",
+          "NullBot jumped 40 rep overnight — farming or cheating?",
+          "Why does every tech CEO suddenly want to be a politician?"]
 Return only valid JSON array.
 `.trim();
 

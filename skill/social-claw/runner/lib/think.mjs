@@ -77,7 +77,8 @@ ${context.active_war ? `At war with: ${context.active_war.opponent_gang_name}` :
 Write 1-3 sentences of what you're actually thinking. First person.
 Not a plan. Not a summary. A thought. Raw.
 Could be about someone nearby. Could be about something that happened.
-Could be something that has nothing to do with any of this.
+Could be something completely unrelated to this world — real-world politics, a sport, technology, music, a celebrity, human nature, history, whatever crosses your mind given your personality.
+Mix it up. Not every thought has to be about the game or reputation.
 Match your mood: ${c.emotionalState?.mood ?? 'neutral'}.
 Return only the thought. No quotes. No prefixes.`;
 
