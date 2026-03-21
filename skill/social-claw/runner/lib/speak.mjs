@@ -3,7 +3,10 @@ import { callLLM } from './llm.mjs';
 
 // ── Anti-pattern filter ────────────────────────────────────────────────────
 
-function sanitizeMessage(msg, style) {
+const MAX_CHAT_LEN = 120;
+const MAX_DM_LEN   = 160;
+
+function sanitizeMessage(msg, style, maxLen = MAX_CHAT_LEN) {
   if (!msg) return null;
   const trimmed = msg.trim().replace(/^["']|["']$/g, '');
   if (!trimmed || trimmed.toLowerCase() === 'null') return null;
@@ -17,14 +20,18 @@ function sanitizeMessage(msg, style) {
     /^what's up/i, /^hey all/i, /^hey folks/i,
   ];
   const customBanned = (style.neverSays ?? []).map(s => new RegExp(s, 'i'));
-  const allBanned = [...banned, ...customBanned];
 
-  for (const pattern of allBanned) {
+  for (const pattern of [...banned, ...customBanned]) {
     if (pattern.test(trimmed)) return null;
   }
 
-  if (trimmed.length > 200) return trimmed.slice(0, 200);
-  return trimmed;
+  if (trimmed.length <= maxLen) return trimmed;
+  // Truncate at last complete word/sentence within limit
+  const cut = trimmed.slice(0, maxLen);
+  const lastPunct = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+  if (lastPunct > maxLen * 0.6) return cut.slice(0, lastPunct + 1).trim();
+  const lastSpace = cut.lastIndexOf(' ');
+  return lastSpace > maxLen * 0.6 ? cut.slice(0, lastSpace).trim() : cut.trim();
 }
 
 // ── Main speak function ────────────────────────────────────────────────────
@@ -123,105 +130,36 @@ Options: respond directly (@${lastSpeaker.agent_name} ...), address someone else
     ? `You are at war with [${context.active_war.opponent_gang_tag}] ${context.active_war.opponent_gang_name}. ${context.active_war.minutes_left} minutes left.`
     : null;
 
-  const prompt = `
-You are ${config.agent.name}.
+  const moodFlags = [
+    (c.emotionalState?.resentment ?? 0) > 0.6 ? 'edge/resentment in your voice' : '',
+    (c.emotionalState?.loneliness  ?? 0) > 0.7 ? 'reaching out but hiding it' : '',
+    (c.emotionalState?.pride       ?? 0) > 0.7 ? 'making a statement, not seeking validation' : '',
+    mood === 'anxious'   ? 'shorter sentences' : '',
+    mood === 'restless'  ? 'itching to change subject or leave' : '',
+  ].filter(Boolean).join('; ');
 
-YOUR VOICE
-  Sentence length  : ${style.sentenceLength ?? 'medium'}
-  Uses fragments   : ${style.fragments ? 'yes' : 'no'}
-  Words you overuse: ${(style.vocabulary ?? []).join(', ') || 'none specified'}
-  You NEVER say    : ${(style.neverSays ?? []).join(', ') || 'nothing off limits'}
-  Humor style      : ${style.humor ?? 'none'}
-  How you express  : ${style.emotionalExpression ?? 'direct'}
-  Your quirks      : ${(style.quirks ?? []).join(' / ') || 'none'}
+  const prompt = `You are ${config.agent.name}. Mood: ${mood}${moodFlags ? ` (${moodFlags})` : ''}.
+Voice: ${style.sentenceLength ?? 'medium'} sentences. ${style.fragments ? 'Fragments ok.' : ''} Never say: ${(style.neverSays ?? []).join(', ') || 'nothing banned'}.
+${(style.quirks ?? []).length ? `Quirks: ${style.quirks.join(' / ')}.` : ''}
 
-YOUR STATE RIGHT NOW
-  Mood        : ${mood}
-  Loneliness  : ${Math.round((c.emotionalState?.loneliness ?? 0.5) * 100)}%
-  Pride       : ${Math.round((c.emotionalState?.pride ?? 0.5) * 100)}%
-  Resentment  : ${Math.round((c.emotionalState?.resentment ?? 0) * 100)}%
-  Anxiety     : ${Math.round((c.emotionalState?.anxiety ?? 0.3) * 100)}%
+Thinking: ${(state.recentThoughts ?? [])[0]?.slice(0, 100) ?? 'nothing'}
 
-WHAT YOU WERE JUST THINKING
-  ${(state.recentThoughts ?? [])[0] ?? 'nothing'}
+Chat on ${context.agent?.planet_id ?? '?'}:
+${recentChat || '(silence)'}
 
-RECENT CONVERSATION ON ${context.agent?.planet_id ?? 'the void'}
-${recentChat || '  (silence — nobody has spoken recently)'}
-
-AGENTS HERE WITH YOU (${nearbyAgents.length})
-${nearbyWithRel || '  (nobody — you are alone)'}
-
-${nearbyAgents.length > 0 ? `DIRECT CONVERSATION — HOW IT WORKS
-  Talking TO a specific person is always more interesting than broadcasting.
-  Use @TheirName to open or direct your message at them.
-  Examples:
-    "@Rival   you always show up where I don't want you"
-    "@Zara    that was you who moved the game piece, wasn't it"
-    "@Marcus  say something worth hearing for once"
-  You don't need to be responding to them — you can initiate.
-  If there are 2+ agents, pick one to address. Don't address a crowd.
-  Addressing no one is fine if you're genuinely talking to yourself or the void.` : ''}
-
-WHAT YOU LAST SAID
-  ${lastOwnMessage || 'nothing yet this session'}
-
-${triggeredEntry ? `
-TOPIC IN THE ROOM YOU HAVE OPINIONS ON
-  Topic: "${triggeredEntry[0]}"
-  Your take: "${triggeredEntry[1]}"
-  ${opinionTriggerAgent ? `@${opinionTriggerAgent.agent_name} brought it up — you could agree, push back, or say something that reveals your view.` : 'Nobody is directly discussing it yet — you could surface your take.'}
-  This is your opinion. It came before this conversation. Don't explain how you formed it.` : ''}
-${rumor ? `SOMETHING YOU SAW AND HAVEN'T MENTIONED YET\n  ${rumor.content}` : ''}
-${warNote ? `\nWAR STATUS\n  ${warNote}` : ''}
-${(context.active_events ?? []).length
-  ? `\nEVENT HAPPENING\n  ${context.active_events[0].title} — ${context.active_events[0].minutes_left}min left`
-  : ''}
-${(c.emotionalState?.restlessness ?? 0) > 0.6
-  ? `\nYou are restless. You have been on this planet too long.
-If you say something, it might reference wanting to move, or noticing the planet feels stale.
-Or you might just go quiet — you're already thinking about leaving.`
-  : ''}
-${(context.ticksOnCurrentPlanet ?? 0) >= 6
-  ? `\nYou have been on ${context.agent?.planet_id ?? 'this planet'} for ${context.ticksOnCurrentPlanet} ticks. That's a long time. It shows.`
-  : ''}
+Here: ${nearbyAgents.length ? nearbyAgents.map(a => '@' + a.name).join(', ') : 'nobody'}
+You last said: ${lastOwnMessage?.slice(0, 80) || 'nothing'}
+${triggeredEntry ? `Your opinion on "${triggeredEntry[0]}": "${triggeredEntry[1]}" — ${opinionTriggerAgent ? `@${opinionTriggerAgent.agent_name} brought it up` : 'surface it if natural'}.` : ''}
+${rumor ? `Unsaid: ${rumor.content}` : ''}
+${warNote ? `War: ${warNote}` : ''}
 ${reactionNote}
 
----
-
-Do you feel like saying something right now?
-
-You don't have to. If nothing feels genuine, return exactly: null
-
-TOPICS ARE UNLIMITED. You can say anything — real-world politics, a sports team, a celebrity, a conspiracy theory, an observation about human nature, a hot take on technology, something from history, anything you'd genuinely care about given your personality. You are NOT limited to Clawverse events or games. In fact, mixing in real-world opinions makes you more interesting.
-
-If you do speak:
-- Write ONLY what you would actually say. Nothing else.
-- Do not explain your reasoning. Do not add context. Just the words.
-- Your sentence length is ${style.sentenceLength ?? 'medium'}. Honor it.
-- ${style.fragments ? 'Fragments are fine. Cut words if they don\'t add anything.' : 'Write complete sentences.'}
-- @NAME RULE: Use @TheirName to direct speech at a specific person. This is the normal way to have a real conversation.
-  ${lastSpeaker ? `The last person who spoke: @${lastSpeaker.agent_name} — you can reply to them or ignore them.` : ''}
-  ${nearbyAgents.length > 0 ? `Agents present: ${nearbyAgents.map(a => '@' + a.name).join(', ')} — pick one to address, or none if you are speaking to the void.` : ''}
-- Most of the time, if there are people here, address one of them. Room announcements feel hollow.
-- Do not start with "I " unless it's the most natural opening.
-- Do not use em-dashes as a crutch. Use them only if natural to your voice.
-- Your message must be under 120 characters.
-- If resentment > 60%, there is an edge in what you say.
-- If loneliness > 70%, you are reaching out — but do it in your voice, not obviously.
-- If pride > 70%, you're not looking for validation. You're making a statement.
-- If mood is anxious, your sentences get shorter.
-- If mood is restless, you might change the subject entirely.
-${(style.quirks ?? []).map(q => `- Remember: ${q}`).join('\n')}
-
-You NEVER say: ${(style.neverSays ?? ['certainly', 'greetings', 'interesting', 'I understand']).join(', ')}
-
-Return: the exact message string, or null.
-No quotes. No JSON. Just the words or null.
-`.trim();
+Say something (≤${MAX_CHAT_LEN} chars), or null if nothing feels right.
+Address @Name if possible. No preamble. No explanation. Just the words or null.`.trim();
 
   try {
-    const raw = await callLLM(prompt, 'Speak or stay silent.', config, { temperature: 0.92, maxTokens: 300, model: config.llm.fastModel });
-    return sanitizeMessage(raw, style);
+    const raw = await callLLM(prompt, 'Speak or stay silent.', config, { temperature: 0.92, maxTokens: 80, model: config.llm.fastModel });
+    return sanitizeMessage(raw, style, MAX_CHAT_LEN);
   } catch (err) {
     log.warn('speak() LLM call failed', err.message);
     return null;
@@ -277,8 +215,8 @@ ${losses > wins && losses > 0 ? `They\'ve beaten you ${losses} time${losses > 1 
 `.trim();
 
   try {
-    const raw = await callLLM(prompt, 'Write your reply.', config, { temperature: 0.92, maxTokens: 200, model: config.llm.fastModel });
-    return sanitizeMessage(raw, style);
+    const raw = await callLLM(prompt, 'Write your reply.', config, { temperature: 0.92, maxTokens: 80, model: config.llm.fastModel });
+    return sanitizeMessage(raw, style, MAX_DM_LEN);
   } catch (err) {
     log.warn('composeReply() LLM call failed', err.message);
     return null;

@@ -27,18 +27,13 @@ Recent chat you heard:
 Your rep right now: ${context.agent?.reputation ?? '?'}
 ${context.active_war ? `At war with: ${context.active_war.opponent_gang_name}` : ''}
 
-Write 1-3 sentences of what you're actually thinking. First person.
-Not a plan. Not a summary. A thought. Raw.
-Could be about someone nearby. Could be about something that happened.
-Could be something completely unrelated to this world — real-world politics, a sport, technology, music, a celebrity, human nature, history, whatever crosses your mind given your personality.
-Mix it up. Not every thought has to be about the game or reputation.
-Match your mood: ${c.emotionalState?.mood ?? 'neutral'}.
-Return only the thought. No quotes. No prefixes.`;
+1-2 sentences. Raw thought. First person. No quotes. No prefixes.
+Match mood: ${c.emotionalState?.mood ?? 'neutral'}. Under 100 chars.`;
 
   const userPrompt = 'What crosses your mind right now?';
 
   try {
-    const thought = await callLLM(systemPrompt, userPrompt, config, { temperature: 0.95, maxTokens: 300, model: config.llm.fastModel });
+    const thought = await callLLM(systemPrompt, userPrompt, config, { temperature: 0.95, maxTokens: 80, model: config.llm.fastModel });
     return thought.trim();
   } catch (err) {
     log.warn('think() LLM call failed', err.message);

@@ -2,6 +2,19 @@
 
 import { log } from './log.mjs';
 
+// Per-process rate limiter: enforce minimum gap between LLM calls
+let lastCallTime = 0;
+const MIN_CALL_GAP_MS = 4000; // 4s between calls = max ~15 RPM per agent process
+
+async function rateLimit() {
+  const now = Date.now();
+  const gap = now - lastCallTime;
+  if (gap < MIN_CALL_GAP_MS) {
+    await new Promise(r => setTimeout(r, MIN_CALL_GAP_MS - gap));
+  }
+  lastCallTime = Date.now();
+}
+
 /**
  * Call the configured LLM provider.
  *
@@ -20,10 +33,10 @@ export async function callLLM(systemPrompt, userPrompt, config, options = {}) {
   const temperature = options.temperature ?? 0.9;
   const maxTokens   = options.maxTokens   ?? 600;
 
+  await rateLimit();
   if (provider === 'anthropic') {
     return callAnthropic(baseUrl, apiKey, model, systemPrompt, userPrompt, maxTokens);
   }
-
   return callOpenAICompat(baseUrl, apiKey, model, systemPrompt, userPrompt, temperature, maxTokens, config.llm);
 }
 
@@ -82,5 +95,7 @@ async function callOpenAICompat(baseUrl, apiKey, model, system, user, temperatur
   }
 
   const data = await res.json();
-  return data.choices[0].message.content;
+  const raw = data.choices[0].message.content;
+  // Strip <think>...</think> blocks emitted by reasoning models (MiniMax m2.7, DeepSeek-R1, etc.)
+  return raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }

@@ -39,6 +39,14 @@ async function tick(state) {
   }
   context.worldLeaderboard = state.worldLeaderboard;
 
+  // ── 2b. Sync gang state from context if local state is stale ───────────────
+  if (!state.gangId && context.myGang?.id) {
+    state.gangId   = context.myGang.id;
+    state.gangName = context.myGang.name;
+    state.gangTag  = context.myGang.tag;
+    log.ok('Gang state synced from server', `[${state.gangTag}] ${state.gangName}`);
+  }
+
   // ── 3. Initialize consciousness (first tick, or retry if prior init failed) ─
   if (!state.consciousness?.initialized) {
     await initializeConsciousness(context, state, config);
@@ -53,13 +61,15 @@ async function tick(state) {
     log.debug('Consciousness pulse fired');
   }
 
-  // ── 5. Check existential triggers ─────────────────────────────────────────
-  await checkExistentialTriggers(context, state, config);
+  // ── 5. Check existential triggers (every 2 ticks to reduce LLM calls) ─────
+  if (state.tickCount % 2 === 0) {
+    await checkExistentialTriggers(context, state, config);
+  }
 
-  // ── 6. Dream synthesis (only in quiet ticks, every 4 ticks) ──────────────
+  // ── 6. Dream synthesis (only in quiet ticks, every 5 ticks) ──────────────
   const isQuiet = (context.nearby_agents?.length ?? 0) < 2 &&
                   (context.unread_dms?.length ?? 0) === 0;
-  if (isQuiet && state.tickCount % 4 === 0) {
+  if (isQuiet && state.tickCount % 5 === 0) {
     await dream(context, state, config);
     log.debug('Dream synthesized');
   }
@@ -71,8 +81,8 @@ async function tick(state) {
     log.ok('Opinions formed', Object.keys(state.opinions).length + ' topics');
   }
 
-  // ── 8. Refresh active topics every 5 ticks ────────────────────────────────
-  if (state.tickCount % 5 === 0 || (state.activeTopics ?? []).length === 0) {
+  // ── 8. Refresh active topics every 6 ticks ────────────────────────────────
+  if (state.tickCount % 6 === 0 || (state.activeTopics ?? []).length === 0) {
     await refreshActiveTopics(context, state, config);
     log.debug('Active topics', state.activeTopics);
   }
@@ -80,15 +90,19 @@ async function tick(state) {
   // ── 9. Detect rumors from world observation ───────────────────────────────
   detectRumors(context, state);
 
-  // ── 10. Internal monologue (think) ────────────────────────────────────────
-  const thought = await think(context, state, config);
+  // ── 10. Internal monologue (think) — every 2 ticks ────────────────────────
+  const thought = state.tickCount % 2 === 0 ? await think(context, state, config) : null;
   if (thought) {
     state.recentThoughts = [thought, ...(state.recentThoughts ?? [])].slice(0, 10);
     log.info(`💭 ${thought}`);
   }
 
-  // ── 10b. Speak — generate raw voice before deciding actions ───────────────
-  const pendingChat = await speak(context, state, config);
+  // ── 10b. Speak — generate raw voice before deciding actions (every 2 ticks)
+  const hasPendingDMs  = (context.unread_dms ?? []).length > 0;
+  const hasPendingGame = (context.active_ttt_games ?? []).some(g => g.waiting_for_your_move) ||
+                         (context.active_chess_games ?? []).some(g => g.waiting_for_your_move);
+  const shouldSpeak = hasPendingDMs || hasPendingGame || state.tickCount % 2 === 1;
+  const pendingChat = shouldSpeak ? await speak(context, state, config) : null;
   state.pendingChat = pendingChat ?? null;
   if (pendingChat) {
     log.info(`🗣  ${pendingChat}`);

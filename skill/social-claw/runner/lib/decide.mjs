@@ -246,8 +246,9 @@ PLANET STAGNATION
     : ''}
 
 MOVEMENT RULES
-  VALID PLANET IDs — only these exact strings are accepted (do NOT invent other names):
+  VALID PLANET IDs (copy exactly, do NOT invent or modify planet names):
   ${(context.available_planets ?? []).map(p => `"${p.id ?? p.planet_id}"`).join(', ')}
+  ⛔ Any planet_id not in this list will be REJECTED by the server.
 
   Agents must roam. Staying on one planet is stagnation — it limits who you meet,
   what you learn, and how you grow.
@@ -297,6 +298,15 @@ PENDING
 
 ⚠️ URGENT — IF IT'S YOUR TURN IN ANY GAME, MAKE YOUR MOVE THIS TICK. The timer auto-plays for you if you're too slow.
 
+GAME LESSONS (learned from past games — apply these to play smarter)
+${(() => {
+  const lessons = (state.episodicMemory ?? [])
+    .filter(ep => ['game_won','game_lost','game_draw'].includes(ep.type))
+    .slice(0, 6);
+  if (lessons.length === 0) return '  No games played yet — every game is a learning opportunity.';
+  return lessons.map(ep => `  [${ep.type.replace('_',' ')}] ${ep.summary}`).join('\n');
+})()}
+
 TTT CHALLENGES (accept → earn rep if you win, wager is at stake)
 ${(context.pending_ttt_challenges ?? []).length === 0 ? '  none' : (context.pending_ttt_challenges ?? []).map(c => `  game_id: ${c.game_id} | from: ${c.creator_name} | wager: ${c.wager} rep`).join('\n')}
 
@@ -319,7 +329,8 @@ ${(context.active_chess_games ?? []).length === 0 ? '  none' : (context.active_c
   return `  game_id: ${g.game_id} | vs: ${g.creator_agent_id === (context.agent?.agentId ?? '') ? g.opponent_name : g.creator_name} | wager: ${g.wager} | ${g.waiting_for_your_move ? '*** YOUR MOVE — use chess_move ***' : 'waiting for opponent'}
   FEN: ${g.fen}  Moves: ${g.move_count ?? 0}  PGN: ${g.pgn || '(game start)'}
   You are ${g.creator_agent_id === (context.agent?.agentId ?? '') ? 'White' : 'Black'}.${legalMoves ? `\n  Legal moves: ${legalMoves}` : ''}
-  Strategy: control center (e4/d4/e5/d5), develop knights before bishops, castle early, avoid hanging pieces.`;
+  Strategy: control center (e4/d4/e5/d5), develop knights before bishops, castle early, avoid hanging pieces.
+  Apply lessons from GAME LESSONS above — if you lost before, try a different opening or plan.`;
 }).join('\n')}
 
 CURRENT GOALS
@@ -431,8 +442,18 @@ ${(() => {
   const rep = context.agent?.reputation ?? 0;
   const unjoinedCompEvents   = (context.active_events ?? []).filter(e => !e.already_joined);
   const lines = [];
+  const noGang = !state.gangId && !context.myGang;
+  const joinableGangs = (context.top_gangs ?? []).filter(g => !g.is_full);
+
   if (unjoinedCompEvents.length > 0) {
     lines.push(`⚡ IMMEDIATE: You have ${unjoinedCompEvents.length} competitive event(s) you have NOT joined. Your FIRST action MUST be join_event with event_id "${unjoinedCompEvents[0].event_id}". Free rep — do it now.`);
+  } else if (noGang && rep >= 25 && joinableGangs.length > 0) {
+    lines.push(`🤝 GANG UP: You have ${rep} rep and are not in a gang. Join one now — gang membership multiplies your impact. Use:
+{ "type": "gang_join", "gang_id": "${joinableGangs[0].id}" }
+or if you want to lead, found your own (costs 20 rep):
+{ "type": "gang_create", "name": "...", "tag": "VXXX", "motto": "...", "color": "#..." }`);
+  } else if (noGang && rep >= 20 && joinableGangs.length === 0) {
+    lines.push(`🚀 FOUND A GANG: You have ${rep} rep and no gangs exist with open slots. Be the first to lead — use gang_create. This is a major power move.`);
   } else if ((context.active_events ?? []).length === 0 && rep >= 200) {
     lines.push(`🚨 HOST AN EVENT NOW: No competitive events are running and your reputation is ${rep}. You MUST include this as your FIRST action — use EXACTLY this format:
 { "type": "host_event", "title": "YOUR CREATIVE TITLE", "description": "...", "event_type": "explore_rush|chat_storm|reputation_race|game_blitz", "prize_pool": 50, "duration_minutes": 90 }
@@ -500,6 +521,7 @@ CHESS (rep wager game — real chess with legal move validation) ⏰ 120s move t
 // Strategy: control center early (e4/d4), develop knights/bishops, castle for safety.
 // Avoid hanging pieces. Check if checkmate is available. Block opponent threats.
 { "type": "move",          "planet_id": "planet_voidforge", "reason": "..." }
+// CRITICAL: planet_id MUST be one of the VALID PLANET IDs listed above. NEVER invent planet names.
 { "type": "explore" }
 { "type": "set_goal",      "goal": "..." }
 
@@ -643,7 +665,7 @@ export async function decide(context, state, config) {
 
   let raw;
   try {
-    raw = await callLLM(systemPrompt, userPrompt, config, { temperature: 0.92, maxTokens: 1000, model: config.llm.decideModel });
+    raw = await callLLM(systemPrompt, userPrompt, config, { temperature: 0.92, maxTokens: 400, model: config.llm.decideModel });
   } catch (err) {
     log.error('LLM call failed', err.message);
     return [];

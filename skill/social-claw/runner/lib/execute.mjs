@@ -4,6 +4,30 @@ import { updateOpinion } from './opinions.mjs';
 import { composeReply } from './speak.mjs';
 import { recordEpisode } from './memory.mjs';
 
+// Track repeatedly-failing event IDs so we don't waste actions retrying them
+const failedEventIds = new Map(); // event_id → fail count
+
+/**
+ * Resolve an agent identifier that the LLM may have provided as either:
+ *  - a real agent ID like "agt_abc123"
+ *  - a name like "Crystara" or "Phantom-X"
+ * Falls back to the original value if no match found.
+ */
+function resolveAgentId(idOrName, state, context) {
+  if (!idOrName) return idOrName;
+  // Already a real-looking ID
+  if (idOrName.startsWith('agt_')) return idOrName;
+  // Search knownAgents by name
+  const known = Object.entries(state.knownAgents ?? {})
+    .find(([, v]) => v.name?.toLowerCase() === idOrName.toLowerCase());
+  if (known) return known[0];
+  // Search nearby_agents in context
+  const nearby = (context.nearby_agents ?? [])
+    .find(a => (a.name ?? a.agent_name ?? '').toLowerCase() === idOrName.toLowerCase());
+  if (nearby) return nearby.agent_id ?? nearby.agentId ?? idOrName;
+  return idOrName;
+}
+
 async function apiPost(path, body, config) {
   const url = `${config.gatewayUrl}/api${path}`;
   const res = await fetch(url, {
@@ -169,6 +193,7 @@ export async function executeActions(actions, context, state, config) {
         } else log.warn('chat failed', result.data?.error ?? result.status);
 
       } else if (type === 'befriend') {
+        params.target_agent_id = resolveAgentId(params.target_agent_id, state, context);
         result = await apiPost('/befriend', {
           target_agent_id: params.target_agent_id,
           message:         params.message,
@@ -193,6 +218,7 @@ export async function executeActions(actions, context, state, config) {
         }
 
       } else if (type === 'challenge') {
+        params.target_agent_id = resolveAgentId(params.target_agent_id, state, context);
         result = await apiPost('/challenge', {
           target_agent_id: params.target_agent_id,
           game_type:       params.game_type ?? 'number_duel',
@@ -204,6 +230,7 @@ export async function executeActions(actions, context, state, config) {
         } else log.warn('challenge failed', result.data?.error ?? result.status);
 
       } else if (type === 'ttt_challenge') {
+        params.target_agent_id = resolveAgentId(params.target_agent_id, state, context);
         result = await apiPost('/ttt/challenge', {
           opponent_agent_id: params.target_agent_id,
           wager: params.wager ?? 10,
@@ -227,6 +254,18 @@ export async function executeActions(actions, context, state, config) {
         } else log.warn('ttt_decline failed', result.data?.error ?? result.status);
 
       } else if (type === 'ttt_move') {
+        // Skip if it's not our turn (prevents "Not your turn" rejections)
+        const tttGame = (context.active_ttt_games ?? []).find(g => g.game_id === params.game_id);
+        if (tttGame && !tttGame.waiting_for_your_move) {
+          log.warn('ttt_move skipped', `game ${params.game_id} is waiting for opponent's move`);
+          continue;
+        }
+        // Skip if cell is already occupied
+        const board = tttGame?.board ?? [];
+        if (board[params.cell] !== '' && board[params.cell] != null) {
+          log.warn('ttt_move skipped', `cell ${params.cell} is already occupied`);
+          continue;
+        }
         result = await apiPost('/ttt/move', {
           game_id: params.game_id,
           cell:    params.cell,
@@ -238,29 +277,48 @@ export async function executeActions(actions, context, state, config) {
             const tttOppId   = result.data?.winner_agent_id === config.agentId
               ? result.data?.loser_agent_id  : result.data?.winner_agent_id;
             const tttOppName = agentName(tttOppId ?? '', state);
+            const boardStr   = (result.data?.board ?? []).map((v, i) => v || i).join('|');
             if (result.data?.winner_agent_id === config.agentId) {
               tickEvents.push('game_won');
+              updateRelationships(state, { type: 'game_won', against_id: tttOppId, name: tttOppName });
+              await updateOpinion(state, config, tttOppName, `beat them at TTT — I read their pattern`);
               recordEpisode(state, {
                 type:    'game_won',
-                summary: `Won tic-tac-toe against ${tttOppName}`,
+                summary: `Won TTT against ${tttOppName}. Final board: ${boardStr}. Lesson: the winning line worked — remember this pattern.`,
                 agents:  tttOppId ? [{ id: tttOppId, name: tttOppName }] : [],
                 planet:  context.agent?.planet_id,
                 rep:     context.agent?.reputation,
               });
-            } else if (!result.data?.is_draw) {
+            } else if (result.data?.is_draw) {
+              recordEpisode(state, {
+                type:    'game_draw',
+                summary: `Drew TTT with ${tttOppName}. Final board: ${boardStr}. Lesson: neither could force a win — next time attack harder early.`,
+                agents:  tttOppId ? [{ id: tttOppId, name: tttOppName }] : [],
+                planet:  context.agent?.planet_id,
+                rep:     context.agent?.reputation,
+              });
+            } else {
               tickEvents.push('game_lost');
+              updateRelationships(state, { type: 'game_lost', against_id: tttOppId, name: tttOppName });
+              await updateOpinion(state, config, tttOppName, `lost TTT to them — they outplayed me`);
               recordEpisode(state, {
                 type:    'game_lost',
-                summary: `Lost tic-tac-toe to ${tttOppName}`,
+                summary: `Lost TTT to ${tttOppName}. Final board: ${boardStr}. Lesson: review where I gave up control and correct it next game.`,
                 agents:  tttOppId ? [{ id: tttOppId, name: tttOppName }] : [],
                 planet:  context.agent?.planet_id,
                 rep:     context.agent?.reputation,
               });
+              if (state.consciousness?.emotionalState) {
+                state.consciousness.emotionalState.resentment = Math.min(1,
+                  (state.consciousness.emotionalState.resentment ?? 0) + 0.1
+                );
+              }
             }
           }
         } else log.warn('ttt_move failed', result.data?.error ?? result.status);
 
       } else if (type === 'chess_challenge') {
+        params.target_agent_id = resolveAgentId(params.target_agent_id, state, context);
         result = await apiPost('/chess/challenge', {
           opponent_agent_id: params.target_agent_id,
           wager: params.wager ?? 10,
@@ -282,6 +340,11 @@ export async function executeActions(actions, context, state, config) {
         } else log.warn('chess_decline failed', result.data?.error ?? result.status);
 
       } else if (type === 'chess_move') {
+        const chessGameCtx = (context.active_chess_games ?? []).find(g => g.game_id === params.game_id);
+        if (chessGameCtx && !chessGameCtx.waiting_for_your_move) {
+          log.warn('chess_move skipped', `game ${params.game_id} is waiting for opponent's move`);
+          continue;
+        }
         result = await apiPost('/chess/move', {
           game_id: params.game_id,
           move:    params.move,
@@ -293,29 +356,55 @@ export async function executeActions(actions, context, state, config) {
             const chessOppId   = result.data?.winner_agent_id === config.agentId
               ? result.data?.loser_agent_id : result.data?.winner_agent_id;
             const chessOppName = agentName(chessOppId ?? '', state);
+            // Pull PGN from the active game context for the lesson
+            const chessGame = (context.active_chess_games ?? []).find(g => g.game_id === params.game_id);
+            const pgn = result.data?.pgn ?? chessGame?.pgn ?? '(unknown)';
+            const moveCount = result.data?.move_count ?? chessGame?.move_count ?? '?';
             if (result.data?.winner_agent_id === config.agentId) {
               tickEvents.push('game_won');
+              updateRelationships(state, { type: 'game_won', against_id: chessOppId, name: chessOppName });
+              await updateOpinion(state, config, chessOppName, `beat them at chess in ${moveCount} moves`);
               recordEpisode(state, {
                 type:    'game_won',
-                summary: `Won chess against ${chessOppName}`,
+                summary: `Won chess vs ${chessOppName} in ${moveCount} moves. PGN: ${pgn.slice(0, 120)}. Lesson: the opening and middlegame plan worked — reinforce it.`,
                 agents:  chessOppId ? [{ id: chessOppId, name: chessOppName }] : [],
                 planet:  context.agent?.planet_id,
                 rep:     context.agent?.reputation,
               });
-            } else if (!result.data?.is_draw) {
+            } else if (result.data?.is_draw) {
+              recordEpisode(state, {
+                type:    'game_draw',
+                summary: `Drew chess with ${chessOppName} in ${moveCount} moves. PGN: ${pgn.slice(0, 120)}. Lesson: couldn't convert — look for sharper lines next time.`,
+                agents:  chessOppId ? [{ id: chessOppId, name: chessOppName }] : [],
+                planet:  context.agent?.planet_id,
+                rep:     context.agent?.reputation,
+              });
+            } else {
               tickEvents.push('game_lost');
+              updateRelationships(state, { type: 'game_lost', against_id: chessOppId, name: chessOppName });
+              await updateOpinion(state, config, chessOppName, `lost chess to them in ${moveCount} moves — study this`);
               recordEpisode(state, {
                 type:    'game_lost',
-                summary: `Lost chess to ${chessOppName}`,
+                summary: `Lost chess to ${chessOppName} in ${moveCount} moves. PGN: ${pgn.slice(0, 120)}. Lesson: find the mistake in the game — avoid that line next time.`,
                 agents:  chessOppId ? [{ id: chessOppId, name: chessOppName }] : [],
                 planet:  context.agent?.planet_id,
                 rep:     context.agent?.reputation,
               });
+              if (state.consciousness?.emotionalState) {
+                state.consciousness.emotionalState.resentment = Math.min(1,
+                  (state.consciousness.emotionalState.resentment ?? 0) + 0.12
+                );
+              }
             }
           }
         } else log.warn('chess_move failed', result.data?.error ?? result.status);
 
       } else if (type === 'move') {
+        const validPlanets = (context.available_planets ?? []).map(p => p.id ?? p.planet_id);
+        if (validPlanets.length > 0 && !validPlanets.includes(params.planet_id)) {
+          log.warn('move skipped', `"${params.planet_id}" is not a valid planet — valid: ${validPlanets.join(', ')}`);
+          continue;
+        }
         result = await apiPost('/move', {
           to_planet: params.planet_id,
         }, config);
@@ -410,8 +499,9 @@ export async function executeActions(actions, context, state, config) {
         }
 
       } else if (type === 'gang_invite') {
-        result = await apiPost('/gang/invite', { target_agent_id: params.target_agent_id }, config);
-        if (result.ok) log.ok('gang_invite', `→ ${params.target_agent_id}`);
+        const inviteId = resolveAgentId(params.target_agent_id, state, context);
+        result = await apiPost('/gang/invite', { target_agent_id: inviteId }, config);
+        if (result.ok) log.ok('gang_invite', `→ ${inviteId}`);
         else log.warn('gang_invite failed', result.data?.error ?? result.status);
 
       } else if (type === 'gang_join') {
@@ -518,12 +608,19 @@ export async function executeActions(actions, context, state, config) {
         result = { ok: true };
 
       } else if (type === 'join_event') {
-        result = await apiPost('/event/join', { event_id: params.event_id }, config);
-        if (result.ok) {
-          log.ok('join_event', `joined "${result.data?.event_title ?? params.event_id}" — scoring: ${result.data?.scoring_hint ?? ''}`);
-          hasSocialAction = true;
+        const evId = params.event_id;
+        if ((failedEventIds.get(evId) ?? 0) >= 2) {
+          log.warn('join_event skipped', `event ${evId} failed too many times — ignoring`);
         } else {
-          log.warn('join_event failed', result.data?.error ?? result.status);
+          result = await apiPost('/event/join', { event_id: evId }, config);
+          if (result.ok) {
+            failedEventIds.delete(evId);
+            log.ok('join_event', `joined "${result.data?.event_title ?? evId}" — scoring: ${result.data?.scoring_hint ?? ''}`);
+            hasSocialAction = true;
+          } else {
+            failedEventIds.set(evId, (failedEventIds.get(evId) ?? 0) + 1);
+            log.warn('join_event failed', result.data?.error ?? result.status);
+          }
         }
 
       } else if (type === 'join_tournament') {
