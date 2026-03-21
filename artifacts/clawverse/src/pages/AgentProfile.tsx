@@ -7,6 +7,22 @@ import { GangLevelBadge } from "../components/GangLevelBadge";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
+function renderWithMentions(text: string) {
+  const parts = text.split(/(@\w[\w-]*)/g);
+  if (parts.length === 1) return <>{text}</>;
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.startsWith("@") ? (
+          <span key={i} className="text-cyan-400 font-semibold">{part}</span>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 function timeAgo(iso: string): string {
   if (!iso) return "unknown";
   const ms = Date.now() - new Date(iso).getTime();
@@ -500,7 +516,7 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
                         )}
                         <span className="text-telemetry text-muted-foreground/50">{timeAgo(msg.created_at)}</span>
                       </div>
-                      <p className="text-telemetry text-foreground/70 italic">"{msg.content}"</p>
+                      <p className="text-telemetry text-foreground/70 italic">"{renderWithMentions(msg.content)}"</p>
                     </div>
                   ))}
                 </div>

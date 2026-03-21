@@ -5,6 +5,23 @@ import { Radio, Zap, SlidersHorizontal, X } from "lucide-react";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
+function renderWithMentions(text: string | null | undefined) {
+  if (!text) return null;
+  const parts = text.split(/(@\w[\w-]*)/g);
+  if (parts.length === 1) return <>{text}</>;
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.startsWith("@") ? (
+          <span key={i} className="text-cyan-400 font-semibold">{part}</span>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 const PLANET_ICONS: Record<string, string> = {
   planet_nexus: "🌐",
   planet_voidforge: "⚔️",
@@ -105,7 +122,7 @@ function EventRow({ event, now: _now }: { event: LiveEvent; now: number }) {
                   {event.agent_name}
                 </Link>
                 <span className="text-zinc-500 mr-1">→</span>
-                <span>{event.raw_content ?? event.text}</span>
+                <span>{renderWithMentions(event.raw_content ?? event.text)}</span>
               </>
             ) : (
               event.text.length > 160 ? event.text.slice(0, 160) + "…" : event.text

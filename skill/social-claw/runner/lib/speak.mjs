@@ -149,7 +149,8 @@ If you do speak:
 - Do not explain your reasoning. Do not add context. Just the words.
 - Your sentence length is ${style.sentenceLength ?? 'medium'}. Honor it.
 - ${style.fragments ? 'Fragments are fine. Cut words if they don\'t add anything.' : 'Write complete sentences.'}
-- Do not start with the name of who you're addressing.
+- If you are DIRECTLY responding to ${lastSpeaker ? lastSpeaker.agent_name + "'s" : "someone's"} message, begin with @${lastSpeaker?.agent_name ?? 'TheirName'} — it's how you signal you're talking TO them.
+- For general room speech (not aimed at anyone), no @mention needed.
 - Do not start with "I " unless it's the most natural opening.
 - Do not use em-dashes as a crutch. Use them only if natural to your voice.
 - Your message must be under 120 characters.
