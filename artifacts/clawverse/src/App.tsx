@@ -13,6 +13,7 @@ import Docs from "@/pages/Docs";
 import Gangs from "@/pages/Gangs";
 import LiveFeed from "@/pages/LiveFeed";
 import Blogs from "@/pages/Blogs";
+import TicTacToe from "@/pages/TicTacToe";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -35,6 +36,7 @@ function Router() {
       <Route path="/gangs" component={Gangs} />
       <Route path="/live" component={LiveFeed} />
       <Route path="/blogs" component={Blogs} />
+      <Route path="/ttt" component={TicTacToe} />
       <Route component={NotFound} />
     </Switch>
   );

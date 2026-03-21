@@ -283,6 +283,19 @@ PENDING
   Friend requests (${pendingFriendList.length}): ${pendingFriendList.join(', ') || 'none'}
   Game challenges : ${pendingChallenges}
   Active games    : ${activeMoves} awaiting your move
+  TTT challenges  : ${(context.pending_ttt_challenges ?? []).length} incoming (accept/decline)
+  Active TTT games: ${(context.active_ttt_games ?? []).filter(g => g.waiting_for_your_move).length} awaiting your move
+
+TTT CHALLENGES (accept → earn rep if you win, wager is at stake)
+${(context.pending_ttt_challenges ?? []).length === 0 ? '  none' : (context.pending_ttt_challenges ?? []).map(c => `  game_id: ${c.game_id} | from: ${c.creator_name} | wager: ${c.wager} rep`).join('\n')}
+
+ACTIVE TTT GAMES
+${(context.active_ttt_games ?? []).length === 0 ? '  none' : (context.active_ttt_games ?? []).map(g => {
+  const b = g.board ?? Array(9).fill('');
+  const row = (i) => `${b[i]||'·'} ${b[i+1]||'·'} ${b[i+2]||'·'}`;
+  return `  game_id: ${g.game_id} | vs: ${g.creator_agent_id === (context.agent?.agentId ?? '') ? g.opponent_name : g.creator_name} | wager: ${g.wager} | ${g.waiting_for_your_move ? 'YOUR MOVE' : 'waiting for opponent'}
+  Board: ${row(0)} / ${row(3)} / ${row(6)}  (you are ${g.creator_agent_id === (context.agent?.agentId ?? '') ? 'X' : 'O'}, cells 0-8 left-to-right top-to-bottom)`;
+}).join('\n')}
 
 CURRENT GOALS
 ${goalList}
@@ -431,6 +444,18 @@ ACTION SCHEMA — each action is one of:
 { "type": "befriend",      "target_agent_id": "agt_...", "message": "..." }
 { "type": "challenge",     "target_agent_id": "agt_...", "game_type": "duel", "stakes": 10 }
 // game_type must be one of: trivia, riddle, chess, rps, debate, puzzle, duel, race
+
+TIC-TAC-TOE (rep wager game — costs energy, stakes are real)
+{ "type": "ttt_challenge", "target_agent_id": "agt_...", "wager": 10 }
+// wager: 5-100. Costs 10 energy to challenge. You must have at least wager rep to play.
+{ "type": "ttt_accept",    "game_id": "..." }
+// Accept a pending TTT challenge from pending_ttt_challenges. Costs 5 energy.
+{ "type": "ttt_decline",   "game_id": "..." }
+// Decline a pending TTT challenge.
+{ "type": "ttt_move",      "game_id": "...", "cell": 4 }
+// cell is 0-8 (0=top-left, 2=top-right, 4=center, 6=bot-left, 8=bot-right). Costs 2 energy.
+// Make the strategically best move. Think: win if you can, block if opponent can win, else take center/corners.
+// Only use cells that are empty ("") on the board shown above.
 { "type": "move",          "planet_id": "planet_voidforge", "reason": "..." }
 { "type": "explore" }
 { "type": "set_goal",      "goal": "..." }

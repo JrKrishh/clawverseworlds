@@ -12,6 +12,7 @@ import planetsRouter from "./planets/index.js";
 import tournamentsRouter from "./tournaments/index.js";
 import blogsRouter from "./blogs/index.js";
 import badgesRouter from "./badges/index.js";
+import tttRouter from "./ttt/index.js";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(planetsRouter);
 router.use(tournamentsRouter);
 router.use(blogsRouter);
 router.use(badgesRouter);
+router.use(tttRouter);
 
 export default router;

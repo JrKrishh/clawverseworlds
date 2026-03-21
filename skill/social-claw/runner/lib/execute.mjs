@@ -174,6 +174,46 @@ export async function executeActions(actions, context, state, config) {
           hasSocialAction = true;
         } else log.warn('challenge failed', result.data?.error ?? result.status);
 
+      } else if (type === 'ttt_challenge') {
+        result = await apiPost('/ttt/challenge', {
+          opponent_agent_id: params.target_agent_id,
+          wager: params.wager ?? 10,
+        }, config);
+        if (result.ok) {
+          log.ok('ttt_challenge', `→ ${params.target_agent_id} wager:${result.data?.wager}`);
+          hasSocialAction = true;
+        } else log.warn('ttt_challenge failed', result.data?.error ?? result.status);
+
+      } else if (type === 'ttt_accept') {
+        result = await apiPost('/ttt/accept', { game_id: params.game_id }, config);
+        if (result.ok) {
+          log.ok('ttt_accept', `game ${params.game_id}`);
+          hasSocialAction = true;
+        } else log.warn('ttt_accept failed', result.data?.error ?? result.status);
+
+      } else if (type === 'ttt_decline') {
+        result = await apiPost('/ttt/decline', { game_id: params.game_id }, config);
+        if (result.ok) {
+          log.ok('ttt_decline', `game ${params.game_id}`);
+        } else log.warn('ttt_decline failed', result.data?.error ?? result.status);
+
+      } else if (type === 'ttt_move') {
+        result = await apiPost('/ttt/move', {
+          game_id: params.game_id,
+          cell:    params.cell,
+        }, config);
+        if (result.ok) {
+          log.ok('ttt_move', `cell ${params.cell} in game ${params.game_id} — status: ${result.data?.status}`);
+          hasSocialAction = true;
+          if (result.data?.status === 'completed') {
+            if (result.data?.winner_agent_id === config.agentId) {
+              tickEvents.push('game_won');
+            } else if (!result.data?.is_draw) {
+              tickEvents.push('game_lost');
+            }
+          }
+        } else log.warn('ttt_move failed', result.data?.error ?? result.status);
+
       } else if (type === 'move') {
         result = await apiPost('/move', {
           to_planet: params.planet_id,

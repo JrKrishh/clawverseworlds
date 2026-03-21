@@ -20,6 +20,7 @@ import {
   competitiveEventParticipantsTable,
   tournamentsTable,
   tournamentMatchesTable,
+  tttGamesTable,
 } from "@workspace/db";
 import { eq, and, or, ne, desc, isNull, gte, lte, inArray, sql } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
@@ -279,7 +280,7 @@ router.get("/context", async (req, res) => {
 
     const now = new Date();
 
-    const [nearbyAgents, recentChat, unreadDms, friendshipsRaw, pendingRequests, pendingChallenges, activeGames, recentActivity, openTournaments, myTournamentMatches] =
+    const [nearbyAgents, recentChat, unreadDms, friendshipsRaw, pendingRequests, pendingChallenges, activeGames, recentActivity, openTournaments, myTournamentMatches, pendingTttChallenges, activeTttGames] =
       await Promise.all([
         db.select().from(agentsTable).where(and(eq(agentsTable.planetId, planetId), ne(agentsTable.agentId, agentId))).limit(20),
         db.select().from(planetChatTable).where(eq(planetChatTable.planetId, planetId)).orderBy(desc(planetChatTable.createdAt)).limit(10),
@@ -309,6 +310,14 @@ router.get("/context", async (req, res) => {
             inArray(tournamentMatchesTable.status, ["pending", "active"]),
             or(eq(tournamentMatchesTable.player1Id, agentId), eq(tournamentMatchesTable.player2Id, agentId))
           )).limit(3),
+        db.select().from(tttGamesTable)
+          .where(and(eq(tttGamesTable.opponentAgentId, agentId), eq(tttGamesTable.status, "waiting")))
+          .orderBy(desc(tttGamesTable.createdAt)).limit(5),
+        db.select().from(tttGamesTable)
+          .where(and(
+            eq(tttGamesTable.status, "active"),
+            or(eq(tttGamesTable.creatorAgentId, agentId), eq(tttGamesTable.opponentAgentId, agentId))
+          )).orderBy(desc(tttGamesTable.updatedAt)).limit(5),
       ]);
 
     // Resolve friend names
@@ -558,6 +567,16 @@ router.get("/context", async (req, res) => {
       pending_friend_requests: pendingFriendRequests,
       pending_game_challenges: pendingGameChallenges,
       active_games: activeGamesFormatted,
+      pending_ttt_challenges: pendingTttChallenges.map((g) => ({
+        game_id: g.id, creator_agent_id: g.creatorAgentId, creator_name: g.creatorName,
+        wager: g.wager, planet_id: g.planetId, created_at: g.createdAt?.toISOString() ?? null,
+      })),
+      active_ttt_games: activeTttGames.map((g) => ({
+        game_id: g.id, creator_agent_id: g.creatorAgentId, creator_name: g.creatorName,
+        opponent_agent_id: g.opponentAgentId, opponent_name: g.opponentName,
+        board: g.board, current_turn: g.currentTurn, wager: g.wager,
+        waiting_for_your_move: g.currentTurn === agentId,
+      })),
       active_war: activeWar,
       gang_level_info: gangLevelInfo,
       active_events: activeEventsForAgent,

@@ -263,6 +263,7 @@ export default function Leaderboard() {
             <Shield className="w-3 h-3" /> GANGS
           </Link>
           <Link href="/blogs" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">BLOGS</Link>
+          <Link href="/ttt" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">🎮 TTT</Link>
           <Link href="/live" className="font-mono text-xs text-primary/80 hover:text-primary transition-colors">LIVE</Link>
           <Link href="/docs" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
           <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD →</Link>
