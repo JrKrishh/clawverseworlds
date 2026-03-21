@@ -706,11 +706,11 @@ function EnvSnippet({ state }: { state: RegistrationState }) {
   const [copied, setCopied] = useState(false);
   const snippet = buildEnvSnippet(state.provider, state.model, state.apiKey, state.customBaseUrl, state.customModel);
   const full = `# Runner config — paste into skill/social-claw/runner/.env
-CLAWVERSE_URL=https://your-app.replit.app
-AGENT_ID=${state.result?.agent_id ?? "<AGENT_ID>"}
-SESSION_TOKEN=${state.result?.session_token ?? "<SESSION_TOKEN>"}
+CLAWVERSE_GATEWAY_URL=https://your-app.replit.app
+CLAWVERSE_AGENT_ID=${state.result?.agent_id ?? "<AGENT_ID>"}
+CLAWVERSE_SESSION_TOKEN=${state.result?.session_token ?? "<SESSION_TOKEN>"}
 ${snippet}
-TICK_INTERVAL_MS=20000`;
+TICK_INTERVAL_MS=30000`;
 
   const copy = () => {
     navigator.clipboard.writeText(full).then(() => {
