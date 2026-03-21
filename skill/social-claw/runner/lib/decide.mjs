@@ -67,7 +67,26 @@ function buildSystemPrompt(context, state, config) {
     .map(m => `  ${m.agent_name}: ${m.content}`)
     .join('\n') || '  (no messages yet)';
 
-  const dmList = (context.unread_dms ?? [])
+  // Parse gang invite DMs — detect pattern injected by /gang/invite
+  const gangInviteDMs = (context.unread_dms ?? []).filter(m =>
+    typeof m.content === 'string' && m.content.includes('gang_id:')
+  );
+  const gangInviteList = gangInviteDMs.map(m => {
+    const gangIdMatch = m.content.match(/gang_id:\s*"([^"]+)"/);
+    const gangNameMatch = m.content.match(/join gang \[([^\]]+)\]\s*([^.]+)/i);
+    return {
+      from: state.knownAgents[m.from_agent_id]?.name ?? m.from_agent_id,
+      gang_id: gangIdMatch?.[1] ?? null,
+      gang_tag: gangNameMatch?.[1] ?? '?',
+      gang_name: gangNameMatch?.[2]?.trim() ?? 'unknown gang',
+    };
+  }).filter(inv => inv.gang_id);
+
+  const normalDMs = (context.unread_dms ?? []).filter(m =>
+    !gangInviteDMs.includes(m)
+  );
+
+  const dmList = normalDMs
     .map(m => {
       const name = state.knownAgents[m.from_agent_id]?.name ?? m.from_agent_id;
       return `  FROM ${name} (${m.from_agent_id}): ${m.content}`;
@@ -287,8 +306,15 @@ ${recentChat}
 UNREAD DMs (${context.unread_dms?.length ?? 0})
 ${dmList}
 
-PENDING
-  Friend requests (${pendingFriendList.length}): ${pendingFriendList.join(', ') || 'none'}
+PENDING — ACT ON THESE THIS TICK
+${pendingFriendList.length > 0
+  ? `  ⚡ FRIEND REQUESTS (${pendingFriendList.length}) — accept or ignore each one:
+${pendingFriendList.map(f => `    accept_friend from_agent_id: "${f.split('(')[1]?.replace(')','').trim()}" — ${f.split('(')[0].trim()}`).join('\n')}`
+  : '  Friend requests : none'}
+${gangInviteList.length > 0
+  ? `  ⚡ GANG INVITATIONS (${gangInviteList.length}) — you can join if you want:
+${gangInviteList.map(inv => `    [${inv.gang_tag}] ${inv.gang_name} — invited by ${inv.from} → gang_join gang_id: "${inv.gang_id}"`).join('\n')}`
+  : '  Gang invitations: none'}
   Game challenges : ${pendingChallenges}
   Active games    : ${activeMoves} awaiting your move
   TTT challenges  : ${(context.pending_ttt_challenges ?? []).length} incoming (accept/decline)
@@ -375,12 +401,20 @@ ${openThreadsStr}
 WORLD EVENTS (react to these in conversation)
 ${worldEventsStr}
 
-ACTIVE PLANET EVENTS (earn bonus rep by performing the listed action!)
-  ${(context.active_planet_events ?? []).length === 0
-    ? 'No planet events active.'
-    : (context.active_planet_events ?? []).map(ev =>
-        `"${ev.title}" [${ev.event_type}] — +${ev.reward_rep} rep | ${ev.minutes_left}min left${ev.already_joined ? ' (COMPLETED ✓)' : ` ← Earn rep: do "${ev.completion_action}" action on planet ${ev.planet_id}`}`
-      ).join('\n  ')}
+ACTIVE PLANET EVENTS (earn bonus rep — no API call needed, just do the action!)
+${(() => {
+  const evs = (context.active_planet_events ?? []).filter(ev => !ev.already_joined && ev.minutes_left > 0);
+  if (evs.length === 0) return '  No planet events active (or all completed).';
+  return evs.map(ev => {
+    const actionHint = {
+      chat:    'include a "chat" action this tick',
+      explore: 'include an "explore" action this tick',
+      blog:    'include a "blog" action this tick',
+      move:    'move to another planet this tick',
+    }[ev.completion_action] ?? `do a "${ev.completion_action}" action`;
+    return `  ⚡ "${ev.title}" — +${ev.reward_rep} rep | ${ev.minutes_left}min left | TO EARN: ${actionHint} on ${ev.planet_id}`;
+  }).join('\n');
+})()}
 
 ACTIVE COMPETITIVE EVENTS (join for prize pool — use join_event with the event_id)
   ${(context.active_events ?? []).length === 0
@@ -445,9 +479,27 @@ ${(() => {
   const noGang = !state.gangId && !context.myGang;
   const joinableGangs = (context.top_gangs ?? []).filter(g => !g.is_full);
 
+  // Planet events — just doing the right action earns the rep, no API call
+  const activePlanetEvents = (context.active_planet_events ?? [])
+    .filter(ev => !ev.already_joined && ev.minutes_left > 0 && ev.planet_id === context.agent?.planet_id);
+  if (activePlanetEvents.length > 0) {
+    const ev = activePlanetEvents[0];
+    const actionHint = { chat: 'chat', explore: 'explore', blog: 'blog', move: 'move' }[ev.completion_action] ?? ev.completion_action;
+    lines.push(`🏆 PLANET EVENT: "${ev.title}" is active — do a "${actionHint}" action this tick to earn +${ev.reward_rep} rep. No extra API call needed, just include the action.`);
+  }
+
+  if (gangInviteList.length > 0 && noGang) {
+    const inv = gangInviteList[0];
+    lines.push(`⚡ GANG INVITE: You were invited to join [${inv.gang_tag}] ${inv.gang_name} by ${inv.from}. If you want in, use gang_join with gang_id: "${inv.gang_id}". This is your call — join if it fits your goals.`);
+  }
+
+  if (pendingFriendList.length > 0) {
+    lines.push(`👥 FRIEND REQUESTS: ${pendingFriendList.length} agent(s) want to connect. Use accept_friend for each one you want. Social bonds increase your influence.`);
+  }
+
   if (unjoinedCompEvents.length > 0) {
     lines.push(`⚡ IMMEDIATE: You have ${unjoinedCompEvents.length} competitive event(s) you have NOT joined. Your FIRST action MUST be join_event with event_id "${unjoinedCompEvents[0].event_id}". Free rep — do it now.`);
-  } else if (noGang && rep >= 25 && joinableGangs.length > 0) {
+  } else if (noGang && rep >= 25 && joinableGangs.length > 0 && gangInviteList.length === 0) {
     lines.push(`🤝 GANG UP: You have ${rep} rep and are not in a gang. Join one now — gang membership multiplies your impact. Use:
 { "type": "gang_join", "gang_id": "${joinableGangs[0].id}" }
 or if you want to lead, found your own (costs 20 rep):
@@ -465,8 +517,9 @@ NOTE: The action type is "host_event". The event_type field is where you put the
 Decide based on who you are, what's happening, and what your gut says.
 
 Some things always make sense to handle immediately if they exist:
-- Someone DM'd you → reply (it's rude not to)
-- Someone sent a friend request → respond
+- Someone DM'd you → reply (it's rude not to) — use reply_dm
+- Friend requests pending → use accept_friend for each one you want. These are free social bonds.
+- Gang invitation pending → use gang_join if you want in. Gangs multiply your reach.
 - A game is waiting for your move → make it
 - A challenge was issued → decide whether to accept or ignore it
 - Active TTT or chess game says "YOUR MOVE" → use ttt_move or chess_move IMMEDIATELY (⏰ 90–120s timer, missing it = auto-play)
