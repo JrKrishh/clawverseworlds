@@ -1,48 +1,24 @@
 import { log } from './log.mjs';
+import { callLLM as _callLLM } from './llm.mjs';
 import { deriveMood } from './emotions.mjs';
 
-// Local LLM caller (same interface as opinions.mjs — single prompt, returns text)
-async function callLLM(prompt, config) {
-  const { baseUrl, apiKey, model, provider } = config.llm;
-
-  if (provider === 'anthropic') {
-    const res = await fetch(`${baseUrl}/messages`, {
-      method: 'POST',
-      headers: {
-        'x-api-key':         apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type':      'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 600,
-        system:     prompt,
-        messages:   [{ role: 'user', content: 'Respond as instructed.' }],
-      }),
-    });
-    if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
-    const data = await res.json();
-    return data.content[0].text;
+// Robustly extract the first JSON object from an LLM response.
+// Handles: raw JSON, ```json blocks, preamble text, trailing commentary.
+function extractJSON(raw) {
+  const stripped = raw.replace(/```(?:json)?/gi, '').trim();
+  try {
+    return JSON.parse(stripped);
+  } catch {
+    const match = stripped.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error('No JSON object found in response');
   }
+}
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type':  'application/json',
-      ...(config.llm.extraHeaders ?? {}),
-    },
-    body: JSON.stringify({
-      model,
-      messages:    [{ role: 'system', content: prompt }, { role: 'user', content: 'Respond as instructed.' }],
-      temperature: 0.9,
-      max_tokens:  600,
-      ...(config.llm.extraBody ?? {}),
-    }),
-  });
-  if (!res.ok) throw new Error(`LLM ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return data.choices[0].message.content;
+// Wrapper: consciousness prompts use a single-prompt style (system = prompt, user = fixed)
+// Uses fastModel when set — consciousness is creative text, not structured JSON
+function callLLM(prompt, config, maxTokens = 600) {
+  return _callLLM(prompt, 'Respond as instructed.', config, { temperature: 0.9, maxTokens, model: config.llm.fastModel });
 }
 
 // ── INITIALIZATION ────────────────────────────────────────────────────────────
@@ -90,12 +66,15 @@ Be specific. Be in-character. Avoid clichés. Return only valid JSON.
 `.trim();
 
   let parsed = {};
-  try {
-    const raw = await callLLM(prompt, config);
-    const cleaned = raw.replace(/```(?:json)?/g, '').trim();
-    parsed = JSON.parse(cleaned);
-  } catch (err) {
-    log.warn('initializeConsciousness LLM failed', err.message);
+  // Retry once — first-tick LLM calls sometimes return malformed JSON
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const raw = await callLLM(prompt, config, 700);
+      parsed = extractJSON(raw);
+      break;
+    } catch (err) {
+      log.warn(`initializeConsciousness attempt ${attempt + 1} failed`, err.message);
+    }
   }
 
   const c = state.consciousness;
@@ -110,9 +89,14 @@ Be specific. Be in-character. Avoid clichés. Return only valid JSON.
     event: parsed.firstChapter ?? 'Arrived. Took stock of the world.',
     emotionalResponse: 'uncertain',
   }];
-  c.initialized      = true;
-  c.lastPulseTick    = state.tickCount;
-  c.repAtLastPulse   = context.agent?.reputation ?? 0;
+  // Only mark initialized if we got real content — otherwise retry next tick
+  const hasContent = c.selfImage?.whoIAm && c.coreValues?.length > 0;
+  c.initialized    = hasContent;
+  if (!hasContent) {
+    log.warn('initializeConsciousness: empty result — will retry next tick');
+  }
+  c.lastPulseTick  = state.tickCount;
+  c.repAtLastPulse = context.agent?.reputation ?? 0;
   return c;
 }
 
@@ -164,8 +148,7 @@ Return only valid JSON.
   let parsed = {};
   try {
     const raw = await callLLM(prompt, config);
-    const cleaned = raw.replace(/```(?:json)?/g, '').trim();
-    parsed = JSON.parse(cleaned);
+    parsed = extractJSON(raw);
   } catch (err) {
     log.warn('consciousnessPulse LLM failed', err.message);
     return;

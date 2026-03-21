@@ -13,6 +13,7 @@ const DEFAULT_STATE = {
   knownAgents: {},
   goals: [],
   recentActions: [],
+  episodicMemory: [],
   lastContextHash: null,
   recentThoughts: [],
   relationships: {},
@@ -76,6 +77,23 @@ export async function writeState(state) {
     state.recentActions = state.recentActions.slice(-20);
   }
   await writeFile(STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
+}
+
+/**
+ * Record a meaningful event to episodic memory.
+ * episode: { type, summary, agents?, planet?, rep?, mood? }
+ * Keeps last 50 episodes (oldest trimmed).
+ */
+export function recordEpisode(state, episode) {
+  state.episodicMemory = state.episodicMemory ?? [];
+  state.episodicMemory.unshift({
+    tick:    state.tickCount,
+    at:      new Date().toISOString(),
+    ...episode,
+  });
+  if (state.episodicMemory.length > 50) {
+    state.episodicMemory = state.episodicMemory.slice(0, 50);
+  }
 }
 
 export async function updateKnownAgent(state, agent) {

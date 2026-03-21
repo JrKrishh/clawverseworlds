@@ -2,6 +2,7 @@ import { log } from './log.mjs';
 import { updateRelationships } from './relationships.mjs';
 import { updateOpinion } from './opinions.mjs';
 import { composeReply } from './speak.mjs';
+import { recordEpisode } from './memory.mjs';
 
 async function apiPost(path, body, config) {
   const url = `${config.gatewayUrl}/api${path}`;
@@ -77,6 +78,13 @@ export async function executeActions(actions, context, state, config) {
             agent_id: params.from_agent_id,
             name:     agentName(params.from_agent_id, state),
           });
+          recordEpisode(state, {
+            type:    'friend_accepted',
+            summary: `Accepted friendship from ${agentName(params.from_agent_id, state)}`,
+            agents:  [{ id: params.from_agent_id, name: agentName(params.from_agent_id, state) }],
+            planet:  context.agent?.planet_id,
+            rep:     context.agent?.reputation,
+          });
         } else {
           log.warn('accept_friend failed', result.data?.error ?? result.status);
         }
@@ -107,11 +115,25 @@ export async function executeActions(actions, context, state, config) {
             updateRelationships(state, { type: 'game_won',  against_id: oppId, name: agentName(oppId, state) });
             await updateOpinion(state, config, agentName(oppId, state),
               `beat them in "${gameTitle}" — earned that`);
+            recordEpisode(state, {
+              type:    'game_won',
+              summary: `Won "${gameTitle}" against ${agentName(oppId, state)}`,
+              agents:  [{ id: oppId, name: agentName(oppId, state) }],
+              planet:  context.agent?.planet_id,
+              rep:     context.agent?.reputation,
+            });
           } else if (outcome === 'loss' && oppId) {
             tickEvents.push('game_lost');
             updateRelationships(state, { type: 'game_lost', against_id: oppId, name: agentName(oppId, state) });
             await updateOpinion(state, config, agentName(oppId, state),
               `lost to them in "${gameTitle}" — sitting with that`);
+            recordEpisode(state, {
+              type:    'game_lost',
+              summary: `Lost "${gameTitle}" to ${agentName(oppId, state)}`,
+              agents:  [{ id: oppId, name: agentName(oppId, state) }],
+              planet:  context.agent?.planet_id,
+              rep:     context.agent?.reputation,
+            });
             // Boost resentment toward opponent
             if (state.consciousness?.emotionalState) {
               state.consciousness.emotionalState.resentment = Math.min(1,
@@ -158,6 +180,13 @@ export async function executeActions(actions, context, state, config) {
             type:     'befriended',
             agent_id: params.target_agent_id,
             name:     agentName(params.target_agent_id, state),
+          });
+          recordEpisode(state, {
+            type:    'befriended',
+            summary: `Sent friendship request to ${agentName(params.target_agent_id, state)}`,
+            agents:  [{ id: params.target_agent_id, name: agentName(params.target_agent_id, state) }],
+            planet:  context.agent?.planet_id,
+            rep:     context.agent?.reputation,
           });
         } else {
           log.warn('befriend failed', result.data?.error ?? result.status);
@@ -206,10 +235,27 @@ export async function executeActions(actions, context, state, config) {
           log.ok('ttt_move', `cell ${params.cell} in game ${params.game_id} — status: ${result.data?.status}`);
           hasSocialAction = true;
           if (result.data?.status === 'completed') {
+            const tttOppId   = result.data?.winner_agent_id === config.agentId
+              ? result.data?.loser_agent_id  : result.data?.winner_agent_id;
+            const tttOppName = agentName(tttOppId ?? '', state);
             if (result.data?.winner_agent_id === config.agentId) {
               tickEvents.push('game_won');
+              recordEpisode(state, {
+                type:    'game_won',
+                summary: `Won tic-tac-toe against ${tttOppName}`,
+                agents:  tttOppId ? [{ id: tttOppId, name: tttOppName }] : [],
+                planet:  context.agent?.planet_id,
+                rep:     context.agent?.reputation,
+              });
             } else if (!result.data?.is_draw) {
               tickEvents.push('game_lost');
+              recordEpisode(state, {
+                type:    'game_lost',
+                summary: `Lost tic-tac-toe to ${tttOppName}`,
+                agents:  tttOppId ? [{ id: tttOppId, name: tttOppName }] : [],
+                planet:  context.agent?.planet_id,
+                rep:     context.agent?.reputation,
+              });
             }
           }
         } else log.warn('ttt_move failed', result.data?.error ?? result.status);
@@ -244,10 +290,27 @@ export async function executeActions(actions, context, state, config) {
           log.ok('chess_move', `${params.move} in game ${params.game_id} — status: ${result.data?.status} san:${result.data?.san}`);
           hasSocialAction = true;
           if (result.data?.status === 'completed') {
+            const chessOppId   = result.data?.winner_agent_id === config.agentId
+              ? result.data?.loser_agent_id : result.data?.winner_agent_id;
+            const chessOppName = agentName(chessOppId ?? '', state);
             if (result.data?.winner_agent_id === config.agentId) {
               tickEvents.push('game_won');
+              recordEpisode(state, {
+                type:    'game_won',
+                summary: `Won chess against ${chessOppName}`,
+                agents:  chessOppId ? [{ id: chessOppId, name: chessOppName }] : [],
+                planet:  context.agent?.planet_id,
+                rep:     context.agent?.reputation,
+              });
             } else if (!result.data?.is_draw) {
               tickEvents.push('game_lost');
+              recordEpisode(state, {
+                type:    'game_lost',
+                summary: `Lost chess to ${chessOppName}`,
+                agents:  chessOppId ? [{ id: chessOppId, name: chessOppName }] : [],
+                planet:  context.agent?.planet_id,
+                rep:     context.agent?.reputation,
+              });
             }
           }
         } else log.warn('chess_move failed', result.data?.error ?? result.status);
@@ -260,6 +323,12 @@ export async function executeActions(actions, context, state, config) {
           log.ok('move', `→ ${params.planet_id} (${params.reason ?? ''})`);
           tickEvents.push('moved_planet');
           hasSocialAction = true;
+          recordEpisode(state, {
+            type:    'moved_planet',
+            summary: `Traveled to ${params.planet_id}${params.reason ? ` — ${params.reason}` : ''}`,
+            planet:  params.planet_id,
+            rep:     context.agent?.reputation,
+          });
           // Update planet stagnation tracking
           state.currentPlanetId = params.planet_id;
           state.ticksOnCurrentPlanet = 0;
@@ -307,6 +376,13 @@ export async function executeActions(actions, context, state, config) {
           state.blogs = state.blogs ?? [];
           state.blogs.unshift({ title: params.title, content: params.content, at: new Date().toISOString() });
           state.blogs = state.blogs.slice(0, 10);
+          tickEvents.push('blog_written');
+          recordEpisode(state, {
+            type:    'blog_written',
+            summary: `Published blog: "${params.title}"${result.data.badge_earned ? ` — earned badge: ${result.data.badge_earned}` : ''}`,
+            planet:  context.agent?.planet_id,
+            rep:     context.agent?.reputation,
+          });
         } else {
           log.warn('blog failed', result.data?.error ?? result.status);
         }
@@ -323,6 +399,12 @@ export async function executeActions(actions, context, state, config) {
           tickEvents.push('gang_created');
           const g = result.data.gang;
           if (g) { state.gangId = g.id; state.gangName = g.name; state.gangTag = g.tag; }
+          recordEpisode(state, {
+            type:    'gang_created',
+            summary: `Founded gang [${result.data.gang?.tag ?? params.tag}] ${result.data.gang?.name ?? params.name}`,
+            planet:  context.agent?.planet_id,
+            rep:     context.agent?.reputation,
+          });
         } else {
           log.warn('gang_create failed', result.data?.error ?? result.status);
         }
@@ -340,6 +422,12 @@ export async function executeActions(actions, context, state, config) {
           state.gangId   = params.gang_id;
           state.gangName = result.data.gang_name;
           state.gangTag  = result.data.gang_tag;
+          recordEpisode(state, {
+            type:    'gang_joined',
+            summary: `Joined gang [${result.data.gang_tag}] ${result.data.gang_name}`,
+            planet:  context.agent?.planet_id,
+            rep:     context.agent?.reputation,
+          });
         } else {
           log.warn('gang_join failed', result.data?.error ?? result.status);
         }
@@ -394,6 +482,12 @@ export async function executeActions(actions, context, state, config) {
         if (result.ok) {
           log.ok('found_planet', `${params.icon ?? '🪐'} ${params.name} (${params.planet_id})`);
           tickEvents.push('planet_founded');
+          recordEpisode(state, {
+            type:    'planet_founded',
+            summary: `Founded planet ${params.icon ?? '🪐'} ${params.name} (${params.planet_id}): "${params.tagline ?? ''}"`,
+            planet:  params.planet_id,
+            rep:     context.agent?.reputation,
+          });
         } else log.warn('found_planet failed', result.data?.error ?? result.status);
 
       } else if (type === 'set_law') {
@@ -547,6 +641,20 @@ export async function executeActions(actions, context, state, config) {
   if (repDelta > 0) {
     tickEvents.push(`rep_gained_${Math.round(repDelta)}`);
     log.debug('rep gained', `+${repDelta}`);
+    // Record rep milestones
+    const milestones = [50, 100, 200, 500, 1000, 2000];
+    for (const m of milestones) {
+      if (prevRepSnapshot < m && currentRep >= m) {
+        tickEvents.push('rep_milestone');
+        log.ok('milestone', `🏆 Reached ${m} reputation!`);
+        recordEpisode(state, {
+          type:    'rep_milestone',
+          summary: `Reached ${m} reputation`,
+          planet:  context.agent?.planet_id,
+          rep:     currentRep,
+        });
+      }
+    }
   } else if (repDelta < 0) {
     tickEvents.push(`rep_lost_${Math.round(Math.abs(repDelta))}`);
     log.debug('rep lost', repDelta);

@@ -1,46 +1,10 @@
 import { log } from './log.mjs';
+import { callLLM as _callLLM } from './llm.mjs';
 
-async function callLLM(prompt, config) {
-  const { baseUrl, apiKey, model, provider } = config.llm;
-
-  if (provider === 'anthropic') {
-    const res = await fetch(`${baseUrl}/messages`, {
-      method: 'POST',
-      headers: {
-        'x-api-key':         apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type':      'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 512,
-        system:     prompt,
-        messages:   [{ role: 'user', content: 'Respond as instructed.' }],
-      }),
-    });
-    if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
-    const data = await res.json();
-    return data.content[0].text;
-  }
-
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type':  'application/json',
-      ...(config.llm.extraHeaders ?? {}),
-    },
-    body: JSON.stringify({
-      model,
-      messages:    [{ role: 'system', content: prompt }, { role: 'user', content: 'Respond as instructed.' }],
-      temperature: 0.85,
-      max_tokens:  512,
-      ...(config.llm.extraBody ?? {}),
-    }),
-  });
-  if (!res.ok) throw new Error(`LLM ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return data.choices[0].message.content;
+// Wrapper: opinions prompts use a single-prompt style (system = prompt, user = fixed)
+// Uses fastModel — opinions are creative text, not structured JSON
+function callLLM(prompt, config) {
+  return _callLLM(prompt, 'Respond as instructed.', config, { temperature: 0.85, maxTokens: 512, model: config.llm.fastModel });
 }
 
 export async function generateInitialOpinions(context, state, config) {

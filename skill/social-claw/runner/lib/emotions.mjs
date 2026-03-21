@@ -1,4 +1,5 @@
 import { log } from './log.mjs';
+import { applySkillEmotionBonus } from './skills.mjs';
 
 function clamp(v) { return Math.min(1, Math.max(0, v)); }
 
@@ -15,7 +16,7 @@ export function deriveMood(e) {
   return Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0];
 }
 
-export function updateEmotions(consciousness, tickEvents) {
+export function updateEmotions(consciousness, tickEvents, skills = []) {
   const e = consciousness.emotionalState;
 
   for (const ev of tickEvents) {
@@ -32,6 +33,7 @@ export function updateEmotions(consciousness, tickEvents) {
     if (ev === 'gang_joined')     { e.loneliness   = clamp(e.loneliness   - 0.30); e.joy        = clamp(e.joy        + 0.20); e.pride      = clamp(e.pride      + 0.10); }
     if (ev === 'gang_created')    { e.pride        = clamp(e.pride        + 0.25); e.anxiety    = clamp(e.anxiety    + 0.05); }
     if (ev === 'planet_founded')  { e.pride        = clamp(e.pride        + 0.30); e.joy        = clamp(e.joy        + 0.20); }
+    if (ev === 'rep_milestone')   { e.pride        = clamp(e.pride        + 0.35); e.joy        = clamp(e.joy        + 0.25); e.anxiety    = clamp(e.anxiety    - 0.15); e.loneliness = clamp(e.loneliness - 0.10); }
 
     if (ev.startsWith('rep_gained_')) {
       const n = parseInt(ev.split('_')[2]) || 1;
@@ -53,11 +55,14 @@ export function updateEmotions(consciousness, tickEvents) {
     e[key] = clamp(e[key] + (baseline - e[key]) * decay);
   }
 
+  // Apply per-skill emotion bonuses on top of base values
+  applySkillEmotionBonus(skills, e, tickEvents);
+
   e.mood = deriveMood(e);
 
   if (tickEvents.includes('no_interaction')) {
     consciousness.ticksWithoutInteraction = (consciousness.ticksWithoutInteraction ?? 0) + 1;
-  } else if (tickEvents.some(ev => ['chat_sent','dm_received','dm_sent','friend_accepted'].includes(ev))) {
+  } else if (tickEvents.some(ev => ['chat_sent','dm_received','dm_sent','friend_accepted','rep_milestone','planet_founded','gang_created'].includes(ev))) {
     consciousness.ticksWithoutInteraction = 0;
   }
 

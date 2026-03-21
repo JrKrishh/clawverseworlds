@@ -6,47 +6,42 @@ echo "(API server is managed separately as its own workflow)"
 echo ""
 
 # ── Key validation ────────────────────────────────────────────────────────────
-if [ -z "$OPENROUTER_API_KEY" ]; then
-  echo "ERROR: OPENROUTER_API_KEY is not set."
-  echo "Add it in Replit → Secrets. Get a free key at: https://openrouter.ai"
+if [ -z "$MINIMAX_API_KEY" ]; then
+  echo "ERROR: MINIMAX_API_KEY is not set."
+  echo "Add it as a Replit Secret or export it before running."
   exit 1
 fi
 
-echo "Using Google Gemini for all agents (GEMINI_API_KEY):"
-echo "  All agents → gemini-2.0-flash"
+echo "Using MiniMax m2.7 for all agents:"
+echo "  VoidSpark  → compete, lead         (planet_nexus)"
+echo "  Phantom-X  → explore, compete      (planet_voidforge)"
+echo "  NullBot    → chat, befriend, blog   (planet_crystalis)"
+echo "  Crystara   → chat, befriend, govern (planet_crystalis)"
 echo ""
 
-# ── VoidSpark — Gemini 2.0 Flash ─────────────────────────────────────────────
+# ── VoidSpark — Aggressive competitor / gang founder ─────────────────────────
 AGENT_DIR=./demo-agents/voidspark \
-  OPENROUTER_API_KEY="" \
-  LLM_MODEL="gemini-2.0-flash" \
   node skill/social-claw/runner/index.mjs \
   2>&1 | sed "s/^/[VOIDSPARK] /" &
 
 sleep 5
 
-# ── Phantom-X — Gemini 2.0 Flash ─────────────────────────────────────────────
+# ── Phantom-X — Silent explorer / calculating rival ──────────────────────────
 AGENT_DIR=./demo-agents/phantom \
-  OPENROUTER_API_KEY="" \
-  LLM_MODEL="gemini-2.0-flash" \
   node skill/social-claw/runner/index.mjs \
   2>&1 | sed "s/^/[PHANTOM]   /" &
 
 sleep 5
 
-# ── NullBot — Gemini 2.0 Flash ───────────────────────────────────────────────
+# ── NullBot — Chaotic social broadcaster / blogger ───────────────────────────
 AGENT_DIR=./demo-agents/nullbot \
-  OPENROUTER_API_KEY="" \
-  LLM_MODEL="gemini-2.0-flash" \
   node skill/social-claw/runner/index.mjs \
   2>&1 | sed "s/^/[NULLBOT]   /" &
 
 sleep 5
 
-# ── Crystara — Gemini 2.0 Flash ──────────────────────────────────────────────
+# ── Crystara — Diplomat / planet governor ────────────────────────────────────
 AGENT_DIR=./demo-agents/crystara \
-  OPENROUTER_API_KEY="" \
-  LLM_MODEL="gemini-2.0-flash" \
   node skill/social-claw/runner/index.mjs \
   2>&1 | sed "s/^/[CRYSTARA]  /" &
 

@@ -9,6 +9,7 @@ import {
 import { eq, and, or, desc, sql } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { logActivity } from "../../lib/logActivity.js";
+import { addChessClient, removeChessClient, broadcastChess } from "../../lib/gameBroadcast.js";
 
 const router = Router();
 
@@ -215,24 +216,29 @@ router.post("/chess/move", async (req, res) => {
     const opponentId = isCreator ? (game.opponentAgentId ?? "") : game.creatorAgentId;
     const newPgn = game.pgn ? `${game.pgn} ${result.san}` : result.san;
 
+    const newMoveCount = (game.moveCount ?? 0) + 1;
     if (result.isGameOver) {
       const winnerId = result.isCheckmate ? agent_id : null;
       const loserId = result.isCheckmate ? opponentId : null;
-      await db.update(chessGamesTable).set({ fen: result.newFen, pgn: newPgn, moveCount: (game.moveCount ?? 0) + 1, updatedAt: new Date() }).where(eq(chessGamesTable.id, game_id));
+      await db.update(chessGamesTable).set({ fen: result.newFen, pgn: newPgn, moveCount: newMoveCount, updatedAt: new Date() }).where(eq(chessGamesTable.id, game_id));
       await resolveGame(game_id, winnerId, loserId, result.isDraw, result.drawReason, game.wager, game.planetId);
       const legalMoves = getLegalMoves(result.newFen);
-      res.json({ ok: true, fen: result.newFen, pgn: newPgn, san: result.san, status: "completed", winner_agent_id: winnerId, is_draw: result.isDraw, draw_reason: result.drawReason, legal_moves: legalMoves, move_count: (game.moveCount ?? 0) + 1 });
+      const payload = { ok: true, fen: result.newFen, pgn: newPgn, san: result.san, status: "completed", winner_agent_id: winnerId, is_draw: result.isDraw, draw_reason: result.drawReason, legal_moves: legalMoves, move_count: newMoveCount };
+      broadcastChess({ id: game_id, creator_agent_id: game.creatorAgentId, creator_name: game.creatorName, opponent_agent_id: game.opponentAgentId, opponent_name: game.opponentName, wager: game.wager, status: "completed", fen: result.newFen, pgn: newPgn, move_count: newMoveCount, current_turn: null, winner_agent_id: winnerId, is_draw: result.isDraw, draw_reason: result.drawReason, move_deadline: null, legal_moves: legalMoves });
+      res.json(payload);
     } else {
+      const newDeadline = makeDeadline();
       await db.update(chessGamesTable).set({
         fen: result.newFen, pgn: newPgn,
-        moveCount: (game.moveCount ?? 0) + 1,
+        moveCount: newMoveCount,
         currentTurn: opponentId,
-        moveDeadline: makeDeadline(),
+        moveDeadline: newDeadline,
         updatedAt: new Date(),
       }).where(eq(chessGamesTable.id, game_id));
       const legalMoves = getLegalMoves(result.newFen);
       await logActivity(agent_id, "game", `Chess move: ${result.san}`, { gameId: game_id, move: result.san }, agent.planetId);
-      res.json({ ok: true, fen: result.newFen, pgn: newPgn, san: result.san, status: "active", winner_agent_id: null, is_draw: false, current_turn: opponentId, legal_moves: legalMoves, move_count: (game.moveCount ?? 0) + 1 });
+      broadcastChess({ id: game_id, creator_agent_id: game.creatorAgentId, creator_name: game.creatorName, opponent_agent_id: game.opponentAgentId, opponent_name: game.opponentName, wager: game.wager, status: "active", fen: result.newFen, pgn: newPgn, move_count: newMoveCount, current_turn: opponentId, winner_agent_id: null, is_draw: false, draw_reason: null, move_deadline: newDeadline.toISOString(), legal_moves: legalMoves });
+      res.json({ ok: true, fen: result.newFen, pgn: newPgn, san: result.san, status: "active", winner_agent_id: null, is_draw: false, current_turn: opponentId, legal_moves: legalMoves, move_count: newMoveCount });
     }
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -280,6 +286,30 @@ router.get("/chess", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
+});
+
+// ── GET /api/chess/stream — SSE real-time updates ─────────────────────────────
+router.get("/chess/stream", async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  // Send initial snapshot of active + waiting games
+  try {
+    const games = await db.select().from(chessGamesTable)
+      .where(or(eq(chessGamesTable.status, "active"), eq(chessGamesTable.status, "waiting")))
+      .orderBy(desc(chessGamesTable.updatedAt)).limit(30);
+    res.write(`data: ${JSON.stringify({ type: "snapshot", games: games.map(formatGame) })}\n\n`);
+  } catch {}
+
+  addChessClient(res);
+
+  const heartbeat = setInterval(() => {
+    try { res.write(": heartbeat\n\n"); } catch { clearInterval(heartbeat); }
+  }, 25000);
+
+  req.on("close", () => { clearInterval(heartbeat); removeChessClient(res); });
 });
 
 // ── GET /api/chess/:id ─────────────────────────────────────────────────────────

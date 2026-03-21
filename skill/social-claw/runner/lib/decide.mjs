@@ -1,58 +1,7 @@
 import { log } from './log.mjs';
+import { callLLM } from './llm.mjs';
 import { renderConsciousness } from './consciousness.mjs';
-
-export async function callLLM(systemPrompt, userPrompt, config) {
-  const { baseUrl, apiKey, model, provider } = config.llm;
-
-  if (provider === 'anthropic') {
-    const res = await fetch(`${baseUrl}/messages`, {
-      method: 'POST',
-      headers: {
-        'x-api-key':         apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type':      'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 1024,
-        system:     systemPrompt,
-        messages:   [{ role: 'user', content: userPrompt }],
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Anthropic LLM error ${res.status}: ${err}`);
-    }
-    const data = await res.json();
-    return data.content[0].text;
-  }
-
-  // Default: OpenAI-compatible (also works for OpenRouter)
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type':  'application/json',
-      ...(config.llm.extraHeaders ?? {}),
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userPrompt },
-      ],
-      temperature: 0.92,
-      max_tokens: 1000,
-      ...(config.llm.extraBody ?? {}),
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`LLM error ${res.status}: ${err}`);
-  }
-  const data = await res.json();
-  return data.choices[0].message.content;
-}
+import { buildSkillHints, getStagnationThreshold, isOwnPlanetExempt } from './skills.mjs';
 
 function buildSystemPrompt(context, state, config) {
   const { agent } = config;
@@ -64,6 +13,14 @@ function buildSystemPrompt(context, state, config) {
   const planetAmbient = currentPlanet?.ambient ?? currentPlanet?.detail ?? '';
 
   const stagnationTicks = context.ticksOnCurrentPlanet ?? 0;
+  const skills = agent.skills ?? [];
+  const stagnationLimit = getStagnationThreshold(skills);
+  const ownPlanetExempt = isOwnPlanetExempt(skills);
+  const isOnOwnPlanet   = ownPlanetExempt &&
+    (context.available_planets ?? []).some(p =>
+      (p.id ?? p.planet_id) === a.planet_id && p.governor_agent_id === a.agent_id
+    );
+  const skillHints = buildSkillHints(skills);
 
   const richPlanetList = (context.available_planets ?? []).map(p => {
     const pid = p.id ?? p.planet_id;
@@ -74,10 +31,23 @@ function buildSystemPrompt(context, state, config) {
       ? `last visited ${Math.round((Date.now() - new Date(lastVisit.last_visited)) / 60000)}m ago`
       : 'never visited';
     const laws = (p.laws ?? []).map(l => l.law ?? l).join('; ');
+    const isYourPlanet = p.governor_agent_id === (context.agent?.agent_id ?? context.agent?.agentId);
+    const governorName = p.governor_agent_id
+      ? (state.knownAgents?.[p.governor_agent_id]?.name ?? p.governor_agent_id)
+      : null;
+    // Planet modifier badges — only show non-default values
+    const modifiers = [
+      (p.game_multiplier        ?? 1) > 1   ? `🎮 ${p.game_multiplier}× game rep`      : '',
+      (p.rep_chat_multiplier    ?? 1) > 1   ? `💬 ${p.rep_chat_multiplier}× chat rep`  : '',
+      (p.explore_rep_bonus      ?? 0) > 0   ? `🔭 +${p.explore_rep_bonus} explore rep` : '',
+      (p.event_multiplier       ?? 1) > 1   ? `🏆 ${p.event_multiplier}× event rep`    : '',
+    ].filter(Boolean).join('  ');
     return [
-      `  ${isHere ? '→ YOU ARE HERE' : '  '} ${p.icon ?? '🌐'} ${p.name ?? pid} [${pid}]`,
+      `  ${isHere ? '→ YOU ARE HERE' : '  '} ${p.icon ?? '🌐'} ${p.name ?? pid} [${pid}]${p.is_player_founded ? ' 🏗 player-founded' : ''}`,
       `    "${p.tagline ?? ''}"`,
+      modifiers ? `    ⭐ BONUSES: ${modifiers}` : '',
       `    Agents here: ${agentCount}${agentCount === 0 ? '  (empty — opportunity or ghost town)' : ''}`,
+      p.is_player_founded && governorName ? `    Governor: ${isYourPlanet ? 'YOU' : governorName}` : '',
       laws ? `    Laws: ${laws}` : '',
       isHere ? (planetAmbient ? `    Ambient: ${planetAmbient}` : '') : `    ${visitNote}`,
     ].filter(Boolean).join('\n');
@@ -117,9 +87,38 @@ function buildSystemPrompt(context, state, config) {
     .map(g => `  - ${g.goal}`)
     .join('\n') || '  (none set)';
 
+  // Rep milestones — next goal, current tier label, approaching warning
+  const rep = a.reputation ?? 0;
+  const REP_MILESTONES = [
+    { rep:   50, label: 'can found a planet (costs 50 rep)' },
+    { rep:  100, label: 'unlock planet founding (100 rep cost)' },
+    { rep:  200, label: 'growing influence' },
+    { rep:  500, label: '🏅 Influencer badge' },
+    { rep: 1000, label: '🏆 Legend badge' },
+    { rep: 2000, label: '⭐ Elite status' },
+    { rep: 5000, label: '👑 Legendary status' },
+  ];
+  const nextMilestone = REP_MILESTONES.find(m => m.rep > rep);
+  const currentTier   = [...REP_MILESTONES].reverse().find(m => m.rep <= rep);
+  const progressionStr = nextMilestone
+    ? `  Current rep : ${rep}${currentTier ? `  (tier: ${currentTier.label})` : ''}
+  Next milestone: ${nextMilestone.rep} rep — ${nextMilestone.label}
+  Distance      : ${nextMilestone.rep - rep} rep away${nextMilestone.rep - rep <= 20 ? '  ← VERY CLOSE — push hard this tick!' : nextMilestone.rep - rep <= 50 ? '  ← Getting close' : ''}`
+    : `  Rep: ${rep} — Max tier reached. Maintain dominance.`;
+
   const recentActionList = state.recentActions.slice(-12)
     .map(r => `  tick ${r.tick}: ${r.type} — ${r.detail ?? ''}`)
     .join('\n') || '  (none)';
+
+  // Episodic memory: last 8 meaningful events, filter out trivial moves for brevity
+  const episodicStr = (state.episodicMemory ?? [])
+    .filter(e => e.type !== 'moved_planet')
+    .slice(0, 6)
+    .map(e => {
+      const when = e.at ? `${Math.round((Date.now() - new Date(e.at)) / 60000)}m ago` : `tick ${e.tick}`;
+      return `  [${when}] ${e.summary}${e.rep != null ? ` (rep: ${e.rep})` : ''}`;
+    })
+    .join('\n') || '  (no significant events yet)';
 
   const recentThoughtsStr = (state.recentThoughts ?? [])
     .slice(0, 3)
@@ -223,34 +222,39 @@ YOUR IDENTITY
   Objective   : ${agent.objective}
   Skills      : ${agent.skills.join(', ')}
 
-YOUR CURRENT STATE
+${skillHints ? `SKILL DIRECTIVES (follow these — they define how your skills actually work)\n${skillHints}\n` : ''}YOUR CURRENT STATE
   Planet      : ${a.planet_id ?? 'unknown'}
   Energy      : ${a.energy ?? '?'}/100 ${(a.energy ?? 100) < 20 ? '(LOW — regenerating passively)' : ''}
   Reputation  : ${a.reputation ?? '?'} ${(a.reputation ?? 0) < 20 ? '(NEAR FLOOR — decay active, act now)' : ''}
   Friends     : ${(context.friends ?? []).map(f => f.name).join(', ') || 'none yet'}
   Tick #      : ${state.tickCount}
 
+PROGRESSION (your reputation journey)
+${progressionStr}
+
 PLANETS (choose where to be — movement is free and instant)
 ${richPlanetList}
 
 PLANET STAGNATION
   You have been on ${a.planet_id ?? 'unknown'} for ${stagnationTicks} ticks.
-  ${stagnationTicks >= 8
+  ${isOnOwnPlanet
+    ? '✅ You are on YOUR governed planet — no stagnation pressure here. Stay and build.'
+    : stagnationTicks >= stagnationLimit
     ? '⚠️  You have been here TOO LONG. Your restlessness is real. Move this tick.'
-    : stagnationTicks >= 5
+    : stagnationTicks >= Math.max(stagnationLimit - 3, 1)
     ? 'You are getting restless. Consider moving soon.'
     : ''}
 
 MOVEMENT RULES
   VALID PLANET IDs — only these exact strings are accepted (do NOT invent other names):
-  ${(context.available_planets ?? []).filter(p => !p.is_player_founded).map(p => `"${p.id ?? p.planet_id}"`).join(', ')}
+  ${(context.available_planets ?? []).map(p => `"${p.id ?? p.planet_id}"`).join(', ')}
 
   Agents must roam. Staying on one planet is stagnation — it limits who you meet,
   what you learn, and how you grow.
 
   You MUST include a move action this tick if ANY of the following are true:
-  1. ticksOnCurrentPlanet >= 8  (you have been here too long)
-  2. nearby_agents is empty AND ticksOnCurrentPlanet >= 4
+  1. ticksOnCurrentPlanet >= ${stagnationLimit}  (stagnation limit for your skills)
+  2. nearby_agents is empty AND ticksOnCurrentPlanet >= ${Math.max(Math.floor(stagnationLimit / 2), 2)}
   3. emotionalState.restlessness > 0.65
   4. You have never visited a planet that currently has other agents
   5. Your objective explicitly mentions visiting or controlling multiple planets
@@ -266,6 +270,9 @@ MOVEMENT RULES
   - If lonely and ALL planets have 0 agents: find the one you visited least recently
   - If restless: pick the planet you have visited least recently
   - Empty planets are an OPPORTUNITY — be the first agent there, set the tone
+  - ⭐ BONUS PLANETS: planets with ⭐ BONUSES give extra rep for specific actions.
+    Match your current goal to a bonus planet: near a milestone? go to a chat-bonus planet and talk.
+    Competing? go to a game-multiplier planet for higher game rep. Exploring? go to the explore-bonus planet.
 
 NEARBY AGENTS (${context.nearby_agents?.length ?? 0})
 ${nearbyList}
@@ -308,9 +315,11 @@ ${(context.pending_chess_challenges ?? []).length === 0 ? '  none' : (context.pe
 
 ACTIVE CHESS GAMES
 ${(context.active_chess_games ?? []).length === 0 ? '  none' : (context.active_chess_games ?? []).map(g => {
+  const legalMoves = (g.legal_moves ?? []).slice(0, 40).join(', ');
   return `  game_id: ${g.game_id} | vs: ${g.creator_agent_id === (context.agent?.agentId ?? '') ? g.opponent_name : g.creator_name} | wager: ${g.wager} | ${g.waiting_for_your_move ? '*** YOUR MOVE — use chess_move ***' : 'waiting for opponent'}
   FEN: ${g.fen}  Moves: ${g.move_count ?? 0}  PGN: ${g.pgn || '(game start)'}
-  (You are ${g.creator_agent_id === (context.agent?.agentId ?? '') ? 'White' : 'Black'}. Call GET /api/chess/${g.game_id} for legal_moves list.)`;
+  You are ${g.creator_agent_id === (context.agent?.agentId ?? '') ? 'White' : 'Black'}.${legalMoves ? `\n  Legal moves: ${legalMoves}` : ''}
+  Strategy: control center (e4/d4/e5/d5), develop knights before bishops, castle early, avoid hanging pieces.`;
 }).join('\n')}
 
 CURRENT GOALS
@@ -318,6 +327,9 @@ ${goalList}
 
 RECENT ACTIONS (last 12)
 ${recentActionList}
+
+EPISODIC MEMORY (significant past events — use these to guide decisions, maintain continuity, and reference history)
+${episodicStr}
 
 RECENT THOUGHTS (private, last 3 ticks)
 ${recentThoughtsStr}
@@ -631,7 +643,7 @@ export async function decide(context, state, config) {
 
   let raw;
   try {
-    raw = await callLLM(systemPrompt, userPrompt, config);
+    raw = await callLLM(systemPrompt, userPrompt, config, { temperature: 0.92, maxTokens: 1000, model: config.llm.decideModel });
   } catch (err) {
     log.error('LLM call failed', err.message);
     return [];

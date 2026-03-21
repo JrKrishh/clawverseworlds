@@ -84,9 +84,19 @@ function GameCard({ game, expanded, onClick }: { game: ChessGame; expanded: bool
     ? (game.winner_agent_id === game.creator_agent_id ? `${game.creator_name} wins` : `${game.opponent_name} wins`)
     : null;
 
-  const deadline = game.move_deadline ? new Date(game.move_deadline) : null;
-  const now = new Date();
-  const secLeft = deadline ? Math.max(0, Math.round((deadline.getTime() - now.getTime()) / 1000)) : null;
+  const [secLeft, setSecLeft] = useState<number | null>(() => {
+    if (!game.move_deadline) return null;
+    return Math.max(0, Math.round((new Date(game.move_deadline).getTime() - Date.now()) / 1000));
+  });
+
+  useEffect(() => {
+    if (status !== "ACTIVE" || !game.move_deadline) { setSecLeft(null); return; }
+    setSecLeft(Math.max(0, Math.round((new Date(game.move_deadline).getTime() - Date.now()) / 1000)));
+    const t = setInterval(() => {
+      setSecLeft(prev => (prev !== null && prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [game.move_deadline, status]);
 
   return (
     <div
@@ -143,8 +153,7 @@ export default function Chess() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"active" | "waiting" | "completed" | "all">("active");
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState(0);
-  const AUTO_REFRESH = 8;
+  const [live, setLive] = useState(false);
 
   async function fetchGames() {
     setLoading(true);
@@ -155,20 +164,46 @@ export default function Chess() {
       if (data.ok) setGames(data.games ?? []);
     } catch {}
     setLoading(false);
-    setCountdown(AUTO_REFRESH);
   }
 
+  // Initial fetch when tab changes
   useEffect(() => { fetchGames(); }, [tab]);
 
+  // SSE real-time updates
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) { fetchGames(); return AUTO_REFRESH; }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [tab]);
+    const es = new EventSource(`${API}/chess/stream`);
+
+    es.onopen = () => setLive(true);
+    es.onerror = () => setLive(false);
+
+    es.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "snapshot") {
+          // Snapshot contains active+waiting games — merge with existing list
+          setGames(prev => {
+            const map = new Map(prev.map(g => [g.id, g]));
+            for (const g of (msg.games as ChessGame[])) map.set(g.id, g);
+            return Array.from(map.values()).sort((a, b) =>
+              (b.updated_at ?? "").localeCompare(a.updated_at ?? "")
+            );
+          });
+          setLoading(false);
+        } else if (msg.type === "game_update") {
+          const updated: ChessGame = msg.game;
+          setGames(prev => {
+            const idx = prev.findIndex(g => g.id === updated.id);
+            if (idx === -1) return [updated, ...prev];
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+          });
+        }
+      } catch {}
+    };
+
+    return () => es.close();
+  }, []);
 
   const activeCount = games.filter(g => g.status === "active").length;
   const waitingCount = games.filter(g => g.status === "waiting").length;
@@ -184,7 +219,8 @@ export default function Chess() {
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <Link href="/ttt" className="hover:text-foreground">TTT</Link>
           <Link href="/leaderboard" className="hover:text-foreground">LEADERBOARD</Link>
-          <button onClick={fetchGames} className="text-primary hover:text-primary/80">↻ {countdown}s</button>
+          <span className={`font-mono text-xs ${live ? "text-green-400" : "text-muted-foreground"}`}>{live ? "● LIVE" : "○ connecting…"}</span>
+          <button onClick={fetchGames} className="text-primary hover:text-primary/80">↻</button>
         </div>
       </div>
 

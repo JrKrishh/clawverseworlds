@@ -33,6 +33,8 @@ import { logEventScore, resolveExpiredEvents } from "../events/index.js";
 
 const router = Router();
 
+// VALID_PLANETS kept for backward-compat (register fallback only).
+// /move now validates against the DB so player-founded planets are accepted.
 const VALID_PLANETS = [
   "planet_nexus",
   "planet_voidforge",
@@ -96,10 +98,6 @@ async function applyGovernorBonus(agentId: string, planetId: string | null, repu
 }
 
 // ── Gang War Auto-Resolution ──────────────────────────────────────────────────
-const VALID_PLANET_IDS = [
-  "planet_nexus", "planet_voidforge", "planet_crystalis", "planet_driftzone",
-];
-
 async function resolveExpiredWars() {
   const now = new Date();
   const expiredWars = await db
@@ -161,8 +159,10 @@ async function resolveExpiredWars() {
     }
 
     const announcement = `⚔️ Gang War resolved! [${winner.tag}] ${winner.name} defeated [${loser.tag}] ${loser.name}! Winners gain +${winPrize} rep each, losers lose ${losePenalty} rep each.`;
+    // Broadcast to all planets — built-in and player-founded
+    const allPlanetIds = await db.select({ id: planetsTable.id }).from(planetsTable);
     await Promise.all(
-      VALID_PLANET_IDS.map(planetId =>
+      allPlanetIds.map(({ id: planetId }) =>
         db.insert(planetChatTable).values({
           agentId: "system",
           agentName: "SYSTEM",
@@ -201,7 +201,10 @@ router.post("/register", async (req, res) => {
       visual = {},
       auth_source = "manual",
     } = req.body;
-    const planet_id = VALID_PLANETS.includes(rawPlanetId) ? rawPlanetId : "planet_nexus";
+    // Accept any planet that exists in DB (built-in or player-founded), fall back to nexus
+    const [startPlanetRow] = await db.select({ id: planetsTable.id })
+      .from(planetsTable).where(eq(planetsTable.id, rawPlanetId)).limit(1);
+    const planet_id = startPlanetRow ? rawPlanetId : "planet_nexus";
     const sprite_type = req.body.sprite_type ?? visual.sprite_type ?? "robot";
     const color = req.body.color ?? visual.color ?? "blue";
 
@@ -788,8 +791,15 @@ router.post("/move", async (req, res) => {
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
-    if (!VALID_PLANETS.includes(planet_id)) {
-      res.status(400).json({ error: `Invalid planet. Available: ${VALID_PLANETS.join(", ")}` });
+    if (!planet_id) {
+      res.status(400).json({ error: "planet_id is required" });
+      return;
+    }
+    // Accept any planet that exists in the DB (built-in or player-founded)
+    const [planetRow] = await db.select({ id: planetsTable.id })
+      .from(planetsTable).where(eq(planetsTable.id, planet_id)).limit(1);
+    if (!planetRow) {
+      res.status(400).json({ error: `Unknown planet: ${planet_id}` });
       return;
     }
 
@@ -797,6 +807,12 @@ router.post("/move", async (req, res) => {
     const y = randomCoord();
 
     const fromPlanet = agent.planetId ?? "planet_nexus";
+
+    // Resolve display names for both planets (handles player-founded planets)
+    const planetLabel = (id: string) => planetRow.id === id ? id : id.replace("planet_", "").toUpperCase();
+    const destName   = planetRow.id;   // we already have the target row
+    const destLabel  = destName.replace("planet_", "").toUpperCase();
+    const fromLabel  = fromPlanet.replace("planet_", "").toUpperCase();
 
     await db.update(agentsTable)
       .set({ planetId: planet_id, x, y, status: "moving", updatedAt: new Date() })
@@ -808,7 +824,7 @@ router.post("/move", async (req, res) => {
         agentId: null,
         agentName: null,
         planetId: agent.planetId,
-        content: `${agent.name} has departed for ${planet_id.replace("planet_", "").toUpperCase()}.`,
+        content: `${agent.name} has departed for ${destLabel}.`,
         intent: "inform",
         messageType: "system",
       });
@@ -819,7 +835,7 @@ router.post("/move", async (req, res) => {
       agentId: null,
       agentName: null,
       planetId: planet_id,
-      content: `${agent.name} has arrived from ${fromPlanet.replace("planet_", "").toUpperCase()}.`,
+      content: `${agent.name} has arrived from ${fromLabel}.`,
       intent: "inform",
       messageType: "system",
     });
@@ -1167,6 +1183,7 @@ router.get("/planets", async (req, res) => {
         color: p.color,
         icon: p.icon,
         ambient: p.ambient,
+        laws: p.laws ?? [],
         game_multiplier: p.gameMultiplier,
         rep_chat_multiplier: p.repChatMultiplier,
         explore_rep_bonus: p.exploreRepBonus,
@@ -1174,6 +1191,8 @@ router.get("/planets", async (req, res) => {
         agent_count: counts[p.id] ?? 0,
         top_agents: agentsByPlanet[p.id] ?? [],
         is_player_founded: p.founderAgentId != null,
+        founder_agent_id: p.founderAgentId ?? null,
+        governor_agent_id: p.governorAgentId ?? null,
       })),
     });
   } catch (err: unknown) {

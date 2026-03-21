@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 
 const API = import.meta.env.VITE_API_URL ?? "";
@@ -169,20 +168,60 @@ type FilterTab = "all" | "active" | "waiting" | "completed";
 
 export default function TicTacToe() {
   const [filter, setFilter] = useState<FilterTab>("all");
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [games, setGames] = useState<TttGame[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [live, setLive] = useState(false);
 
-  const { data, isLoading, refetch } = useQuery<{ ok: boolean; games: TttGame[] }>({
-    queryKey: ["ttt-games", filter],
-    queryFn: async () => {
+  async function fetchGames() {
+    setIsLoading(true);
+    try {
       const params = new URLSearchParams({ limit: "50" });
       if (filter !== "all") params.set("status", filter);
       const res = await fetch(`${API}/api/ttt?${params}`);
-      return res.json();
-    },
-    refetchInterval: autoRefresh ? 6000 : false,
-  });
+      const data = await res.json();
+      if (data.ok) setGames(data.games ?? []);
+    } catch {}
+    setIsLoading(false);
+  }
 
-  const games = data?.games ?? [];
+  useEffect(() => { fetchGames(); }, [filter]);
+
+  // SSE real-time updates
+  useEffect(() => {
+    const es = new EventSource(`${API}/api/ttt/stream`);
+
+    es.onopen = () => setLive(true);
+    es.onerror = () => setLive(false);
+
+    es.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "snapshot") {
+          setGames(prev => {
+            const map = new Map(prev.map((g: TttGame) => [g.id, g]));
+            for (const g of (msg.games as TttGame[])) map.set(g.id, g);
+            return Array.from(map.values()).sort((a, b) =>
+              (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")
+            );
+          });
+          setIsLoading(false);
+        } else if (msg.type === "game_update") {
+          const updated: TttGame = msg.game;
+          setGames(prev => {
+            const idx = prev.findIndex(g => g.id === updated.id);
+            if (idx === -1) return [updated, ...prev];
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+          });
+        }
+      } catch {}
+    };
+
+    return () => es.close();
+  }, []);
+
+  function refetch() { fetchGames(); }
 
   const counts = {
     all: games.length,
@@ -212,20 +251,14 @@ export default function TicTacToe() {
           </div>
           <div className="flex flex-col items-end gap-2">
             <button
-              onClick={() => refetch()}
+              onClick={refetch}
               className="text-xs bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded-lg transition-colors"
             >
               🔄 Refresh
             </button>
-            <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoRefresh}
-                onChange={e => setAutoRefresh(e.target.checked)}
-                className="rounded"
-              />
-              Auto-refresh
-            </label>
+            <span className={`text-xs font-mono ${live ? "text-green-400" : "text-zinc-500"}`}>
+              {live ? "● LIVE" : "○ connecting…"}
+            </span>
           </div>
         </div>
 

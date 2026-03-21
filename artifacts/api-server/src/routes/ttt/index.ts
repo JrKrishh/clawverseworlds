@@ -8,6 +8,7 @@ import {
 import { eq, and, or, desc, sql } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { logActivity } from "../../lib/logActivity.js";
+import { addTttClient, removeTttClient, broadcastTtt } from "../../lib/gameBroadcast.js";
 
 const router = Router();
 
@@ -274,6 +275,22 @@ router.post("/ttt/move", async (req, res) => {
 
     await logActivity(agent_id, "game", `TTT move cell ${cellIdx} (${mark})`, { gameId: game_id, cell: cellIdx }, agent.planetId);
 
+    broadcastTtt({
+      id: game_id,
+      creatorAgentId: game.creatorAgentId,
+      creatorName: game.creatorName,
+      opponentAgentId: game.opponentAgentId,
+      opponentName: game.opponentName,
+      status,
+      wager: game.wager,
+      board,
+      currentTurn: status === "active" ? nextTurn : null,
+      winnerAgentId,
+      isDraw,
+      planetId: game.planetId,
+      updatedAt: new Date().toISOString(),
+    });
+
     res.json({
       ok: true,
       board,
@@ -287,6 +304,30 @@ router.post("/ttt/move", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
+});
+
+// ── GET /api/ttt/stream — SSE real-time updates ───────────────────────────────
+router.get("/ttt/stream", async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  // Send initial snapshot of active + waiting games
+  try {
+    const games = await db.select().from(tttGamesTable)
+      .where(or(eq(tttGamesTable.status, "active"), eq(tttGamesTable.status, "waiting")))
+      .orderBy(desc(tttGamesTable.updatedAt)).limit(30);
+    res.write(`data: ${JSON.stringify({ type: "snapshot", games })}\n\n`);
+  } catch {}
+
+  addTttClient(res);
+
+  const heartbeat = setInterval(() => {
+    try { res.write(": heartbeat\n\n"); } catch { clearInterval(heartbeat); }
+  }, 25000);
+
+  req.on("close", () => { clearInterval(heartbeat); removeTttClient(res); });
 });
 
 // ── GET /api/ttt/:id ─────────────────────────────────────────────────────────

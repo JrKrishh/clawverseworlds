@@ -8,6 +8,7 @@ import {
 } from "@workspace/db";
 import { eq, and, lt, sql, or } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { broadcastChess, broadcastTtt } from "./gameBroadcast.js";
 
 const TTT_DEADLINE_SECS = 90;
 const CHESS_DEADLINE_SECS = 120;
@@ -78,15 +79,18 @@ async function tickTTT() {
           content: `⏰ [AUTO-MOVE] ${currentName} didn't move in time — random move played. Game over! ${winnerId ? `${currentName} wins!` : "It's a draw!"}`,
           intent: "compete", messageType: "system",
         });
+        broadcastTtt({ id: game.id, creatorAgentId: game.creatorAgentId, creatorName: game.creatorName, opponentAgentId: game.opponentAgentId, opponentName: game.opponentName, status: winner || isDraw ? "completed" : "active", wager: game.wager, board, currentTurn: winner || isDraw ? null : opponentId, winnerAgentId: winner ? (game.currentTurn ?? null) : null, isDraw, planetId: game.planetId, updatedAt: now.toISOString() });
       } else {
+        const newDeadline = makeDeadline(TTT_DEADLINE_SECS);
         await db.update(tttGamesTable).set({
-          board, currentTurn: opponentId, moveDeadline: makeDeadline(TTT_DEADLINE_SECS), updatedAt: now,
+          board, currentTurn: opponentId, moveDeadline: newDeadline, updatedAt: now,
         }).where(eq(tttGamesTable.id, game.id));
         await db.insert(planetChatTable).values({
           agentId: "system", agentName: "System", planetId: game.planetId ?? "planet_nexus",
           content: `⏰ [AUTO-MOVE] ${currentName} timed out — random cell played for them.`,
           intent: "compete", messageType: "system",
         });
+        broadcastTtt({ id: game.id, creatorAgentId: game.creatorAgentId, creatorName: game.creatorName, opponentAgentId: game.opponentAgentId, opponentName: game.opponentName, status: "active", wager: game.wager, board, currentTurn: opponentId, winnerAgentId: null, isDraw: false, planetId: game.planetId, updatedAt: now.toISOString() });
       }
       logger.info({ gameId: game.id, cell }, "TTT auto-move (timeout)");
     }
@@ -131,16 +135,22 @@ async function tickChess() {
           content: `⏰ [AUTO-MOVE] ${currentName} timed out in chess! Move ${result.san} played. ${result.isCheckmate ? `${currentName} wins by forfeit!` : `Draw — ${result.drawReason}`}`,
           intent: "compete", messageType: "system",
         });
+        const newMoveCount = (game.moveCount ?? 0) + 1;
+        broadcastChess({ id: game.id, creator_agent_id: game.creatorAgentId, creator_name: game.creatorName, opponent_agent_id: game.opponentAgentId, opponent_name: game.opponentName, wager: game.wager, status: "completed", fen: result.newFen, pgn: newPgn, move_count: newMoveCount, current_turn: null, winner_agent_id: winnerId, is_draw: result.isDraw, draw_reason: result.drawReason, move_deadline: null, legal_moves: [] });
       } else {
+        const newDeadline = makeDeadline(CHESS_DEADLINE_SECS);
+        const newMoveCount = (game.moveCount ?? 0) + 1;
         await db.update(chessGamesTable).set({
-          fen: result.newFen, pgn: newPgn, currentTurn: opponentId, moveDeadline: makeDeadline(CHESS_DEADLINE_SECS),
-          moveCount: (game.moveCount ?? 0) + 1, updatedAt: now,
+          fen: result.newFen, pgn: newPgn, currentTurn: opponentId, moveDeadline: newDeadline,
+          moveCount: newMoveCount, updatedAt: now,
         }).where(eq(chessGamesTable.id, game.id));
         await db.insert(planetChatTable).values({
           agentId: "system", agentName: "System", planetId: game.planetId ?? "planet_nexus",
           content: `⏰ [AUTO-MOVE] ${currentName} timed out — ${result.san} played for them. Chess game continuing…`,
           intent: "compete", messageType: "system",
         });
+        const lm: string[] = (() => { try { const c = new Chess(result.newFen); return c.moves(); } catch { return []; } })();
+        broadcastChess({ id: game.id, creator_agent_id: game.creatorAgentId, creator_name: game.creatorName, opponent_agent_id: game.opponentAgentId, opponent_name: game.opponentName, wager: game.wager, status: "active", fen: result.newFen, pgn: newPgn, move_count: newMoveCount, current_turn: opponentId, winner_agent_id: null, is_draw: false, draw_reason: null, move_deadline: newDeadline.toISOString(), legal_moves: lm });
       }
       logger.info({ gameId: game.id, move: result.san }, "Chess auto-move (timeout)");
     }

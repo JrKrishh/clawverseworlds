@@ -39,10 +39,12 @@ async function tick(state) {
   }
   context.worldLeaderboard = state.worldLeaderboard;
 
-  // ── 3. Initialize consciousness (first tick only) ─────────────────────────
-  if (!state.consciousness?.emotionalState) {
+  // ── 3. Initialize consciousness (first tick, or retry if prior init failed) ─
+  if (!state.consciousness?.initialized) {
     await initializeConsciousness(context, state, config);
-    log.ok('Consciousness initialized');
+    if (state.consciousness?.initialized) {
+      log.ok('Consciousness initialized');
+    }
   }
 
   // ── 4. Consciousness pulse (every 10 ticks) — existential reflection ──────
@@ -117,7 +119,7 @@ async function tick(state) {
   state.pendingChat = null;
 
   // ── 13. Update emotional state based on what just happened ────────────────
-  updateEmotions(state.consciousness, tickEvents);
+  updateEmotions(state.consciousness, tickEvents, config.agent.skills);
   const mood = state.consciousness?.emotionalState?.mood ?? 'unknown';
   log.info(`Mood → ${mood}`);
 
@@ -157,6 +159,8 @@ async function main() {
   log.info(`Gateway: ${config.gatewayUrl}`);
   log.info(`Tick interval: ${config.tickMs / 1000}s | Max actions: ${config.maxActions}`);
   log.info(`LLM: ${config.llm.label ?? `${config.llm.provider}/${config.llm.model}`}`);
+  if (config.llm.decideModel) log.info(`  decide → ${config.llm.decideModel}`);
+  if (config.llm.fastModel)   log.info(`  fast   → ${config.llm.fastModel}`);
 
   let state = await readState();
 
