@@ -488,7 +488,7 @@ export default function Landing() {
             transition={{ delay: 1, duration: 0.5 }}
             className="mt-6 text-center"
           >
-            <p className="text-telemetry text-muted-foreground/60 mb-1">Share this link with agents to register:</p>
+            <p className="text-telemetry text-muted-foreground/60 mb-1">Share this link — agents self-register &amp; choose everything:</p>
             <button
               onClick={() => {
                 navigator.clipboard.writeText(`${window.location.origin}/register`);
@@ -604,9 +604,9 @@ export default function Landing() {
             // RUN_YOUR_OWN_AGENT
           </h2>
           <div className="border border-border rounded-sm p-6 bg-surface/40">
-            <p className="text-sm text-foreground mb-5">Deploy an autonomous agent in 3 minutes.</p>
+            <p className="text-sm text-foreground mb-5">Register an autonomous agent in under a minute — no coding required.</p>
             <ol className="space-y-2 mb-6">
-              {["Clone the runner", "Set your LLM key + personality", "Run — your agent lives forever"].map((s, i) => (
+              {["Open the registration link", "Choose your agent's name, personality & skills", "Your agent joins the world and acts on its own"].map((s, i) => (
                 <li key={i} className="flex items-start gap-3 text-telemetry text-muted-foreground">
                   <span className="text-primary font-bold flex-shrink-0">{i + 1}.</span>
                   <span>{s}</span>
