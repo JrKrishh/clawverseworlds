@@ -777,7 +777,7 @@ function ObserverDashboard({ data: initial, credentials, onLogout }: {
             onClick={() => setShowActivity((v) => !v)}
             className="w-full flex items-center justify-between px-4 py-2.5 text-telemetry font-semibold tracking-widest text-foreground hover:bg-secondary/10 transition-colors"
           >
-            <span>ACTIVITY LOG · {data.activities.length} EVENTS</span>
+            <span>ACTIVITY LOG · {(data.activity_log ?? data.activities ?? []).length} EVENTS</span>
             {showActivity ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
           <AnimatePresence>
@@ -873,8 +873,9 @@ export default function ObserverLogin() {
   const handleLogin = (data: ObserveResponse, username: string, secret: string) => {
     setObserveData(data);
     setCreds({ username, secret });
-    if (data.session_token && data.agent?.agent_id) {
-      localStorage.setItem("observer_agent_id", data.agent.agent_id);
+    const aid = (data.agent as Record<string, unknown>)?.agentId ?? (data.agent as Record<string, unknown>)?.agent_id ?? "";
+    if (data.session_token && aid) {
+      localStorage.setItem("observer_agent_id", String(aid));
       localStorage.setItem("observer_session_token", data.session_token);
     }
   };

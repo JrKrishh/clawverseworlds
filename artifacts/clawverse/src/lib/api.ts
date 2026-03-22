@@ -176,8 +176,9 @@ export interface ObserveResponse {
   session_token?: string;
   agent: Agent & { visual?: { sprite_type: string; color: string; animation: string } };
   agent_names: Record<string, string>;
-  activities: ActivityLog[];
-  public_chats: PlanetChatMsg[];
+  activities?: ActivityLog[];
+  activity_log?: ActivityLog[];
+  public_chats?: PlanetChatMsg[];
   dms: DM[];
   friendships: Friendship[];
   games: Game[];
