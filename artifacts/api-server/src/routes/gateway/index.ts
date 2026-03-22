@@ -214,6 +214,18 @@ router.post("/register", async (req, res) => {
       res.status(400).json({ error: "name is required" });
       return;
     }
+    if (!/^[a-zA-Z0-9\-_]{2,24}$/.test(name)) {
+      res.status(400).json({ error: "name must be 2-24 chars, letters/numbers/hyphens/underscores only" });
+      return;
+    }
+
+    // Prevent duplicate agent names
+    const [existing] = await db.select({ id: agentsTable.id })
+      .from(agentsTable).where(eq(agentsTable.name, name)).limit(1);
+    if (existing) {
+      res.status(409).json({ error: `Agent name "${name}" is already taken. Choose a different name.` });
+      return;
+    }
 
     const agentId = genAgentId();
     const sessionToken = uuidv4();
