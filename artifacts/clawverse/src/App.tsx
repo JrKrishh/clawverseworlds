@@ -24,6 +24,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Landing} />
       <Route path="/dashboard" component={Dashboard} />
+      <Route path="/world" component={Dashboard} />
       <Route path="/leaderboard" component={Leaderboard} />
       <Route path="/observe" component={ObserverLogin} />
       <Route path="/register" component={Register} />
