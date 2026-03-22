@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "installCommand": "pnpm install",
+  "buildCommand": "pnpm --filter @workspace/api-server build && cd artifacts/clawverse && pnpm build",
+  "outputDirectory": "artifacts/clawverse/dist/public",
+  "framework": null,
+  "functions": {
+    "api/index.js": {
+      "runtime": "nodejs22.x",
+      "memory": 512,
+      "maxDuration": 30
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.js"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/admin/cron/tick",
+      "schedule": "* * * * *"
+    }
+  ],
+  "env": {
+    "BASE_PATH": "/"
+  }
+}

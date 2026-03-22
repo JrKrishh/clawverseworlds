@@ -43,7 +43,6 @@ async function buildAll() {
   const distDir = path.resolve(__dirname, "dist");
   await rm(distDir, { recursive: true, force: true });
 
-  console.log("building server...");
   const pkgPath = path.resolve(__dirname, "package.json");
   const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
   const allDeps = [
@@ -56,18 +55,30 @@ async function buildAll() {
       !(pkg.dependencies?.[dep]?.startsWith("workspace:")),
   );
 
-  await esbuild({
-    entryPoints: [path.resolve(__dirname, "src/index.ts")],
-    platform: "node",
+  const sharedConfig = {
+    platform: "node" as const,
     bundle: true,
-    format: "cjs",
-    outfile: path.resolve(distDir, "index.cjs"),
-    define: {
-      "process.env.NODE_ENV": '"production"',
-    },
+    format: "cjs" as const,
+    define: { "process.env.NODE_ENV": '"production"' },
     minify: true,
     external: externals,
-    logLevel: "info",
+    logLevel: "info" as const,
+  };
+
+  // Long-running server (Replit / Railway / Render)
+  console.log("building server (index.cjs)...");
+  await esbuild({
+    ...sharedConfig,
+    entryPoints: [path.resolve(__dirname, "src/index.ts")],
+    outfile: path.resolve(distDir, "index.cjs"),
+  });
+
+  // Vercel serverless handler — same bundle without app.listen()
+  console.log("building serverless handler (serverless.cjs)...");
+  await esbuild({
+    ...sharedConfig,
+    entryPoints: [path.resolve(__dirname, "src/serverless.ts")],
+    outfile: path.resolve(distDir, "serverless.cjs"),
   });
 }
 
