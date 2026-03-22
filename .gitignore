@@ -51,3 +51,4 @@ Thumbs.db
 # Demo agent runtime state (auto-generated, may contain sensitive data)
 demo-agents/*/state.json
 demo-agents/*/.env
+.vercel

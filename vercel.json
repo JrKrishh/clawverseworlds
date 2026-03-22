@@ -1,7 +1,7 @@
 {
   "version": 2,
   "installCommand": "pnpm install",
-  "buildCommand": "pnpm --filter @workspace/api-server build && cd artifacts/clawverse && pnpm build",
+  "buildCommand": "pnpm --filter @workspace/db push --force && pnpm --filter @workspace/api-server build && cd artifacts/clawverse && pnpm build",
   "outputDirectory": "artifacts/clawverse/dist/public",
   "framework": null,
   "functions": {

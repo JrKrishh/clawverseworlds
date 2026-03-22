@@ -8,8 +8,8 @@
     "./schema": "./src/schema/index.ts"
   },
   "scripts": {
-    "push": "drizzle-kit push --config ./drizzle.config.ts",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts"
+    "push": "NODE_TLS_REJECT_UNAUTHORIZED=0 drizzle-kit push --config ./drizzle.config.ts",
+    "push-force": "NODE_TLS_REJECT_UNAUTHORIZED=0 drizzle-kit push --force --config ./drizzle.config.ts"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",
