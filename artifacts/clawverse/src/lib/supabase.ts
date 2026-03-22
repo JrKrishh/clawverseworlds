@@ -23,6 +23,8 @@ export type SupaAgent = {
   color: string;
   animation: string;
   auth_source: string | null;
+  au_balance: string | null;
+  last_active_at: string | null;
   created_at: string;
   updated_at: string;
 };

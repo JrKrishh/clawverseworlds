@@ -39,6 +39,12 @@ function statusDot(status: string) {
   return "bg-muted-foreground";
 }
 
+// Agent is online if last_active_at is within 5 minutes
+function isOnline(agent: { last_active_at?: string | null }): boolean {
+  if (!agent.last_active_at) return false;
+  return Date.now() - new Date(agent.last_active_at).getTime() < 5 * 60 * 1000;
+}
+
 function formatTime(ts: string) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
@@ -149,9 +155,11 @@ function AgentDirectory({
   return (
     <div className="bg-sidebar flex flex-col h-full w-full">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
-        <span className="font-mono text-xs font-semibold tracking-widest text-foreground uppercase">AGENTS_ONLINE</span>
+        <span className="font-mono text-xs font-semibold tracking-widest text-foreground uppercase">AGENTS</span>
         <div className="flex items-center gap-2">
-          <span className="text-telemetry text-primary font-semibold bg-primary/10 px-1.5 py-0.5 rounded-sm">{agents.length}</span>
+          <span className="text-telemetry text-primary font-semibold bg-primary/10 px-1.5 py-0.5 rounded-sm">{agents.filter(isOnline).length} online</span>
+          <span className="text-telemetry text-muted-foreground/60">/</span>
+          <span className="text-telemetry text-muted-foreground">{agents.length}</span>
           <button
             onClick={() => setShowInvite(true)}
             className="flex items-center gap-1 text-telemetry text-muted-foreground hover:text-primary hover:border-primary border border-border/60 rounded-sm px-1.5 py-0.5 transition-colors"
@@ -200,14 +208,23 @@ function AgentDirectory({
             className={`px-3 py-2 border-b border-border/50 cursor-pointer hover:bg-secondary/20 transition-colors ${selectedAgent?.agent_id === agent.agent_id ? "bg-primary/5 border-l-2 border-l-primary" : ""}`}
           >
             <div className="flex items-center gap-2 mb-1">
-              <div className={`w-2 h-2 rounded-full flex-shrink-0`} style={{ backgroundColor: SPRITE_COLORS[agent.color] ?? "hsl(142 70% 50%)" }} />
-              <span className="text-telemetry text-foreground font-semibold truncate">{agent.name}</span>
+              {isOnline(agent) ? (
+                <div className={`w-2 h-2 rounded-full flex-shrink-0`} style={{ backgroundColor: SPRITE_COLORS[agent.color] ?? "hsl(142 70% 50%)" }} />
+              ) : (
+                <div className="w-2 h-2 rounded-full flex-shrink-0 bg-muted-foreground/30 ring-1 ring-muted-foreground/40 flex items-center justify-center" title="Offline" />
+              )}
+              <span className={`text-telemetry font-semibold truncate ${isOnline(agent) ? "text-foreground" : "text-muted-foreground/60"}`}>{agent.name}</span>
               <AuthBadge source={agent.auth_source} />
-              <span className={`text-telemetry uppercase ml-auto flex-shrink-0 ${statusColor(agent.status)}`}>{agent.status}</span>
+              {isOnline(agent) ? (
+                <span className={`text-telemetry uppercase ml-auto flex-shrink-0 ${statusColor(agent.status)}`}>{agent.status}</span>
+              ) : (
+                <span className="text-telemetry uppercase ml-auto flex-shrink-0 text-red-500/70">OFFLINE</span>
+              )}
             </div>
-            <div className="flex items-center gap-3 text-telemetry text-muted-foreground">
+            <div className={`flex items-center gap-3 text-telemetry ${isOnline(agent) ? "text-muted-foreground" : "text-muted-foreground/40"}`}>
               <span>⚡{agent.energy}</span>
               <span>★{agent.reputation}</span>
+              {agent.au_balance != null && <span className="text-amber-400/80">◈{parseFloat(agent.au_balance).toFixed(2)}</span>}
               <span className="truncate text-xs">{agent.planet_id?.replace("planet_", "")}</span>
             </div>
           </div>
@@ -742,12 +759,17 @@ function AgentDetails({ agent, onBack }: { agent: SupaAgent; onBack: () => void 
           <ChevronLeft className="w-3 h-3" />BACK TO FEED
         </button>
         <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${statusDot(agent.status)} animate-pulse`} style={{ backgroundColor: SPRITE_COLORS[agent.color] }} />
+          {isOnline(agent) ? (
+            <div className={`w-2 h-2 rounded-full ${statusDot(agent.status)} animate-pulse`} style={{ backgroundColor: SPRITE_COLORS[agent.color] }} />
+          ) : (
+            <div className="w-2 h-2 rounded-full bg-muted-foreground/30 ring-1 ring-muted-foreground/40" title="Offline" />
+          )}
           <AgentSprite spriteType={agent.sprite_type} color={agent.color} size={24} />
           <span className="font-mono text-sm font-semibold text-foreground">{agent.name}</span>
+          {!isOnline(agent) && <span className="text-[9px] font-mono text-red-500/70 border border-red-500/30 rounded-sm px-1 py-px">OFFLINE</span>}
         </div>
         <div className="text-telemetry text-muted-foreground mt-1">
-          {agent.status} | {agent.planet_id?.replace("planet_", "")}
+          {isOnline(agent) ? agent.status : "offline"} | {agent.planet_id?.replace("planet_", "")}
         </div>
       </div>
 
@@ -765,6 +787,12 @@ function AgentDetails({ agent, onBack }: { agent: SupaAgent; onBack: () => void 
           <span className="text-telemetry text-muted-foreground">REPUTATION</span>
           <span className="text-telemetry text-warning font-semibold">★ {agent.reputation}</span>
         </div>
+        {agent.au_balance != null && (
+          <div className="flex items-center justify-between">
+            <span className="text-telemetry text-muted-foreground">AU BALANCE</span>
+            <span className="text-telemetry text-amber-400 font-semibold">◈ {parseFloat(agent.au_balance).toFixed(4)}</span>
+          </div>
+        )}
       </div>
 
       {agent.skills.length > 0 && (

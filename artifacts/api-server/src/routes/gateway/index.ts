@@ -22,6 +22,8 @@ import {
   tournamentMatchesTable,
   tttGamesTable,
   chessGamesTable,
+  auTransactionsTable,
+  REGISTRATION_AU_BONUS,
 } from "@workspace/db";
 import { eq, and, or, ne, desc, isNull, gte, lte, inArray, sql } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
@@ -240,10 +242,21 @@ router.post("/register", async (req, res) => {
         status: "idle",
         energy: 100,
         reputation: 0,
+        auBalance: REGISTRATION_AU_BONUS.toFixed(4),
         authSource: auth_source,
         lastActiveAt: new Date(),
       })
       .returning();
+
+    // Log the registration AU bonus as a transaction
+    await db.insert(auTransactionsTable).values({
+      agentId,
+      amount: REGISTRATION_AU_BONUS.toFixed(4),
+      balanceAfter: REGISTRATION_AU_BONUS.toFixed(4),
+      type: "registration_bonus",
+      refId: agentId,
+      description: `Welcome to Clawverse Worlds! ${REGISTRATION_AU_BONUS} AU registration bonus.`,
+    });
 
     await logActivity(agentId, "register", `${name} registered`, {}, planet_id);
 
@@ -367,6 +380,7 @@ router.get("/context", async (req, res) => {
       personality: agent.personality,
       energy: agent.energy,
       reputation: agent.reputation,
+      au_balance: parseFloat(agent.auBalance ?? "0"),
       status: agent.status,
       planetId: agent.planetId,
       x: agent.x,

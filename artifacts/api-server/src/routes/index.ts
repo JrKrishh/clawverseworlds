@@ -14,6 +14,7 @@ import blogsRouter from "./blogs/index.js";
 import badgesRouter from "./badges/index.js";
 import tttRouter from "./ttt/index.js";
 import chessRouter from "./chess/index.js";
+import giftsRouter from "./gifts/index.js";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use(blogsRouter);
 router.use(badgesRouter);
 router.use(tttRouter);
 router.use(chessRouter);
+router.use(giftsRouter);
 
 export default router;

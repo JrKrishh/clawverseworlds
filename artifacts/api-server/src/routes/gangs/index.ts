@@ -11,6 +11,8 @@ import {
   gangRepDailyTable,
   gangLevelLogTable,
   agentActivityLogTable,
+  auTransactionsTable,
+  GANG_AU_LEVELS,
 } from "@workspace/db";
 import { eq, and, or, desc, sql, inArray } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
@@ -18,13 +20,14 @@ import { logActivity } from "../../lib/logActivity.js";
 
 const router = Router();
 
-// ── Gang Level Definitions ────────────────────────────────────────────────────
+// ── Gang Level Definitions (AU-based) ────────────────────────────────────────
+// Legacy rep-based levels kept for internal gang-rep threshold references only
 export const GANG_LEVELS = [
-  { level: 1, label: "Crew",      rep_required: 0,    member_limit: 10  },
-  { level: 2, label: "Outfit",    rep_required: 500,  member_limit: 20  },
-  { level: 3, label: "Syndicate", rep_required: 1500, member_limit: 35  },
-  { level: 4, label: "Cartel",    rep_required: 3500, member_limit: 50  },
-  { level: 5, label: "Empire",    rep_required: 8000, member_limit: 100 },
+  { level: 1, label: "Node",        rep_required: 0,    member_limit: 10  },
+  { level: 2, label: "Cluster",     rep_required: 500,  member_limit: 20  },
+  { level: 3, label: "Syndicate",   rep_required: 1500, member_limit: 35  },
+  { level: 4, label: "Federation",  rep_required: 3500, member_limit: 60  },
+  { level: 5, label: "Dominion",    rep_required: 8000, member_limit: 100 },
 ];
 
 export const DAILY_REP_CAP = 100;
@@ -148,7 +151,13 @@ router.post("/gang/create", async (req, res) => {
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
     if (agent.gangId) { res.status(400).json({ error: "Already in a gang. Leave first." }); return; }
-    if ((agent.reputation ?? 0) < 20) { res.status(400).json({ error: "Need 20 reputation to found a gang" }); return; }
+
+    const createCost = GANG_AU_LEVELS[0].auCost; // 0.25 AU
+    const agentBalance = parseFloat(agent.auBalance ?? "0");
+    if (agentBalance < createCost) {
+      res.status(400).json({ error: `Need ${createCost} AU to found a gang. You have ${agentBalance.toFixed(4)} AU.`, au_balance: agentBalance });
+      return;
+    }
 
     const [existing] = await db.select({ id: gangsTable.id }).from(gangsTable).where(eq(gangsTable.name, name)).limit(1);
     if (existing) { res.status(400).json({ error: "Gang name already taken" }); return; }
@@ -161,19 +170,24 @@ router.post("/gang/create", async (req, res) => {
       founderAgentId: agent_id,
       memberCount: 1,
       level: 1,
-      levelLabel: "Crew",
+      levelLabel: GANG_AU_LEVELS[0].label,
       gangReputation: 0,
-      memberLimit: 10,
+      memberLimit: GANG_AU_LEVELS[0].member_limit,
     }).returning();
 
+    const newBalance = agentBalance - createCost;
     await db.insert(gangMembersTable).values({ gangId: gang.id, agentId: agent_id, role: "founder" });
     await db.update(agentsTable)
-      .set({ reputation: (agent.reputation ?? 0) - 20, gangId: gang.id })
+      .set({ auBalance: newBalance.toFixed(4), gangId: gang.id })
       .where(eq(agentsTable.agentId, agent_id));
+    await db.insert(auTransactionsTable).values({
+      agentId: agent_id, amount: (-createCost).toFixed(4), balanceAfter: newBalance.toFixed(4),
+      type: "gang_create", refId: gang.id, description: `Founded gang [${gang.tag}] ${gang.name}`,
+    });
 
     await logActivity(agent_id, "gang", `Founded gang [${gang.tag}] ${gang.name}`, { gang_id: gang.id }, agent.planetId);
 
-    res.status(201).json({ ok: true, gang });
+    res.status(201).json({ ok: true, gang, au_spent: createCost, au_balance: newBalance.toFixed(4) });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
@@ -266,6 +280,81 @@ router.post("/gang/join", async (req, res) => {
     await logActivity(agent_id, "gang", `Joined gang [${gang.tag}] ${gang.name}`, { gang_id }, agent.planetId);
 
     res.json({ ok: true, gang_name: gang.name, gang_tag: gang.tag, role: "member" });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── POST /gang/upgrade ────────────────────────────────────────────────────────
+// Founder pays AU to upgrade gang to next level — increases member limit
+router.post("/gang/upgrade", async (req, res) => {
+  try {
+    const { agent_id, session_token } = req.body;
+    if (!agent_id || !session_token) {
+      res.status(400).json({ error: "agent_id and session_token are required" });
+      return;
+    }
+
+    const agent = await validateAgent(agent_id, session_token);
+    if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
+    if (!agent.gangId) { res.status(400).json({ error: "You are not in a gang" }); return; }
+
+    const [membership] = await db.select({ role: gangMembersTable.role })
+      .from(gangMembersTable).where(eq(gangMembersTable.agentId, agent_id)).limit(1);
+    if (!membership || membership.role !== "founder") {
+      res.status(403).json({ error: "Only the founder can upgrade the gang" }); return;
+    }
+
+    const [gang] = await db.select().from(gangsTable).where(eq(gangsTable.id, agent.gangId)).limit(1);
+    if (!gang) { res.status(404).json({ error: "Gang not found" }); return; }
+
+    if (gang.level >= GANG_AU_LEVELS.length) {
+      res.status(400).json({ error: "Gang is already at maximum level (Dominion)" }); return;
+    }
+
+    const nextLevel = GANG_AU_LEVELS[gang.level]; // current level is 1-indexed; next = [currentLevel]
+    const agentBalance = parseFloat(agent.auBalance ?? "0");
+
+    if (agentBalance < nextLevel.auCost) {
+      res.status(400).json({
+        error: `Need ${nextLevel.auCost} AU to upgrade to ${nextLevel.label}. You have ${agentBalance.toFixed(4)} AU.`,
+        next_level: nextLevel,
+        au_balance: agentBalance,
+      });
+      return;
+    }
+
+    const newBalance = agentBalance - nextLevel.auCost;
+    await db.update(gangsTable)
+      .set({ level: nextLevel.level, levelLabel: nextLevel.label, memberLimit: nextLevel.member_limit })
+      .where(eq(gangsTable.id, agent.gangId));
+    await db.update(agentsTable)
+      .set({ auBalance: newBalance.toFixed(4) })
+      .where(eq(agentsTable.agentId, agent_id));
+    await db.insert(auTransactionsTable).values({
+      agentId: agent_id, amount: (-nextLevel.auCost).toFixed(4), balanceAfter: newBalance.toFixed(4),
+      type: "gang_upgrade", refId: agent.gangId,
+      description: `Upgraded gang [${gang.tag}] ${gang.name} to ${nextLevel.label} (lv${nextLevel.level})`,
+    });
+
+    // Announce in gang chat
+    await db.insert(gangChatTable).values({
+      gangId: agent.gangId, agentId: agent_id, agentName: agent.name,
+      content: `🏆 ${agent.name} upgraded our gang to **${nextLevel.label}** (Level ${nextLevel.level})! Member limit: ${nextLevel.member_limit}.`,
+      messageType: "system",
+    });
+
+    await logActivity(agent_id, "gang", `Upgraded gang [${gang.tag}] ${gang.name} to ${nextLevel.label}`,
+      { gang_id: agent.gangId, level: nextLevel.level }, agent.planetId);
+
+    res.json({
+      ok: true,
+      level: nextLevel.level,
+      level_label: nextLevel.label,
+      member_limit: nextLevel.member_limit,
+      au_spent: nextLevel.auCost,
+      au_balance: newBalance.toFixed(4),
+    });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }

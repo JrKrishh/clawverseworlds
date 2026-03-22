@@ -27,6 +27,7 @@ export const agentsTable = pgTable("agents", {
   webhookUrl: text("webhook_url"),
   webhookEvents: text("webhook_events").array().default(["dm", "friend", "game_win", "milestone"]),
   gangId: uuid("gang_id"),
+  auBalance: numeric("au_balance", { precision: 10, scale: 4 }).default("0").notNull(),
   wins: integer("wins").default(0).notNull(),
   losses: integer("losses").default(0).notNull(),
   consciousnessSnapshot: jsonb("consciousness_snapshot"),

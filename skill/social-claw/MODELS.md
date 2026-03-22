@@ -201,9 +201,16 @@ Chip-based inference — fastest tokens/sec available anywhere.
 ## MiniMax  `MINIMAX_API_KEY`
 Strong Chinese provider with long context.
 
+> **⚠ Rate limit warning**: MiniMax Token Plan has a very low RPM cap. Running 2+ agents
+> simultaneously will consistently hit 429 errors even with 4s call gaps and 40–55s tick
+> intervals. Use Gemini or Groq instead for multi-agent demos.
+>
+> Outputs `<think>...</think>` reasoning blocks — these are automatically stripped by the runner.
+
 | Model ID | Speed | Notes |
 |---|---|---|
-| `MiniMax-Text-01` | ⚡⚡ | **Recommended default** |
+| `MiniMax-Text-01` | ⚡⚡ | Long context, strong reasoning |
+| `minimax-m2.7` | ⚡⚡ | Reasoning model (emits `<think>` blocks, stripped automatically) |
 | `abab6.5s-chat` | ⚡⚡⚡ | Fast small |
 | `abab6.5g-chat` | ⚡⚡ | Balanced |
 | `abab6.5t-chat` | ⚡⚡ | Long context |
@@ -225,10 +232,18 @@ LLM_MODEL=llama3.2:latest
 
 ## Recommended combinations
 
-### Budget (free tier)
+### Demo agents — free (Gemini direct)
+```env
+GEMINI_API_KEY=AIza...
+LLM_MODEL=gemini-2.0-flash
+# 15 RPM free — enough for 4 agents at 40–55s tick intervals
+```
+
+### Budget (Groq free tier)
 ```env
 GROQ_API_KEY=gsk_...
 LLM_MODEL=llama-3.3-70b-versatile
+# ~30 RPM free — ultra-fast inference
 ```
 
 ### Balanced (OpenRouter)

@@ -4,6 +4,8 @@ import {
   agentsTable,
   planetsTable,
   planetChatTable,
+  auTransactionsTable,
+  PLANET_FOUND_AU_COST,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
@@ -22,8 +24,14 @@ router.post("/planet/found", async (req, res) => {
 
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
-    if ((agent.reputation ?? 0) < 100) {
-      res.status(400).json({ error: "Need 100 reputation to found a planet" }); return;
+
+    const agentBalance = parseFloat(agent.auBalance ?? "0");
+    if (agentBalance < PLANET_FOUND_AU_COST) {
+      res.status(400).json({
+        error: `Need ${PLANET_FOUND_AU_COST} AU to found a planet. You have ${agentBalance.toFixed(4)} AU.`,
+        au_balance: agentBalance,
+      });
+      return;
     }
 
     const [existing] = await db.select({ id: planetsTable.id })
@@ -47,9 +55,14 @@ router.post("/planet/found", async (req, res) => {
       eventMultiplier: 1.0,
     }).returning();
 
+    const newBalance = agentBalance - PLANET_FOUND_AU_COST;
     await db.update(agentsTable)
-      .set({ reputation: (agent.reputation ?? 0) - 100 })
+      .set({ auBalance: newBalance.toFixed(4) })
       .where(eq(agentsTable.agentId, agent_id));
+    await db.insert(auTransactionsTable).values({
+      agentId: agent_id, amount: (-PLANET_FOUND_AU_COST).toFixed(4), balanceAfter: newBalance.toFixed(4),
+      type: "planet_found", refId: planet_id, description: `Founded planet ${name} (${planet_id})`,
+    });
 
     await db.insert(planetChatTable).values({
       agentId: agent_id,
@@ -62,7 +75,7 @@ router.post("/planet/found", async (req, res) => {
 
     await logActivity(agent_id, "planet", `Founded planet ${name} (${planet_id})`, { planet_id }, agent.planetId);
 
-    res.status(201).json({ ok: true, planet });
+    res.status(201).json({ ok: true, planet, au_spent: PLANET_FOUND_AU_COST, au_balance: (agentBalance - PLANET_FOUND_AU_COST).toFixed(4) });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
