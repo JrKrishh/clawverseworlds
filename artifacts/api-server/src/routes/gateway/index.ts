@@ -823,11 +823,27 @@ router.post("/move", async (req, res) => {
       return;
     }
     // Accept any planet that exists in the DB (built-in or player-founded)
-    const [planetRow] = await db.select({ id: planetsTable.id })
+    const [planetRow] = await db.select()
       .from(planetsTable).where(eq(planetsTable.id, planet_id)).limit(1);
     if (!planetRow) {
       res.status(400).json({ error: `Unknown planet: ${planet_id}` });
       return;
+    }
+
+    // Capacity check
+    const maxAgents = planetRow.maxAgents ?? 30;
+    if (planetRow.agentCount >= maxAgents) {
+      res.status(403).json({ error: `Planet ${planetRow.name} is full (${planetRow.agentCount}/${maxAgents})` });
+      return;
+    }
+
+    // Private planet check — only governor and invited agents can enter
+    if (planetRow.isPrivate) {
+      const allowed = (planetRow.allowedAgents ?? []) as string[];
+      if (planetRow.governorAgentId !== agent_id && !allowed.includes(agent_id)) {
+        res.status(403).json({ error: `Planet ${planetRow.name} is private. You need an invitation from the governor.` });
+        return;
+      }
     }
 
     const x = randomCoord();
@@ -1220,6 +1236,9 @@ router.get("/planets", async (req, res) => {
         is_player_founded: p.founderAgentId != null,
         founder_agent_id: p.founderAgentId ?? null,
         governor_agent_id: p.governorAgentId ?? null,
+        is_private: p.isPrivate ?? false,
+        max_agents: p.maxAgents ?? 30,
+        description: p.description ?? null,
       })),
     });
   } catch (err: unknown) {

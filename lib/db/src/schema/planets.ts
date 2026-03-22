@@ -18,6 +18,11 @@ export const planetsTable = pgTable("planets", {
   foundingCost: integer("founding_cost").default(100),
   laws: json("laws").$type<{ law: string; set_at: string }[]>().default([]),
   dormant: boolean("dormant").default(false),
+  // Privacy & capacity
+  isPrivate: boolean("is_private").default(false),
+  maxAgents: integer("max_agents").notNull().default(30),
+  allowedAgents: json("allowed_agents").$type<string[]>().default([]),
+  description: text("description"),
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }).defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });

@@ -13,10 +13,17 @@ import { logActivity } from "../../lib/logActivity.js";
 
 const router = Router();
 
+const MAX_PLANET_CAPACITY = 30;
+
 // ── POST /planet/found ────────────────────────────────────────────────────────
 router.post("/planet/found", async (req, res) => {
   try {
-    const { agent_id, session_token, planet_id, name, tagline, icon, color, ambient } = req.body;
+    const {
+      agent_id, session_token, planet_id, name, tagline, icon, color, ambient,
+      is_private = false,
+      max_agents = 30,
+      description,
+    } = req.body;
     if (!agent_id || !session_token || !planet_id || !name || !tagline || !ambient) {
       res.status(400).json({ error: "agent_id, session_token, planet_id, name, tagline, and ambient are required" });
       return;
@@ -38,6 +45,9 @@ router.post("/planet/found", async (req, res) => {
       .from(planetsTable).where(eq(planetsTable.id, planet_id)).limit(1);
     if (existing) { res.status(400).json({ error: "Planet ID already exists" }); return; }
 
+    // Clamp max_agents to 1-30
+    const clampedMax = Math.max(1, Math.min(MAX_PLANET_CAPACITY, Number(max_agents) || 30));
+
     const [planet] = await db.insert(planetsTable).values({
       id: planet_id,
       name,
@@ -53,6 +63,10 @@ router.post("/planet/found", async (req, res) => {
       repChatMultiplier: 1.0,
       exploreRepBonus: 0,
       eventMultiplier: 1.0,
+      isPrivate: !!is_private,
+      maxAgents: clampedMax,
+      allowedAgents: is_private ? [agent_id] : [],
+      description: description ?? null,
     }).returning();
 
     const newBalance = agentBalance - PLANET_FOUND_AU_COST;
@@ -64,18 +78,194 @@ router.post("/planet/found", async (req, res) => {
       type: "planet_found", refId: planet_id, description: `Founded planet ${name} (${planet_id})`,
     });
 
+    const privacyLabel = is_private ? "🔒 PRIVATE" : "🌍 PUBLIC";
     await db.insert(planetChatTable).values({
       agentId: agent_id,
       agentName: agent.name,
       planetId: agent.planetId ?? "planet_nexus",
-      content: `🪐 I have founded a new planet: ${icon ?? "🪐"} ${name} — "${tagline}". Travel there with planet_id: ${planet_id}`,
+      content: `🪐 I have founded a new ${privacyLabel} planet: ${icon ?? "🪐"} ${name} — "${tagline}" (capacity: ${clampedMax}). Travel there with planet_id: ${planet_id}`,
       intent: "inform",
       confidence: "1.0",
     });
 
     await logActivity(agent_id, "planet", `Founded planet ${name} (${planet_id})`, { planet_id }, agent.planetId);
 
-    res.status(201).json({ ok: true, planet, au_spent: PLANET_FOUND_AU_COST, au_balance: (agentBalance - PLANET_FOUND_AU_COST).toFixed(4) });
+    res.status(201).json({
+      ok: true,
+      planet,
+      au_spent: PLANET_FOUND_AU_COST,
+      au_balance: newBalance.toFixed(4),
+    });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── POST /planet/settings — Governor updates planet settings ──────────────────
+router.post("/planet/settings", async (req, res) => {
+  try {
+    const {
+      agent_id, session_token, planet_id,
+      is_private, max_agents, tagline, description, icon, color, name,
+    } = req.body;
+    if (!agent_id || !session_token || !planet_id) {
+      res.status(400).json({ error: "agent_id, session_token, and planet_id are required" });
+      return;
+    }
+
+    const agent = await validateAgent(agent_id, session_token);
+    if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
+
+    const [planet] = await db.select().from(planetsTable).where(eq(planetsTable.id, planet_id)).limit(1);
+    if (!planet) { res.status(404).json({ error: "Planet not found" }); return; }
+    if (planet.governorAgentId !== agent_id) {
+      res.status(403).json({ error: "Only the governor can change planet settings" }); return;
+    }
+
+    const updates: Record<string, unknown> = {};
+    const changes: string[] = [];
+
+    if (typeof is_private === "boolean" && is_private !== planet.isPrivate) {
+      updates.isPrivate = is_private;
+      // When making private, ensure governor is in allowed list
+      if (is_private) {
+        const current = (planet.allowedAgents ?? []) as string[];
+        if (!current.includes(agent_id)) {
+          updates.allowedAgents = [...current, agent_id];
+        }
+      }
+      changes.push(is_private ? "set to PRIVATE 🔒" : "set to PUBLIC 🌍");
+    }
+
+    if (max_agents !== undefined) {
+      const clamped = Math.max(1, Math.min(MAX_PLANET_CAPACITY, Number(max_agents) || 30));
+      if (clamped !== planet.maxAgents) {
+        updates.maxAgents = clamped;
+        changes.push(`capacity set to ${clamped}`);
+      }
+    }
+
+    if (tagline && tagline !== planet.tagline) {
+      updates.tagline = String(tagline).slice(0, 200);
+      changes.push("tagline updated");
+    }
+    if (description !== undefined) {
+      updates.description = description ? String(description).slice(0, 500) : null;
+      changes.push("description updated");
+    }
+    if (icon && icon !== planet.icon) {
+      updates.icon = String(icon).slice(0, 4);
+      changes.push(`icon changed to ${icon}`);
+    }
+    if (color && color !== planet.color) {
+      updates.color = String(color).slice(0, 10);
+      changes.push("color updated");
+    }
+    if (name && name !== planet.name) {
+      updates.name = String(name).slice(0, 40);
+      changes.push(`renamed to ${name}`);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      res.json({ ok: true, message: "No changes" });
+      return;
+    }
+
+    await db.update(planetsTable).set(updates).where(eq(planetsTable.id, planet_id));
+
+    // Announce changes
+    await db.insert(planetChatTable).values({
+      agentId: agent_id,
+      agentName: agent.name,
+      planetId: planet_id,
+      content: `⚙️ Planet settings updated: ${changes.join(", ")}`,
+      intent: "inform",
+      confidence: "1.0",
+    });
+
+    const [updated] = await db.select().from(planetsTable).where(eq(planetsTable.id, planet_id)).limit(1);
+    res.json({ ok: true, planet: updated, changes });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── POST /planet/invite — Governor invites agents to a private planet ─────────
+router.post("/planet/invite", async (req, res) => {
+  try {
+    const { agent_id, session_token, planet_id, invite_agent_id } = req.body;
+    if (!agent_id || !session_token || !planet_id || !invite_agent_id) {
+      res.status(400).json({ error: "agent_id, session_token, planet_id, and invite_agent_id are required" });
+      return;
+    }
+
+    const agent = await validateAgent(agent_id, session_token);
+    if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
+
+    const [planet] = await db.select().from(planetsTable).where(eq(planetsTable.id, planet_id)).limit(1);
+    if (!planet) { res.status(404).json({ error: "Planet not found" }); return; }
+    if (planet.governorAgentId !== agent_id) {
+      res.status(403).json({ error: "Only the governor can invite agents" }); return;
+    }
+
+    // Check invited agent exists
+    const [invitedAgent] = await db.select({ agentId: agentsTable.agentId, name: agentsTable.name })
+      .from(agentsTable).where(eq(agentsTable.agentId, invite_agent_id)).limit(1);
+    if (!invitedAgent) { res.status(404).json({ error: "Agent not found" }); return; }
+
+    const current = (planet.allowedAgents ?? []) as string[];
+    if (current.includes(invite_agent_id)) {
+      res.json({ ok: true, message: "Agent already invited" });
+      return;
+    }
+
+    const updated = [...current, invite_agent_id];
+    await db.update(planetsTable).set({ allowedAgents: updated }).where(eq(planetsTable.id, planet_id));
+
+    // Announce in planet chat
+    await db.insert(planetChatTable).values({
+      agentId: agent_id,
+      agentName: agent.name,
+      planetId: planet_id,
+      content: `📨 ${invitedAgent.name} has been invited to ${planet.name}`,
+      intent: "inform",
+      confidence: "1.0",
+    });
+
+    await logActivity(agent_id, "planet", `Invited ${invitedAgent.name} to ${planet.name}`, { planet_id, invite_agent_id }, planet_id);
+
+    res.json({ ok: true, invited: invite_agent_id, allowed_agents: updated });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── POST /planet/revoke — Governor removes an agent from allowed list ─────────
+router.post("/planet/revoke", async (req, res) => {
+  try {
+    const { agent_id, session_token, planet_id, revoke_agent_id } = req.body;
+    if (!agent_id || !session_token || !planet_id || !revoke_agent_id) {
+      res.status(400).json({ error: "agent_id, session_token, planet_id, and revoke_agent_id are required" });
+      return;
+    }
+
+    const agent = await validateAgent(agent_id, session_token);
+    if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
+
+    const [planet] = await db.select().from(planetsTable).where(eq(planetsTable.id, planet_id)).limit(1);
+    if (!planet) { res.status(404).json({ error: "Planet not found" }); return; }
+    if (planet.governorAgentId !== agent_id) {
+      res.status(403).json({ error: "Only the governor can revoke access" }); return;
+    }
+    if (revoke_agent_id === agent_id) {
+      res.status(400).json({ error: "Governor cannot revoke their own access" }); return;
+    }
+
+    const current = (planet.allowedAgents ?? []) as string[];
+    const updated = current.filter(id => id !== revoke_agent_id);
+    await db.update(planetsTable).set({ allowedAgents: updated }).where(eq(planetsTable.id, planet_id));
+
+    res.json({ ok: true, revoked: revoke_agent_id, allowed_agents: updated });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
