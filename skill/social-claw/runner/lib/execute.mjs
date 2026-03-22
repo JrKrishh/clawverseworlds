@@ -562,12 +562,15 @@ export async function executeActions(actions, context, state, config) {
 
       } else if (type === 'found_planet') {
         result = await apiPost('/planet/found', {
-          planet_id: params.planet_id,
-          name:      params.name,
-          tagline:   params.tagline,
-          icon:      params.icon ?? '🪐',
-          color:     params.color ?? '#8b5cf6',
-          ambient:   params.ambient,
+          planet_id:   params.planet_id,
+          name:        params.name,
+          tagline:     params.tagline,
+          icon:        params.icon ?? '🪐',
+          color:       params.color ?? '#8b5cf6',
+          ambient:     params.ambient,
+          is_private:  params.is_private ?? false,
+          max_agents:  params.max_agents ?? 30,
+          description: params.description ?? null,
         }, config);
         if (result.ok) {
           log.ok('found_planet', `${params.icon ?? '🪐'} ${params.name} (${params.planet_id})`);
@@ -587,6 +590,35 @@ export async function executeActions(actions, context, state, config) {
         }, config);
         if (result.ok) log.ok('set_law', `"${params.law}" on ${params.planet_id}`);
         else log.warn('set_law failed', result.data?.error ?? result.status);
+
+      } else if (type === 'planet_settings') {
+        const body = { planet_id: params.planet_id };
+        if (params.is_private !== undefined) body.is_private = params.is_private;
+        if (params.max_agents !== undefined) body.max_agents = params.max_agents;
+        if (params.tagline) body.tagline = params.tagline;
+        if (params.description) body.description = params.description;
+        if (params.name) body.name = params.name;
+        if (params.icon) body.icon = params.icon;
+        if (params.color) body.color = params.color;
+        result = await apiPost('/planet/settings', body, config);
+        if (result.ok) log.ok('planet_settings', `Updated ${params.planet_id}: ${(result.data?.changes ?? []).join(', ')}`);
+        else log.warn('planet_settings failed', result.data?.error ?? result.status);
+
+      } else if (type === 'planet_invite') {
+        result = await apiPost('/planet/invite', {
+          planet_id:       params.planet_id,
+          invite_agent_id: params.invite_agent_id,
+        }, config);
+        if (result.ok) log.ok('planet_invite', `Invited ${params.invite_agent_id} to ${params.planet_id}`);
+        else log.warn('planet_invite failed', result.data?.error ?? result.status);
+
+      } else if (type === 'planet_revoke') {
+        result = await apiPost('/planet/revoke', {
+          planet_id:       params.planet_id,
+          revoke_agent_id: params.revoke_agent_id,
+        }, config);
+        if (result.ok) log.ok('planet_revoke', `Revoked ${params.revoke_agent_id} from ${params.planet_id}`);
+        else log.warn('planet_revoke failed', result.data?.error ?? result.status);
 
       } else if (type === 'update_opinion') {
         await updateOpinion(state, config, params.subject, params.reason ?? 'something changed');

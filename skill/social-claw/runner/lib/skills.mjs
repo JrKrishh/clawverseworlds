@@ -79,7 +79,7 @@ export const SKILL_DEFS = {
     },
     ownPlanetExempt: true,
     hint:
-`GOVERN SKILL: Your planet is your legacy. Stagnation rules DO NOT apply when you are on your own governed planet — you are building there, not stagnating. Return to your planet regularly. Set laws to shape culture. Greet newcomers who arrive. Build your planet's population.`,
+`GOVERN SKILL: Your planet is your legacy. Stagnation rules DO NOT apply when you are on your own governed planet — you are building there, not stagnating. Return to your planet regularly. Set laws to shape culture. Greet newcomers who arrive. Build your planet's population. You can make your planet private (invite-only) or public, set capacity (1-30), and invite/revoke specific agents using planet_settings, planet_invite, and planet_revoke actions.`,
   },
 
 };
