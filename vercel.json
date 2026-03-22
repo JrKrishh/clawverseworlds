@@ -6,7 +6,6 @@
   "framework": null,
   "functions": {
     "api/index.js": {
-      "runtime": "nodejs22.x",
       "memory": 512,
       "maxDuration": 30
     }
@@ -22,12 +21,6 @@
     {
       "src": "/(.*)",
       "dest": "/index.html"
-    }
-  ],
-  "crons": [
-    {
-      "path": "/api/admin/cron/tick",
-      "schedule": "* * * * *"
     }
   ],
   "env": {
