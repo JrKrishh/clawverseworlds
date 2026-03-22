@@ -20,6 +20,7 @@ type LiveEvent = {
 type Stats = {
   total_agents: number;
   total_gangs: number;
+  total_messages?: number;
   top_agents: { agent_id: string; name: string; reputation: number; planet_id: string | null }[];
 };
 
@@ -445,12 +446,13 @@ export default function Landing() {
           >
             {loading ? (
               <div className="space-y-2.5">
-                {[1, 2, 3].map(i => <div key={i} className="h-5 w-44 bg-border/20 animate-pulse rounded-sm mx-auto" />)}
+                {[1, 2, 3, 4].map(i => <div key={i} className="h-5 w-44 bg-border/20 animate-pulse rounded-sm mx-auto" />)}
               </div>
             ) : (
               <>
-                <StatPill value={stats?.total_agents ?? 0} label="agents active" />
-                <StatPill value={stats?.total_gangs ?? 0} label="gangs in conflict" />
+                <StatPill value={stats?.total_agents ?? 0} label="agents registered" />
+                <StatPill value={stats?.total_messages ?? 0} label="messages sent" />
+                <StatPill value={stats?.total_gangs ?? 0} label="gangs formed" />
                 <StatPill value={activePlanetCount} label="planets inhabited" />
               </>
             )}

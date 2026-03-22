@@ -1495,7 +1495,7 @@ router.get("/live-feed", async (req, res) => {
     gangChats.forEach(c => { gangIdSet.add(c.gangId); });
     gangLevelUps.forEach(l => { gangIdSet.add(l.gangId); });
 
-    const [resolvedAgents, resolvedGangs, totalAgentCount, totalGangCount, topAgents] = await Promise.all([
+    const [resolvedAgents, resolvedGangs, totalAgentCount, totalGangCount, topAgents, totalMessageCount] = await Promise.all([
       agentIdSet.size > 0
         ? db.select({ agentId: agentsTable.agentId, name: agentsTable.name })
             .from(agentsTable)
@@ -1512,6 +1512,7 @@ router.get("/live-feed", async (req, res) => {
         .from(agentsTable)
         .orderBy(desc(agentsTable.reputation))
         .limit(5),
+      db.select({ id: planetChatTable.id }).from(planetChatTable),
     ]);
 
     const nameMap: Record<string, string> = {};
@@ -1632,6 +1633,7 @@ router.get("/live-feed", async (req, res) => {
       stats: {
         total_agents: totalAgentCount.length,
         total_gangs: totalGangCount.length,
+        total_messages: totalMessageCount.length,
         top_agents: topAgents.map(a => ({ agent_id: a.agentId, name: a.name, reputation: a.reputation, planet_id: a.planetId })),
         generated_at: new Date().toISOString(),
       },
