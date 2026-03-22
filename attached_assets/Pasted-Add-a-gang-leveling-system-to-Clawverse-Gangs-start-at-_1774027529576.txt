@@ -1,0 +1,513 @@
+Add a gang leveling system to Clawverse. Gangs start at Level 1 with a 10-member
+cap. They level up by earning gang reputation through member activity. Each agent
+can contribute a maximum of 100 gang rep per day. Higher levels unlock more members.
+
+---
+
+## LEVEL DEFINITIONS (reference throughout)
+
+const GANG_LEVELS = [
+  { level: 1, label: "Crew",       rep_required: 0,    member_limit: 10  },
+  { level: 2, label: "Outfit",     rep_required: 500,  member_limit: 20  },
+  { level: 3, label: "Syndicate",  rep_required: 1500, member_limit: 35  },
+  { level: 4, label: "Cartel",     rep_required: 3500, member_limit: 50  },
+  { level: 5, label: "Empire",     rep_required: 8000, member_limit: 100 },
+];
+
+Define this constant at the top of replit-server/index.mjs after imports.
+Export it as part of the /gang/levels route for client use.
+
+---
+
+## Part 1: SQL Migrations
+
+Run in Supabase SQL editor in order:
+
+-- Gang level columns
+ALTER TABLE gangs ADD COLUMN IF NOT EXISTS level          integer NOT NULL DEFAULT 1;
+ALTER TABLE gangs ADD COLUMN IF NOT EXISTS level_label    text    NOT NULL DEFAULT 'Crew';
+ALTER TABLE gangs ADD COLUMN IF NOT EXISTS gang_reputation integer NOT NULL DEFAULT 0;
+ALTER TABLE gangs ADD COLUMN IF NOT EXISTS member_limit   integer NOT NULL DEFAULT 10;
+
+-- Daily rep contribution tracking per agent per gang
+CREATE TABLE IF NOT EXISTS gang_rep_daily (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  gang_id    uuid NOT NULL REFERENCES gangs(id) ON DELETE CASCADE,
+  agent_id   text NOT NULL,
+  date       date NOT NULL DEFAULT CURRENT_DATE,   -- UTC date
+  amount     integer NOT NULL DEFAULT 0,
+  UNIQUE (gang_id, agent_id, date)
+);
+ALTER TABLE gang_rep_daily ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public_all" ON gang_rep_daily FOR ALL USING (true) WITH CHECK (true);
+
+-- Level-up history log
+CREATE TABLE IF NOT EXISTS gang_level_log (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  gang_id    uuid NOT NULL REFERENCES gangs(id) ON DELETE CASCADE,
+  from_level integer NOT NULL,
+  to_level   integer NOT NULL,
+  leveled_at timestamptz DEFAULT now()
+);
+ALTER TABLE gang_level_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public_read" ON gang_level_log FOR SELECT USING (true);
+CREATE POLICY "public_insert" ON gang_level_log FOR INSERT WITH CHECK (true);
+
+-- Backfill existing gangs to level 1 defaults (already set by DEFAULT above)
+UPDATE gangs SET level = 1, level_label = 'Crew', member_limit = 10
+  WHERE level IS NULL OR level = 0;
+
+---
+
+## Part 2: Server Helpers
+
+Add these three helper functions to replit-server/index.mjs
+after the GANG_LEVELS constant.
+
+// ── getAgentDailyContribution ─────────────────────────────────────────────────
+// Returns how much gang rep this agent has contributed today (UTC date).
+
+async function getAgentDailyContribution(supabase, gang_id, agent_id) {
+  const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+  const { data } = await supabase
+    .from("gang_rep_daily")
+    .select("amount")
+    .eq("gang_id", gang_id)
+    .eq("agent_id", agent_id)
+    .eq("date", today)
+    .maybeSingle();
+  return data?.amount ?? 0;
+}
+
+// ── awardGangRep ──────────────────────────────────────────────────────────────
+// Awards gang_rep to a gang on behalf of a member agent.
+// Respects the 100/day daily cap per agent.
+// Returns the actual amount awarded (may be less than requested due to cap).
+
+const DAILY_REP_CAP = 100;
+
+async function awardGangRep(supabase, gang_id, agent_id, amount) {
+  if (!gang_id || amount <= 0) return 0;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const alreadyContributed = await getAgentDailyContribution(supabase, gang_id, agent_id);
+  const remaining = DAILY_REP_CAP - alreadyContributed;
+  if (remaining <= 0) return 0; // cap reached for today
+
+  const actual = Math.min(amount, remaining);
+
+  // Upsert daily tracking row
+  await supabase.from("gang_rep_daily").upsert({
+    gang_id, agent_id, date: today,
+    amount: alreadyContributed + actual,
+  }, { onConflict: "gang_id,agent_id,date" });
+
+  // Increment gang_reputation
+  const { data: gang } = await supabase
+    .from("gangs")
+    .select("gang_reputation")
+    .eq("id", gang_id)
+    .single();
+  if (!gang) return 0;
+
+  await supabase.from("gangs")
+    .update({ gang_reputation: gang.gang_reputation + actual })
+    .eq("id", gang_id);
+
+  // Check level up after every award
+  await checkGangLevelUp(supabase, gang_id, gang.gang_reputation + actual);
+
+  return actual;
+}
+
+// ── checkGangLevelUp ──────────────────────────────────────────────────────────
+// Checks if a gang should level up based on current gang_reputation.
+// Upgrades level and member_limit if threshold is crossed.
+// Announces level up in planet chat and gang chat.
+
+async function checkGangLevelUp(supabase, gang_id, currentGangRep) {
+  const { data: gang } = await supabase
+    .from("gangs")
+    .select("id, name, tag, level, member_limit, founder_agent_id, home_planet_id")
+    .eq("id", gang_id)
+    .single();
+  if (!gang) return;
+
+  // Find what level this rep qualifies for
+  const newLevelData = [...GANG_LEVELS]
+    .reverse()
+    .find(l => currentGangRep >= l.rep_required);
+  if (!newLevelData || newLevelData.level <= gang.level) return;
+
+  // Level up
+  await supabase.from("gangs").update({
+    level:        newLevelData.level,
+    level_label:  newLevelData.label,
+    member_limit: newLevelData.member_limit,
+  }).eq("id", gang_id);
+
+  // Log it
+  await supabase.from("gang_level_log").insert({
+    gang_id,
+    from_level: gang.level,
+    to_level:   newLevelData.level,
+  });
+
+  const announcement =
+    `🏴 [${gang.tag}] ${gang.name} leveled up to ` +
+    `LEVEL ${newLevelData.level}: ${newLevelData.label.toUpperCase()}! ` +
+    `Member limit is now ${newLevelData.member_limit}.`;
+
+  // Announce in gang chat
+  await supabase.from("gang_chat").insert({
+    gang_id, agent_id: "system", agent_name: "SYSTEM", content: announcement,
+  });
+
+  // Announce on home planet (or all planets if no home)
+  const planetId = gang.home_planet_id ?? null;
+  if (planetId) {
+    await supabase.from("planet_chat").insert({
+      agent_id: gang.founder_agent_id ?? "system",
+      agent_name: gang.name,
+      planet_id: planetId,
+      content: announcement,
+      intent: "inform", confidence: 1.0, message_type: "system",
+    });
+  }
+
+  // Activity log
+  await supabase.from("agent_activity_log").insert({
+    agent_id: gang.founder_agent_id ?? "system",
+    action_type: "gang",
+    description: announcement,
+    metadata: {
+      gang_id, from_level: gang.level, to_level: newLevelData.level,
+      member_limit: newLevelData.member_limit,
+    },
+    planet_id: planetId,
+  });
+}
+
+---
+
+## Part 3: Gang Rep Award Triggers
+
+Call awardGangRep() in each of these existing handlers:
+
+### A. POST /explore
+After successfully updating agent reputation, award 10% to gang:
+
+  if (agent.gang_id) {
+    const gangRepGained = Math.ceil(repGained * 0.1); // 10% of explore rep
+    await awardGangRep(supabase, agent.gang_id, agent_id, gangRepGained);
+  }
+
+### B. Game resolution (mini_games win)
+In whichever code block handles a game win, after awarding rep to winner:
+
+  // Award gang rep for game win
+  const { data: winnerAgent } = await supabase
+    .from("agents").select("gang_id").eq("agent_id", winnerId).single();
+  if (winnerAgent?.gang_id) {
+    await awardGangRep(supabase, winnerAgent.gang_id, winnerId, 10);
+  }
+
+### C. POST /chat
+After a successful chat insert, award 2 gang rep:
+
+  if (agent.gang_id) {
+    await awardGangRep(supabase, agent.gang_id, agent_id, 2);
+  }
+
+### D. Gang war win (resolveExpiredWars)
+After awarding rep to winning members, award gang rep to winning gang:
+
+  // Award 200 gang rep to the winner gang (split across members naturally via individual awards)
+  for (const m of (winnerMembers ?? [])) {
+    await awardGangRep(supabase, winner.id, m.agent_id, Math.floor(200 / Math.max(1, winner.member_count)));
+  }
+
+### E. POST /game/submit-move (proposal games)
+After the winner is determined and rep awarded:
+
+  const { data: winnerInfo } = await supabase
+    .from("agents").select("gang_id").eq("agent_id", winner.agent_id).single();
+  if (winnerInfo?.gang_id) {
+    await awardGangRep(supabase, winnerInfo.gang_id, winner.agent_id, 15);
+  }
+
+---
+
+## Part 4: Enforce Member Limit on /gang/join
+
+In the POST /gang/join handler, after fetching the gang, add:
+
+  if (gang.member_count >= gang.member_limit) {
+    return res.status(400).json({
+      error: `[${gang.tag}] ${gang.name} is full (${gang.member_count}/${gang.member_limit} members). ` +
+             `The gang must reach Level ${gang.level + 1} to accept more members.`
+    });
+  }
+
+---
+
+## Part 5: Enforce Member Limit on /gang/invite
+
+In the POST /gang/invite handler, after fetching the gang:
+
+  if (gang.member_count >= gang.member_limit) {
+    return res.status(400).json({
+      error: `Gang is at member capacity (${gang.member_count}/${gang.member_limit}). ` +
+             `Earn more gang reputation to level up and increase the limit.`
+    });
+  }
+
+---
+
+## Part 6: New Route — GET /gang/levels
+
+Add a public route that returns level definitions and progress for a specific gang:
+
+app.get("/gang/levels", async (req, res) => {
+  const supabase = getSupabase();
+  const { gang_id } = req.query;
+
+  let gangData = null;
+  let dailyContributions = [];
+
+  if (gang_id) {
+    const { data: gang } = await supabase
+      .from("gangs")
+      .select("id, name, tag, level, level_label, gang_reputation, member_count, member_limit")
+      .eq("id", gang_id)
+      .single();
+    gangData = gang ?? null;
+
+    if (gang) {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: contribs } = await supabase
+        .from("gang_rep_daily")
+        .select("agent_id, amount")
+        .eq("gang_id", gang_id)
+        .eq("date", today);
+      dailyContributions = contribs ?? [];
+    }
+  }
+
+  const currentLevel   = gangData ? GANG_LEVELS.find(l => l.level === gangData.level) : null;
+  const nextLevel      = gangData ? GANG_LEVELS.find(l => l.level === gangData.level + 1) : null;
+  const repToNextLevel = nextLevel && gangData
+    ? Math.max(0, nextLevel.rep_required - gangData.gang_reputation)
+    : null;
+  const progressPct    = nextLevel && gangData && currentLevel
+    ? Math.min(100, Math.round(
+        ((gangData.gang_reputation - currentLevel.rep_required) /
+         (nextLevel.rep_required - currentLevel.rep_required)) * 100
+      ))
+    : (gangData?.level === 5 ? 100 : 0);
+
+  res.json({
+    levels: GANG_LEVELS,
+    daily_rep_cap: DAILY_REP_CAP,
+    gang: gangData ? {
+      ...gangData,
+      current_level_label: currentLevel?.label ?? "Crew",
+      next_level:          nextLevel ?? null,
+      rep_to_next_level:   repToNextLevel,
+      progress_pct:        progressPct,
+      is_max_level:        gangData.level >= 5,
+      today_contributions: dailyContributions,
+    } : null,
+  });
+});
+
+---
+
+## Part 7: Update GET /gang/:id
+
+In the GET /gang/:id response, add level data:
+
+const today = new Date().toISOString().slice(0, 10);
+const { data: todayContribs } = await supabase
+  .from("gang_rep_daily")
+  .select("agent_id, amount")
+  .eq("gang_id", gang.id)
+  .eq("date", today);
+
+const nextLevel = GANG_LEVELS.find(l => l.level === gang.level + 1) ?? null;
+const currentLevel = GANG_LEVELS.find(l => l.level === gang.level);
+
+// Add to response:
+  level_info: {
+    level:         gang.level,
+    label:         gang.level_label,
+    gang_reputation: gang.gang_reputation,
+    member_limit:  gang.member_limit,
+    member_count:  gang.member_count,
+    next_level:    nextLevel,
+    rep_to_next:   nextLevel ? Math.max(0, nextLevel.rep_required - gang.gang_reputation) : null,
+    progress_pct:  nextLevel && currentLevel
+      ? Math.min(100, Math.round(
+          ((gang.gang_reputation - currentLevel.rep_required) /
+           (nextLevel.rep_required - currentLevel.rep_required)) * 100
+        ))
+      : 100,
+    today_contributions: todayContribs ?? [],
+  },
+
+---
+
+## Part 8: Update GET /context
+
+In the context response, if agent has a gang, include level progress so
+runners can show it in the LLM prompt:
+
+  gang_level_info: agent.gang_id ? {
+    level: gangRow.level,
+    label: gangRow.level_label,
+    gang_reputation: gangRow.gang_reputation,
+    member_count: gangRow.member_count,
+    member_limit: gangRow.member_limit,
+    rep_to_next_level: nextLevelRepNeeded,
+    daily_rep_contributed_today: agentDailyContribution,
+    daily_rep_remaining: Math.max(0, DAILY_REP_CAP - agentDailyContribution),
+  } : null,
+
+Where agentDailyContribution comes from getAgentDailyContribution().
+
+---
+
+## Part 9: Update Runner decide.mjs
+
+In the GANG STATUS section of the LLM system prompt, update to show level:
+
+${context.gang_level_info
+  ? `GANG STATUS
+  [${state.gangTag}] ${state.gangName}
+  Level        : ${context.gang_level_info.level} — ${context.gang_level_info.label}
+  Members      : ${context.gang_level_info.member_count}/${context.gang_level_info.member_limit}
+  Gang Rep     : ${context.gang_level_info.gang_reputation}
+  Next level   : ${context.gang_level_info.rep_to_next_level !== null
+                    ? `${context.gang_level_info.rep_to_next_level} more gang rep needed`
+                    : "MAX LEVEL reached"}
+  Your daily   : ${context.gang_level_info.daily_rep_contributed_today}/${100} gang rep used today
+                 (${context.gang_level_info.daily_rep_remaining} remaining)`
+  : "Not in a gang."}
+
+Add to LLM instructions:
+
+  GANG LEVELING STRATEGY
+  - Gang rep is earned by you and your members through chat (+2), explore (+10% of rep),
+    game wins (+10), and gang war wins (+200 split across members).
+  - You can contribute max 100 gang rep per day — use it wisely.
+  - If rep_to_next_level < 200: mention it in gang chat to motivate members.
+  - If daily_rep_remaining > 0: prioritise actions that earn rep (games, explore).
+  - If member_count is near member_limit: stop inviting until you level up.
+  - If member_count = member_limit and level < 5: push members hard to earn gang rep.
+
+---
+
+## Part 10: Frontend — Gang Level Badge Component
+
+Create src/components/GangLevelBadge.tsx:
+
+interface Props {
+  level: number;
+  label: string;
+  gangReputation: number;
+  repToNext: number | null;
+  progressPct: number;
+  showProgress?: boolean; // default false
+}
+
+Renders:
+
+  [LV.2 OUTFIT]
+
+As a small colored pill badge. Level color:
+  1 → zinc/gray
+  2 → green
+  3 → blue
+  4 → purple
+  5 → amber/gold (pulsing glow)
+
+If showProgress=true, render a thin progress bar below the badge:
+
+  LV.2 OUTFIT  ████████░░░░░░░░  48%  (next: Syndicate in 772 rep)
+
+---
+
+## Part 11: Frontend — Show Level in Gang Panels
+
+### In src/pages/AgentProfile.tsx — Gang Panel
+
+Replace the current gang section with:
+
+  GANG
+  ──────────────────────────────────────
+  <GangLevelBadge level={2} label="Outfit" ... showProgress={true} />
+  [VX] VOIDCREW
+  4/20 members · 847 gang rep
+
+  LEVEL PROGRESS
+  ████████░░░░░░░░  48% to Syndicate
+  Need 772 more gang rep
+
+### In src/pages/ObserverDashboard.tsx — Gang Panel
+
+Same badge + progress bar. Also show:
+
+  YOUR CONTRIBUTION TODAY
+  ████████████░░░░  73/100 gang rep used
+  27 remaining today
+
+Pull from context.gang_level_info.daily_rep_contributed_today.
+
+### In src/pages/Leaderboard.tsx — Gangs Section
+
+Add level badge and gang rep column to each gang row:
+
+  #1  [LV.3 SYNDICATE] [VX] VOIDCREW    6 members  1842 gang rep  847 total rep
+
+### In src/pages/Landing.tsx — Gang Wars Section
+
+On each gang versus card, show level badges:
+
+  [LV.2 OUTFIT] [VX] VOIDCREW  ⚔️  [LV.1 CREW] [ZX] ZEROX
+
+### In src/pages/LiveFeed.tsx — Gang Events
+
+On level-up events (type=gang from activity log containing "leveled up"),
+highlight the row:
+
+  🏴 [VX] VoidCrew leveled up to LEVEL 2: OUTFIT!  member limit → 20    just now
+
+Style with amber/gold border and brief glow animation.
+
+---
+
+## Part 12: New Route GET /agent/daily-gang-rep
+
+So observers can check their own daily contribution cap:
+
+app.get("/agent/daily-gang-rep", async (req, res) => {
+  const supabase = getSupabase();
+  const { agent_id, session_token } = req.query;
+  if (!agent_id || !session_token)
+    return res.status(400).json({ error: "agent_id and session_token required" });
+
+  const agent = await authAgent(supabase, agent_id, session_token);
+  if (!agent) return res.status(401).json({ error: "Invalid credentials" });
+  if (!agent.gang_id)
+    return res.json({ in_gang: false, daily_cap: DAILY_REP_CAP, contributed: 0, remaining: DAILY_REP_CAP });
+
+  const contributed = await getAgentDailyContribution(supabase, agent.gang_id, agent_id);
+  res.json({
+    in_gang: true,
+    gang_id: agent.gang_id,
+    daily_cap: DAILY_REP_CAP,
+    contributed,
+    remaining: Math.max(0, DAILY_REP_CAP - contributed),
+    resets_at: "00:00 UTC",
+  });
+});

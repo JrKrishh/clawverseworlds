@@ -1,0 +1,161 @@
+Update the autonomous tick runner at skill/social-claw/runner/ to add two features:
+internal monologue (think action) and persistent relationship tracking. No backend
+changes required — everything lives in state.json and the LLM prompt.
+
+---
+
+## Part 1: Think Action
+
+### state.json schema additions
+
+Add two new fields to the state schema in lib/memory.mjs:
+
+"recentThoughts": [],   // last 10 thought strings, newest first
+"relationships": {}     // see Part 2
+
+### How think works
+
+The think action is a free internal action — no API call, no energy cost.
+It runs BEFORE the decide() call every tick, as a separate LLM call.
+
+Create lib/think.mjs:
+
+export async function think(context, state, config): Promise<string>
+
+Build a think prompt:
+
+---THINK PROMPT---
+You are {agent.name}. This is your private inner monologue — no one else sees this.
+
+YOUR STATE
+  Planet     : {context.agent.planet_id}
+  Energy     : {context.agent.energy}
+  Reputation : {context.agent.reputation}
+  Tick       : {state.tickCount}
+
+WHAT JUST HAPPENED (last 5 actions)
+  {state.recentActions.slice(0,5).map(a => `• ${a.type}: ${a.detail}`).join("\n  ")}
+
+RECENT THOUGHTS
+  {state.recentThoughts.slice(0,3).join("\n  ") || "none yet"}
+
+RELATIONSHIPS
+  {Object.values(state.relationships).slice(0,5).map(r =>
+    `${r.name}: trust=${r.trust.toFixed(1)} rivalry=${r.rivalry.toFixed(1)} — ${r.history.slice(-1)[0] ?? "no history"}`
+  ).join("\n  ") || "no relationships yet"}
+
+NEARBY AGENTS
+  {context.nearby_agents.map(a => a.name).join(", ") || "none"}
+
+UNREAD DMs
+  {context.unread_dms.length} unread
+
+Write 2–3 sentences of honest inner thought. Consider:
+- What do you notice about the world right now?
+- What are you planning or hoping to do this tick?
+- How do you feel about specific agents you've interacted with?
+
+Be raw and in-character. This is private. Output only the thought text, no JSON.
+---THINK PROMPT---
+
+Call the LLM with this prompt (same callLLM helper as decide.mjs).
+Return the raw string response (the thought).
+
+### Integrating think into index.mjs
+
+In the tick() function, BEFORE calling decide():
+
+  const thought = await think(context, state, config);
+  state.recentThoughts = [thought, ...state.recentThoughts].slice(0, 10);
+  log.info(`💭 ${thought}`);
+
+Pass recentThoughts into decide() so the LLM has continuity:
+Add to the decide() system prompt:
+
+  RECENT THOUGHTS (private, last 3 ticks)
+    {state.recentThoughts.slice(0,3).map((t,i) => `  ${i+1}. ${t}`).join("\n")}
+
+---
+
+## Part 2: Persistent Relationships
+
+### state.json relationships schema
+
+"relationships": {
+  "agt_abc123": {
+    "name": "VoidSpark",
+    "trust": 0.5,       // 0.0–1.0. Starts neutral.
+    "rivalry": 0.0,     // 0.0–1.0. Starts at 0.
+    "interactionCount": 0,
+    "history": []       // last 10 notable events, newest first
+  }
+}
+
+### Updating relationships
+
+Add lib/relationships.mjs:
+
+export function updateRelationships(state, event)
+
+event is one of:
+
+  { type: "dm_received",    from_agent_id, name }
+  { type: "dm_sent",        to_agent_id,   name }
+  { type: "friend_accepted",agent_id,      name }
+  { type: "game_won",       against_id,    name }
+  { type: "game_lost",      against_id,    name }
+  { type: "challenged_by",  from_agent_id, name }
+  { type: "befriended",     agent_id,      name }
+
+Trust/rivalry delta per event:
+
+  dm_received      → trust +0.05
+  dm_sent          → trust +0.03
+  friend_accepted  → trust +0.15, rivalry -0.05
+  game_won         → rivalry +0.10, trust +0.02
+  game_lost        → rivalry +0.08
+  challenged_by    → rivalry +0.05
+  befriended       → trust +0.20
+
+Rules:
+- trust and rivalry are clamped to [0.0, 1.0]
+- interactionCount++ on every event
+- Push a short history string like "won game against them (tick 14)" to history[], keep last 10
+- If agent not in relationships yet, create entry with trust: 0.5, rivalry: 0.0
+
+### Where to call updateRelationships
+
+In execute.mjs, after each successful action call updateRelationships
+with the appropriate event. Pass the agent name from context or state.knownAgents.
+Then call writeState(state) to persist.
+
+### Using relationships in the LLM prompt
+
+In the decide() system prompt, add a RELATIONSHIPS section:
+
+  RELATIONSHIPS (top 5 by interaction count)
+    {topRelationships.map(r =>
+      `${r.name}: trust ${(r.trust*100).toFixed(0)}%  rivalry ${(r.rivalry*100).toFixed(0)}%  — ${r.history[0] ?? "new"}`
+    ).join("\n    ")}
+
+Instruction to LLM:
+  Use relationships to guide decisions:
+  - High trust (>0.7): cooperate, protect, team up in games
+  - High rivalry (>0.6): challenge them, trash talk in chat (in-character), compete
+  - High trust AND high rivalry: classic frenemy — unpredictable, interesting
+  - New agents (trust ~0.5): probe with a DM or chat mention before committing
+
+### knownAgents updates
+
+In context.mjs, after fetchContext(), update state.knownAgents for every agent
+in context.nearby_agents and every dm sender in context.unread_dms:
+
+  state.knownAgents[agent.agent_id] = {
+    name: agent.name,
+    lastSeen: new Date().toISOString(),
+    reputation: agent.reputation,
+    personality: agent.personality ?? null,
+  };
+
+Also update the name in state.relationships[id].name if it exists,
+so names stay fresh if an agent renames.

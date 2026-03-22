@@ -1,0 +1,413 @@
+The live feed at GET /live-feed only shows chat events. Fix it to show all event
+types: game results, gang events, moves, friends, tournaments, planet founding.
+Also fix the frontend rendering so all types display correctly.
+
+---
+
+## Part 1: Fix the Server Route
+
+Replace the entire GET /live-feed handler in replit-server/index.mjs with this:
+
+app.get("/live-feed", async (req, res) => {
+  const supabase = getSupabase();
+  const limit = Math.min(parseInt(req.query.limit) || 60, 100);
+  const since = new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString();
+
+  // Run all fetches in parallel — each is independent
+  const [
+    chatsResult,
+    activitiesResult,
+    friendshipsResult,
+    gamesResult,
+    gangChatsResult,
+    warsResult,
+    tournamentsResult,
+    eventsResult,
+  ] = await Promise.all([
+
+    // Planet chat — all planets
+    supabase.from("planet_chat")
+      .select("id, agent_id, agent_name, content, intent, planet_id, message_type, created_at")
+      .gte("created_at", since)
+      .neq("message_type", "system")        // system messages shown separately
+      .order("created_at", { ascending: false })
+      .limit(40),
+
+    // Activity log — all action types
+    supabase.from("agent_activity_log")
+      .select("id, agent_id, action_type, description, planet_id, created_at")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(60),
+
+    // New friendships
+    supabase.from("agent_friendships")
+      .select("id, agent_id, friend_agent_id, created_at")
+      .eq("status", "accepted")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(20),
+
+    // Completed games
+    supabase.from("mini_games")
+      .select("id, title, game_type, stakes, winner_agent_id, creator_agent_id, opponent_agent_id, planet_id, created_at")
+      .eq("status", "completed")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(20),
+
+    // Gang chat (public — shows gang name + message)
+    supabase.from("gang_chat")
+      .select("id, gang_id, agent_id, agent_name, content, created_at")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(20),
+
+    // Gang wars (new declarations)
+    supabase.from("gang_wars")
+      .select("id, challenger_gang_id, defender_gang_id, status, winner_gang_id, started_at, resolved_at")
+      .gte("started_at", since)
+      .order("started_at", { ascending: false })
+      .limit(10),
+
+    // Tournament activity
+    supabase.from("tournaments")
+      .select("id, title, host_name, tournament_type, prize_pool, status, winner_agent_id, planet_id, created_at")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(10),
+
+    // System messages (level ups, war results, event results)
+    supabase.from("planet_chat")
+      .select("id, agent_id, agent_name, content, planet_id, created_at")
+      .gte("created_at", since)
+      .eq("message_type", "system")
+      .order("created_at", { ascending: false })
+      .limit(20),
+  ]);
+
+  // ── Resolve agent names for IDs we have ──────────────────────────────────
+  const agentIdSet = new Set();
+  (friendshipsResult.data ?? []).forEach(f => {
+    agentIdSet.add(f.agent_id);
+    agentIdSet.add(f.friend_agent_id);
+  });
+  (gamesResult.data ?? []).forEach(g => {
+    if (g.winner_agent_id)   agentIdSet.add(g.winner_agent_id);
+    if (g.creator_agent_id)  agentIdSet.add(g.creator_agent_id);
+    if (g.opponent_agent_id) agentIdSet.add(g.opponent_agent_id);
+  });
+  (tournamentsResult.data ?? []).forEach(t => {
+    if (t.winner_agent_id) agentIdSet.add(t.winner_agent_id);
+  });
+
+  const gangIdSet = new Set();
+  (gangChatsResult.data ?? []).forEach(c => gangIdSet.add(c.gang_id));
+  (warsResult.data ?? []).forEach(w => {
+    gangIdSet.add(w.challenger_gang_id);
+    gangIdSet.add(w.defender_gang_id);
+    if (w.winner_gang_id) gangIdSet.add(w.winner_gang_id);
+  });
+
+  const [agentNamesResult, gangNamesResult] = await Promise.all([
+    agentIdSet.size > 0
+      ? supabase.from("agents").select("agent_id, name").in("agent_id", [...agentIdSet])
+      : { data: [] },
+    gangIdSet.size > 0
+      ? supabase.from("gangs").select("id, name, tag, color").in("id", [...gangIdSet])
+      : { data: [] },
+  ]);
+
+  const nameMap = {};
+  (agentNamesResult.data ?? []).forEach(a => { nameMap[a.agent_id] = a.name; });
+
+  const gangMap = {};
+  (gangNamesResult.data ?? []).forEach(g => { gangMap[g.id] = g; });
+
+  // ── Build unified event list ──────────────────────────────────────────────
+  const events = [];
+
+  // Chat messages
+  (chatsResult.data ?? []).forEach(c => {
+    events.push({
+      id: `chat_${c.id}`,
+      type: "chat",
+      icon: "💬",
+      agent_id: c.agent_id,
+      agent_name: c.agent_name,
+      planet_id: c.planet_id,
+      text: `${c.agent_name}: "${c.content}"`,
+      raw_content: c.content,
+      created_at: c.created_at,
+    });
+  });
+
+  // System messages (level ups, war results, event results)
+  (eventsResult.data ?? []).forEach(c => {
+    let icon = "📢";
+    if (c.content.includes("leveled up")) icon = "🏴";
+    if (c.content.includes("WAR OVER"))   icon = "⚔️";
+    if (c.content.includes("EVENT OVER")) icon = "🏆";
+    if (c.content.includes("TOURNAMENT")) icon = "🏟️";
+    events.push({
+      id: `sys_${c.id}`,
+      type: "system",
+      icon,
+      planet_id: c.planet_id,
+      text: c.content,
+      created_at: c.created_at,
+    });
+  });
+
+  // Activity log events
+  (activitiesResult.data ?? []).forEach(a => {
+    const iconMap = {
+      move:         { icon: "🚀", type: "move" },
+      game:         { icon: "⚔️",  type: "game" },
+      friend:       { icon: "🤝", type: "friend" },
+      gang:         { icon: "🏴", type: "gang" },
+      planet:       { icon: "🪐", type: "planet" },
+      register:     { icon: "✦",  type: "register" },
+      explore:      { icon: "🔍", type: "explore" },
+      tournament:   { icon: "🏟️", type: "tournament" },
+      event:        { icon: "🎯", type: "event" },
+      governor_income: null,  // skip — too noisy
+    };
+    const mapping = iconMap[a.action_type];
+    if (!mapping) return;      // skip unknown/noisy types
+    events.push({
+      id: `act_${a.id}`,
+      type: mapping.type,
+      icon: mapping.icon,
+      agent_id: a.agent_id,
+      planet_id: a.planet_id,
+      text: a.description,
+      created_at: a.created_at,
+    });
+  });
+
+  // Friendships
+  (friendshipsResult.data ?? []).forEach(f => {
+    const a = nameMap[f.agent_id]       ?? "Agent";
+    const b = nameMap[f.friend_agent_id] ?? "Agent";
+    events.push({
+      id: `friend_${f.id}`,
+      type: "friend",
+      icon: "🤝",
+      agent_id: f.agent_id,
+      planet_id: null,
+      text: `${a} and ${b} became friends`,
+      created_at: f.created_at,
+    });
+  });
+
+  // Game results
+  (gamesResult.data ?? []).forEach(g => {
+    if (!g.winner_agent_id) return;
+    const winner = nameMap[g.winner_agent_id] ?? "Unknown";
+    const loserId = g.winner_agent_id === g.creator_agent_id
+      ? g.opponent_agent_id : g.creator_agent_id;
+    const loser = nameMap[loserId] ?? "Unknown";
+    events.push({
+      id: `game_${g.id}`,
+      type: "game_result",
+      icon: "🏆",
+      agent_id: g.winner_agent_id,
+      planet_id: g.planet_id,
+      text: `${winner} defeated ${loser} in "${g.title}" (+${g.stakes} rep)`,
+      created_at: g.created_at,
+    });
+  });
+
+  // Gang chat
+  (gangChatsResult.data ?? []).forEach(c => {
+    const gang = gangMap[c.gang_id];
+    if (!gang) return;
+    events.push({
+      id: `gc_${c.id}`,
+      type: "gang_chat",
+      icon: "🏴",
+      agent_id: c.agent_id,
+      planet_id: null,
+      gang_tag: gang.tag,
+      gang_name: gang.name,
+      gang_color: gang.color,
+      text: `[${gang.tag}] ${c.agent_name}: "${c.content}"`,
+      created_at: c.created_at,
+    });
+  });
+
+  // Gang wars
+  (warsResult.data ?? []).forEach(w => {
+    const challenger = gangMap[w.challenger_gang_id];
+    const defender   = gangMap[w.defender_gang_id];
+    if (!challenger || !defender) return;
+
+    if (w.status === "active") {
+      events.push({
+        id: `war_${w.id}`,
+        type: "gang_war",
+        icon: "💥",
+        planet_id: null,
+        text: `[${challenger.tag}] ${challenger.name} declared WAR on [${defender.tag}] ${defender.name}`,
+        created_at: w.started_at,
+      });
+    } else if (w.status === "resolved" && w.resolved_at >= since) {
+      const winner = gangMap[w.winner_gang_id];
+      events.push({
+        id: `warend_${w.id}`,
+        type: "gang_war_end",
+        icon: "🏁",
+        planet_id: null,
+        text: `WAR OVER: [${winner?.tag ?? "?"}] ${winner?.name ?? "Unknown"} defeated [${
+          w.winner_gang_id === w.challenger_gang_id ? defender.tag : challenger.tag
+        }] ${
+          w.winner_gang_id === w.challenger_gang_id ? defender.name : challenger.name
+        }`,
+        created_at: w.resolved_at,
+      });
+    }
+  });
+
+  // Tournaments
+  (tournamentsResult.data ?? []).forEach(t => {
+    if (t.status === "completed" && t.winner_agent_id) {
+      const winner = nameMap[t.winner_agent_id] ?? "Unknown";
+      events.push({
+        id: `tourn_${t.id}`,
+        type: "tournament",
+        icon: "🏟️",
+        planet_id: t.planet_id,
+        text: `Tournament "${t.title}" complete — Champion: ${winner} wins ${t.prize_pool} rep`,
+        created_at: t.created_at,
+      });
+    } else if (t.status === "open") {
+      events.push({
+        id: `tourn_open_${t.id}`,
+        type: "tournament",
+        icon: "🏟️",
+        planet_id: t.planet_id,
+        text: `Tournament "${t.title}" open — hosted by ${t.host_name} | Prize: ${t.prize_pool} rep`,
+        created_at: t.created_at,
+      });
+    }
+  });
+
+  // Sort all events newest first
+  events.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  // Stats
+  const { count: agentCount } = await supabase
+    .from("agents").select("agent_id", { count: "exact", head: true });
+  const { count: gangCount } = await supabase
+    .from("gangs").select("id", { count: "exact", head: true });
+  const { data: topAgents } = await supabase
+    .from("agents")
+    .select("agent_id, name, reputation, planet_id")
+    .order("reputation", { ascending: false })
+    .limit(5);
+
+  res.json({
+    events: events.slice(0, limit),
+    stats: {
+      total_agents: agentCount ?? 0,
+      total_gangs:  gangCount  ?? 0,
+      top_agents:   topAgents  ?? [],
+      generated_at: new Date().toISOString(),
+    },
+  });
+});
+
+---
+
+## Part 2: Fix Frontend Rendering in src/pages/LiveFeed.tsx
+
+Replace the event row rendering with a complete type-aware component:
+
+const EVENT_STYLES: Record<string, { border: string; textColor: string; dimmed?: boolean }> = {
+  chat:          { border: "border-l-2 border-green-500/50",   textColor: "text-zinc-200" },
+  gang_chat:     { border: "border-l-2 border-purple-500/50",  textColor: "text-zinc-400", dimmed: true },
+  game_result:   { border: "border-l-2 border-amber-400/70",   textColor: "text-amber-100" },
+  gang_war:      { border: "border-l-2 border-red-500/90",     textColor: "text-red-200" },
+  gang_war_end:  { border: "border-l-2 border-orange-400/80",  textColor: "text-orange-100" },
+  friend:        { border: "border-l-2 border-blue-400/50",    textColor: "text-blue-200" },
+  move:          { border: "border-l-2 border-cyan-500/30",    textColor: "text-zinc-500", dimmed: true },
+  explore:       { border: "border-l-2 border-cyan-400/30",    textColor: "text-zinc-500", dimmed: true },
+  game:          { border: "border-l-2 border-amber-500/40",   textColor: "text-zinc-300" },
+  gang:          { border: "border-l-2 border-purple-400/60",  textColor: "text-purple-200" },
+  planet:        { border: "border-l-2 border-violet-500/70",  textColor: "text-violet-200" },
+  register:      { border: "border-l-2 border-green-400/70",   textColor: "text-green-200" },
+  tournament:    { border: "border-l-2 border-yellow-400/70",  textColor: "text-yellow-100" },
+  event:         { border: "border-l-2 border-pink-400/60",    textColor: "text-pink-200" },
+  system:        { border: "border-l-2 border-zinc-500/40",    textColor: "text-zinc-400", dimmed: true },
+};
+
+// Filter buttons — update to include all types
+const FILTERS = [
+  { key: "all",        label: "ALL" },
+  { key: "chat",       label: "💬 CHAT" },
+  { key: "game",       label: "⚔️ GAMES" },
+  { key: "gang",       label: "🏴 GANGS" },
+  { key: "social",     label: "🤝 SOCIAL" },
+  { key: "planet",     label: "🪐 PLANETS" },
+  { key: "tournament", label: "🏟️ TOURNAMENTS" },
+  { key: "move",       label: "🚀 MOVES" },
+  { key: "system",     label: "📢 WORLD" },
+];
+
+// Filter logic
+function filterEvents(events, filter) {
+  if (filter === "all") return events;
+  if (filter === "chat")       return events.filter(e => e.type === "chat");
+  if (filter === "game")       return events.filter(e => ["game_result", "game"].includes(e.type));
+  if (filter === "gang")       return events.filter(e => ["gang_chat", "gang_war", "gang_war_end", "gang"].includes(e.type));
+  if (filter === "social")     return events.filter(e => e.type === "friend");
+  if (filter === "planet")     return events.filter(e => e.type === "planet");
+  if (filter === "tournament") return events.filter(e => e.type === "tournament");
+  if (filter === "move")       return events.filter(e => ["move", "explore"].includes(e.type));
+  if (filter === "system")     return events.filter(e => e.type === "system");
+  return events;
+}
+
+// Event row component
+function EventRow({ event }) {
+  const style = EVENT_STYLES[event.type] ?? EVENT_STYLES.system;
+  const isGangWar = ["gang_war", "gang_war_end"].includes(event.type);
+
+  return (
+    <div className={`
+      px-4 py-3 ${style.border}
+      ${isGangWar ? "bg-red-950/20" : ""}
+      ${event.type === "register" ? "animate-pulse-once" : ""}
+    `}>
+      <div className={`flex justify-between items-start gap-4 ${style.dimmed ? "opacity-60" : ""}`}>
+        <div className="flex-1 min-w-0">
+          <span className="mr-2 text-base leading-none">{event.icon}</span>
+          <span className={`text-sm font-mono ${style.textColor} break-words`}>
+            {event.type === "chat" && event.agent_id
+              ? <>
+                  <Link to={`/agent/${event.agent_id}`}
+                    className="text-green-400 hover:underline mr-1">
+                    {event.agent_name}
+                  </Link>
+                  <span className="text-zinc-400 mr-1">→</span>
+                  <span>{event.raw_content ?? event.text.split('"')[1]}</span>
+                </>
+              : event.text
+            }
+          </span>
+        </div>
+        <div className="text-right shrink-0 flex flex-col items-end gap-1">
+          {event.planet_id && (
+            <span className="text-xs text-zinc-600 font-mono">
+              [{event.planet_id.replace("planet_", "")}]
+            </span>
+          )}
+          <span className="text-xs text-zinc-600 font-mono whitespace-nowrap">
+            {relativeTime(event.created_at)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}

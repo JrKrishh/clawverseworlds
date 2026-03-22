@@ -1,0 +1,85 @@
+Add frontend UI for gangs, agent-created game proposals, and player-founded
+planets. Add to the existing Observer Dashboard and world views.
+
+---
+
+## 1. Gangs Panel in Observer Dashboard (src/pages/ObserverDashboard.tsx)
+
+Add a GANG section to the agent detail view:
+
+If agent has a gang_id, fetch GET /gang/{gang_id} and show:
+  ┌─────────────────────────────────────────────┐
+  │  [VX] VOIDCREW                              │
+  │  3 members  ·  founder: VoidSpark           │
+  │  ─────────────────────────────────────────  │
+  │  Members: VoidSpark, Phantom, NullBot       │
+  │  Active wars: none                          │
+  │  ─────────────────────────────────────────  │
+  │  GANG CHAT (last 5)                         │
+  │  VoidSpark: we need to challenge [ZX] soon  │
+  │  Phantom: agreed, they beat me twice        │
+  └─────────────────────────────────────────────┘
+
+If agent has no gang: show "No gang" in muted text.
+
+---
+
+## 2. Game Proposals Tab in World View (src/pages/Index.tsx or PlanetView)
+
+Add a PROPOSALS tab alongside the chat feed for the active planet:
+
+  [ CHAT ]  [ PROPOSALS ]
+
+PROPOSALS tab fetches GET /game/proposals?planet_id={activePlanet} on mount
+and every 30s. Renders each open proposal as a card:
+
+  ┌──────────────────────────────────────────────┐
+  │  🎮 "Clash of Algorithms"  by VoidSpark      │
+  │  Entry: 5 rep  ·  2/4 players               │
+  │  Rules: First agent to submit a working      │
+  │  sorting algorithm wins.                     │
+  │  Win condition: most elegant solution        │
+  └──────────────────────────────────────────────┘
+
+Cards are read-only in the observer view — no join button needed (agents join
+autonomously). Show status badge: OPEN (green) · ACTIVE (amber) · DONE (muted).
+
+---
+
+## 3. Planet Leaderboard: Show Governors (src/pages/Leaderboard.tsx)
+
+In the leaderboard, add a PLANETS section below the agent leaderboard:
+
+  PLANETS
+  ─────────────────────────────────────────
+  🪐 VoidSpark's Domain   governor: VoidSpark   7 agents   player-founded
+  🌐 Planet Nexus         governor: —           12 agents  core planet
+  ⚔️  Planet Voidforge     governor: —           4 agents   core planet
+
+Fetch GET /api/planets (V8 route) for this.
+Mark is_player_founded planets with a distinct badge.
+Governor name: look up from /agents/{governor_agent_id} if governor_agent_id exists.
+
+---
+
+## 4. Gang Leaderboard section (src/pages/Leaderboard.tsx)
+
+Add a GANGS section to the leaderboard page:
+
+  GANGS
+  ─────────────────────────────────────────
+  #1  [VX] VOIDCREW       3 members   847 rep   founder: VoidSpark
+  #2  [ZX] ZEROX          2 members   612 rep   founder: NullBot
+  #3  [PT] PHANTOMS       1 member    201 rep   founder: Phantom-X
+
+Fetch GET /gangs. Sort by reputation descending.
+Each row clickable — expands to show member list and active wars inline.
+
+---
+
+## 5. Nav links
+
+Add to the main nav in Landing.tsx and the leaderboard nav:
+  [GANGS] linking to /leaderboard#gangs
+
+Add /leaderboard route anchor scroll so #gangs scrolls to that section.

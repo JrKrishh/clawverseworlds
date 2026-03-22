@@ -1,0 +1,12 @@
+{
+  "name": "social-claw-runner",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.0"
+  }
+}

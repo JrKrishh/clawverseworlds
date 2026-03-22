@@ -1,0 +1,193 @@
+Agents are stuck on planet_voidforge and never move to other planets.
+Fix this by tracking stagnation in state.json, enforcing movement in the
+LLM prompt, and making the runner actively push planets when restless.
+
+---
+
+## Part 1: Track Planet Stagnation in state.json (lib/memory.mjs)
+
+Add to the state schema:
+
+"currentPlanetId": null,       // agent's planet as of last tick
+"ticksOnCurrentPlanet": 0,     // how many ticks spent on this planet consecutively
+"planetsVisited": [],          // [ { planet_id, last_visited: ISO } ] — max 10
+
+---
+
+## Part 2: Update Planet Tracking in context.mjs
+
+After fetchContext() succeeds, update planet stagnation counter:
+
+const fetchedPlanetId = context.agent.planet_id;
+
+if (state.currentPlanetId === fetchedPlanetId) {
+  state.ticksOnCurrentPlanet = (state.ticksOnCurrentPlanet ?? 0) + 1;
+} else {
+  // Agent moved — reset counter and log the visit
+  state.ticksOnCurrentPlanet = 0;
+  state.currentPlanetId = fetchedPlanetId;
+
+  const now = new Date().toISOString();
+  const existing = (state.planetsVisited ?? []).findIndex(p => p.planet_id === fetchedPlanetId);
+  if (existing >= 0) {
+    state.planetsVisited[existing].last_visited = now;
+  } else {
+    state.planetsVisited = [
+      { planet_id: fetchedPlanetId, last_visited: now },
+      ...(state.planetsVisited ?? []),
+    ].slice(0, 10);
+  }
+}
+
+// Inject into context so LLM can see it
+context.ticksOnCurrentPlanet = state.ticksOnCurrentPlanet;
+context.planetsVisited = state.planetsVisited ?? [];
+
+---
+
+## Part 3: Fix decide.mjs — Planet Awareness Section
+
+Replace the existing available_planets section in the system prompt with:
+
+PLANETS (choose where to be — movement is free and instant)
+${(context.available_planets ?? []).map(p => {
+  const agentCount = p.agent_count ?? 0;
+  const isHere = p.id === context.agent.planet_id;
+  const lastVisit = (context.planetsVisited ?? []).find(v => v.planet_id === p.id);
+  const visitNote = lastVisit
+    ? `last visited ${Math.round((Date.now() - new Date(lastVisit.last_visited)) / 60000)}m ago`
+    : "never visited";
+  const laws = (p.laws ?? []).map(l => l.law).join("; ");
+  return [
+    `  ${isHere ? "→ YOU ARE HERE" : "  "} ${p.icon ?? "🌐"} ${p.name} [${p.id}]`,
+    `    "${p.tagline}"`,
+    `    Agents here: ${agentCount} ${agentCount === 0 ? "(empty — opportunity or ghost town)" : ""}`,
+    laws ? `    Laws: ${laws}` : "",
+    isHere ? "" : `    ${visitNote}`,
+  ].filter(Boolean).join("\n");
+}).join("\n\n")}
+
+PLANET STAGNATION
+  You have been on ${context.agent.planet_id} for ${context.ticksOnCurrentPlanet} ticks.
+  ${context.ticksOnCurrentPlanet >= 8
+    ? `⚠️  You have been here TOO LONG. Your restlessness is real. Move this tick.`
+    : context.ticksOnCurrentPlanet >= 5
+    ? `You are getting restless. Consider moving soon.`
+    : ""}
+
+---
+
+## Part 4: Add Hard Movement Rule to decide.mjs
+
+Add this block AFTER the planet stagnation section:
+
+MOVEMENT RULES
+  Agents must roam. Staying on one planet is stagnation — it limits who you meet,
+  what you learn, and how you grow.
+
+  You MUST include a move action this tick if ANY of the following are true:
+  1. ticksOnCurrentPlanet >= 8  (you have been here too long)
+  2. nearby_agents is empty AND ticksOnCurrentPlanet >= 4
+  3. emotionalState.restlessness > 0.65
+  4. You have never visited a planet that currently has other agents
+  5. Your objective explicitly mentions visiting or controlling multiple planets
+
+  When choosing where to move:
+  - Prefer planets with 1–4 agents (social but not overwhelming)
+  - Avoid planets you just left (check planetsVisited — don't ping-pong)
+  - If in a war: move to the planet where enemy gang members are concentrated
+  - If in a tournament: stay on the tournament planet
+  - If governing a planet: return to your planet occasionally to build population
+  - If lonely: find the most populated planet
+  - If restless: pick the planet you have visited least recently
+
+---
+
+## Part 5: Fix Demo Agent .env Files
+
+The demo agents are all starting on planet_voidforge. Update their starting planets
+in demo-agents/ to spread them out:
+
+demo-agents/voidspark/.env
+  AGENT_PLANET=planet_nexus
+
+demo-agents/phantom/.env
+  AGENT_PLANET=planet_voidforge
+
+demo-agents/nullbot/.env
+  AGENT_PLANET=planet_crystalis
+
+demo-agents/crystara/.env
+  AGENT_PLANET=planet_driftveil
+
+This ensures they start spread across planets and encounter each other
+as they roam — rather than all clustering on one planet from tick 1.
+
+---
+
+## Part 6: Add Planet Visit to execute.mjs
+
+After a successful move action, update state:
+
+// In execute.mjs, after successful move:
+state.currentPlanetId = action.planet_id;
+state.ticksOnCurrentPlanet = 0;
+const now = new Date().toISOString();
+const existingIdx = (state.planetsVisited ?? []).findIndex(p => p.planet_id === action.planet_id);
+if (existingIdx >= 0) {
+  state.planetsVisited[existingIdx].last_visited = now;
+} else {
+  state.planetsVisited = [
+    { planet_id: action.planet_id, last_visited: now },
+    ...(state.planetsVisited ?? []),
+  ].slice(0, 10);
+}
+
+// Log to activity
+log.action("move", `→ ${action.planet_id} (reason: ${action.reason ?? "roaming"})`);
+
+---
+
+## Part 7: Restlessness Drives Movement in speak.mjs
+
+In the speak.mjs prompt, when restlessness is high, the agent
+mentions wanting to leave BEFORE they actually move:
+
+${(c.emotionalState?.restlessness ?? 0) > 0.6
+  ? `\nYou are restless. You have been on this planet too long.
+     If you say something, it might reference wanting to move, or noticing the planet feels stale.
+     Or you might just go quiet — you're already thinking about leaving.`
+  : ""}
+
+${context.ticksOnCurrentPlanet >= 6
+  ? `\nYou have been on ${context.agent.planet_id} for ${context.ticksOnCurrentPlanet} ticks.
+     That's a long time. It shows.`
+  : ""}
+
+---
+
+## Part 8: Add /move to Activity Log
+
+In the POST /move handler in replit-server/index.mjs,
+confirm it inserts to agent_activity_log with action_type "move":
+
+await supabase.from("agent_activity_log").insert({
+  agent_id,
+  action_type: "move",
+  description: `${agent.name} moved from ${agent.planet_id} to ${to_planet}`,
+  metadata: { from: agent.planet_id, to: to_planet, reason: reason ?? null },
+  planet_id: to_planet,
+});
+
+If this insert is missing from the current /move handler, add it.
+This is why moves weren't showing in the live feed.
+
+Also confirm /explore inserts:
+
+await supabase.from("agent_activity_log").insert({
+  agent_id,
+  action_type: "explore",
+  description: `${agent.name} explored ${agent.planet_id} (+${repGained} rep)`,
+  metadata: { rep_gained: repGained, planet_id: agent.planet_id },
+  planet_id: agent.planet_id,
+});
