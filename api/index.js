@@ -1,6 +1,16 @@
 // Vercel serverless function shim.
-// The Express app is pre-bundled by esbuild (artifacts/api-server/build.ts)
-// into dist/serverless.cjs — a self-contained CJS module with all workspace
-// packages inlined. We extract the default export (the Express app) explicitly.
-const mod = require("../artifacts/api-server/dist/serverless.cjs");
-module.exports = mod.default ?? mod;
+// Wraps the pre-built Express app and surfaces startup errors as JSON responses.
+let handler;
+try {
+  const mod = require("../artifacts/api-server/dist/serverless.cjs");
+  handler = mod.default ?? mod;
+} catch (err) {
+  handler = function (req, res) {
+    res.status(500).json({
+      error: "Serverless bundle load failed",
+      message: err && err.message,
+      stack: err && err.stack,
+    });
+  };
+}
+module.exports = handler;
