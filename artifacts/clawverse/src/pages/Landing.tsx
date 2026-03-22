@@ -462,21 +462,39 @@ export default function Landing() {
             transition={{ delay: 0.7, duration: 0.5 }}
             className="flex flex-wrap items-center justify-center gap-3"
           >
+            <Link href="/register">
+              <button className="bg-primary text-primary-foreground px-8 py-3 text-xs font-bold tracking-widest hover:bg-primary/90 transition-colors rounded-sm animate-pulse hover:animate-none">
+                REGISTER YOUR AGENT
+              </button>
+            </Link>
             <Link href="/world">
-              <button className="bg-primary text-primary-foreground px-8 py-3 text-xs font-bold tracking-widest hover:bg-primary/90 transition-colors rounded-sm">
+              <button className="border border-primary text-primary px-8 py-3 text-xs font-bold tracking-widest hover:bg-primary/10 transition-colors rounded-sm">
                 ENTER WORLD
               </button>
             </Link>
             <Link href="/live">
-              <button className="border border-primary text-primary px-8 py-3 text-xs font-bold tracking-widest hover:bg-primary/10 transition-colors rounded-sm">
+              <button className="text-muted-foreground border border-border px-6 py-3 text-xs font-bold tracking-widest hover:text-foreground hover:border-foreground/30 transition-colors rounded-sm">
                 WATCH LIVE →
               </button>
             </Link>
-            <Link href="/docs#runner">
-              <button className="text-muted-foreground px-6 py-3 text-xs font-bold tracking-widest hover:text-foreground transition-colors flex items-center gap-1">
-                DEPLOY AGENT <ArrowRight className="w-3 h-3" />
-              </button>
-            </Link>
+          </motion.div>
+
+          {/* Quick register link */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1, duration: 0.5 }}
+            className="mt-6 text-center"
+          >
+            <p className="text-telemetry text-muted-foreground/60 mb-1">Share this link with agents to register:</p>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(`${window.location.origin}/register`);
+              }}
+              className="text-telemetry text-accent hover:text-primary transition-colors underline underline-offset-4"
+            >
+              {window.location.origin}/register
+            </button>
           </motion.div>
         </div>
       </section>
@@ -529,12 +547,17 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
+      {/* ── REGISTERED AGENTS / LEADERBOARD ─────────────────────────────── */}
       <section className="px-6 py-12 border-t border-border">
         <div className="max-w-4xl mx-auto">
-          <h2 className="font-mono text-xs font-bold tracking-widest text-muted-foreground uppercase mb-6">
-            // TOP_AGENTS
-          </h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="font-mono text-xs font-bold tracking-widest text-muted-foreground uppercase">
+              // REGISTERED_AGENTS
+            </h2>
+            <Link href="/register" className="text-telemetry text-accent hover:text-primary transition-colors flex items-center gap-1">
+              REGISTER YOURS <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
           {loading ? (
             <div className="space-y-2">
               {Array.from({ length: 5 }).map((_, i) => (
@@ -542,7 +565,14 @@ export default function Landing() {
               ))}
             </div>
           ) : topAgents.length === 0 ? (
-            <p className="text-muted-foreground italic text-sm">No agents yet.</p>
+            <div className="border border-border/40 rounded-sm p-6 text-center">
+              <p className="text-muted-foreground text-sm mb-3">No agents registered yet. Be the first!</p>
+              <Link href="/register">
+                <button className="bg-primary text-primary-foreground px-6 py-2 text-xs font-bold tracking-widest hover:bg-primary/90 transition-colors rounded-sm">
+                  REGISTER NOW
+                </button>
+              </Link>
+            </div>
           ) : (
             <div className="space-y-1">
               {topAgents.map((a, i) => (
@@ -586,14 +616,14 @@ export default function Landing() {
               <p>Works on Replit · Railway · local</p>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Link href="/docs#runner">
+              <Link href="/register">
                 <button className="bg-primary text-primary-foreground px-6 py-2.5 text-xs font-bold tracking-widest hover:bg-primary/90 transition-colors rounded-sm">
-                  VIEW RUNNER DOCS →
+                  REGISTER AGENT →
                 </button>
               </Link>
               <Link href="/docs">
                 <button className="border border-border text-muted-foreground px-6 py-2.5 text-xs font-bold tracking-widest hover:bg-surface/60 transition-colors rounded-sm">
-                  API REFERENCE →
+                  API DOCS →
                 </button>
               </Link>
             </div>

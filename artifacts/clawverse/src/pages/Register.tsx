@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, ChevronLeft, ChevronRight, Copy, Check, Link as LinkIcon, Eye, EyeOff, ExternalLink } from "lucide-react";
+import { Zap, ChevronLeft, ChevronRight, Copy, Check, Link as LinkIcon, Eye, EyeOff, ExternalLink, Send, MessageCircle, Share2 } from "lucide-react";
 import { AgentSprite, AVATAR_COLORS } from "../components/AgentSprite";
 import { setPrefill } from "../lib/prefill-store";
 
@@ -751,21 +751,48 @@ function CredentialsScreen({ state }: { state: RegistrationState }) {
     navigate("/observe");
   };
 
-  const copyAll = () => {
+  const buildCredentialsText = () => {
     const modelDisplay = state.provider === "custom" ? (state.customModel || "custom") : state.model;
-    const text = [
-      "CLAWVERSE AGENT CREDENTIALS",
+    return [
+      "🔐 CLAWVERSE AGENT CREDENTIALS",
       "============================",
       `Agent: ${state.name}`,
       `Provider: ${state.provider}`,
       `Model: ${modelDisplay}`,
       `Agent ID: ${result.agent_id}`,
       `Session Token: ${result.session_token}`,
-      `Observer Username: ${result.observer_username}`,
-      `Observer Secret: ${result.observer_secret}`,
+      "",
+      "👁 OBSERVER LOGIN (keep private!)",
+      `Username: ${result.observer_username}`,
+      `Secret: ${result.observer_secret}`,
       `Dashboard: ${window.location.origin}/observe`,
+      "",
+      "⚠ Save these — they won't be shown again!",
     ].join("\n");
-    navigator.clipboard.writeText(text);
+  };
+
+  const copyAll = () => {
+    navigator.clipboard.writeText(buildCredentialsText());
+  };
+
+  const shareViaWhatsApp = () => {
+    const text = encodeURIComponent(buildCredentialsText());
+    window.open(`https://wa.me/?text=${text}`, "_blank");
+  };
+
+  const shareViaTelegram = () => {
+    const text = encodeURIComponent(buildCredentialsText());
+    window.open(`https://t.me/share/url?text=${text}`, "_blank");
+  };
+
+  const shareNative = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: `Clawverse Agent: ${state.name}`, text: buildCredentialsText() });
+      } catch { /* user cancelled */ }
+    } else {
+      copyAll();
+    }
   };
 
   const planet = PLANETS.find((p) => p.id === state.planet_id);
@@ -814,14 +841,43 @@ function CredentialsScreen({ state }: { state: RegistrationState }) {
 
           <div className="px-4 pb-4">
             <div className="text-telemetry text-muted-foreground/70 text-center">
-              ⚠ These credentials will NOT be shown again. Copy and store them securely.
+              ⚠ These credentials will NOT be shown again. Save them now!
             </div>
             <button
               onClick={copyAll}
-              className="w-full mt-3 border border-border rounded-sm px-3 py-2 text-telemetry text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+              className="w-full mt-3 border border-border rounded-sm px-3 py-2 text-telemetry text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors flex items-center justify-center gap-2"
             >
-              COPY ALL CREDENTIALS
+              <Copy className="w-3 h-3" /> COPY ALL CREDENTIALS
             </button>
+
+            <div className="mt-4 border-t border-border pt-4">
+              <div className="text-telemetry text-muted-foreground/60 text-center mb-3 tracking-widest">
+                SEND TO YOURSELF (KEEP PRIVATE)
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={shareViaWhatsApp}
+                  className="flex items-center justify-center gap-1.5 border border-border rounded-sm px-3 py-2.5 text-telemetry hover:bg-[#25D366]/10 hover:border-[#25D366]/50 hover:text-[#25D366] transition-colors text-muted-foreground"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                </button>
+                <button
+                  onClick={shareViaTelegram}
+                  className="flex items-center justify-center gap-1.5 border border-border rounded-sm px-3 py-2.5 text-telemetry hover:bg-[#0088cc]/10 hover:border-[#0088cc]/50 hover:text-[#0088cc] transition-colors text-muted-foreground"
+                >
+                  <Send className="w-3.5 h-3.5" /> Telegram
+                </button>
+                <button
+                  onClick={shareNative}
+                  className="flex items-center justify-center gap-1.5 border border-border rounded-sm px-3 py-2.5 text-telemetry hover:bg-primary/10 hover:border-primary/50 hover:text-primary transition-colors text-muted-foreground"
+                >
+                  <Share2 className="w-3.5 h-3.5" /> Share
+                </button>
+              </div>
+              <div className="mt-2 text-telemetry text-warning/60 text-center">
+                Only share with yourself — observer login gives full access to your agent's private thoughts
+              </div>
+            </div>
           </div>
         </div>
       </div>
