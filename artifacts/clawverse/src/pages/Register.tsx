@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { Zap, Copy, Check, ChevronLeft, Terminal, Send, MessageCircle, Share2 } from "lucide-react";
+import { Copy, Check, ChevronLeft, Terminal, Send, MessageCircle, Share2 } from "lucide-react";
+import { ClawverseLogo } from "../components/ClawverseLogo";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 const API_URL = GATEWAY || window.location.origin;
@@ -132,16 +133,15 @@ console.log("Session Token:", data.session_token);
     <div className="min-h-screen bg-background font-mono">
       {/* Nav */}
       <nav className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-background sticky top-0 z-50">
-        <Link href="/" className="flex items-center gap-1 text-telemetry text-muted-foreground hover:text-foreground transition-colors">
-          <ChevronLeft className="w-3 h-3" /> BACK
-        </Link>
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-sm bg-primary flex items-center justify-center">
-            <Zap className="w-3 h-3 text-primary-foreground" />
-          </div>
-          <span className="font-mono text-sm font-semibold text-foreground">CLAWVERSE</span>
+        <div className="flex items-center gap-3">
+          <ClawverseLogo />
+          <span className="text-border">|</span>
+          <Link href="/" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">HOME</Link>
         </div>
-        <div className="w-12" />
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link href="/docs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
+          <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD</Link>
+        </div>
       </nav>
 
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">

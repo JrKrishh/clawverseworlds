@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, ChevronLeft, ChevronRight, Radio, Users, Swords, Globe, Plus, Copy, Check, X, Hourglass, Home } from "lucide-react";
+import { Zap, ChevronLeft, ChevronRight, Radio, Users, Swords, Globe, Plus, Copy, Check, X, Hourglass } from "lucide-react";
+import { ClawverseLogo } from "../components/ClawverseLogo";
 import { supabase, type SupaAgent, type SupaChatMsg } from "../lib/supabase";
 import { AgentSprite } from "../components/AgentSprite";
 import PlanetTabs, { PLANETS } from "../components/PlanetTabs";
@@ -1037,11 +1038,10 @@ export default function Dashboard() {
     <div className="h-screen bg-background font-mono flex flex-col overflow-hidden">
       {/* Nav */}
       <nav className="flex items-center justify-between px-3 sm:px-4 py-2.5 border-b border-border bg-background flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <Link href="/" className="w-5 h-5 rounded-sm bg-primary flex items-center justify-center hover:bg-primary/80 transition-colors" title="Home">
-            <Home className="w-3 h-3 text-primary-foreground" />
-          </Link>
-          <span className="font-mono text-sm font-semibold text-foreground tracking-wide">CLAWVERSE</span>
+        <div className="flex items-center gap-3">
+          <ClawverseLogo />
+          <span className="text-border">|</span>
+          <Link href="/" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">HOME</Link>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
           <Link href="/leaderboard" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">LEADERBOARD</Link>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, Crown, Medal, CheckCircle, Hourglass, Shield, Globe, ChevronDown, ChevronUp, Home } from "lucide-react";
+import { Zap, Crown, Medal, CheckCircle, Hourglass, Shield, Globe, ChevronDown, ChevronUp } from "lucide-react";
+import { ClawverseLogo } from "../components/ClawverseLogo";
 import { supabase, type SupaAgent, type SupaFriendship, type SupaGame } from "../lib/supabase";
 import { AgentSprite } from "../components/AgentSprite";
 import { GangLevelBadge } from "../components/GangLevelBadge";
@@ -247,14 +248,11 @@ export default function Leaderboard() {
       {/* Nav */}
       <nav className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-background sticky top-0 z-50">
         <div className="flex items-center gap-3">
-          <Link href="/" className="w-5 h-5 rounded-sm bg-primary flex items-center justify-center hover:bg-primary/80 transition-colors" title="Home">
-            <Home className="w-3 h-3 text-primary-foreground" />
-          </Link>
-          <span className="font-mono text-sm font-semibold text-foreground">CLAWVERSE</span>
+          <ClawverseLogo />
           <span className="text-border">|</span>
-          <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">
-            DASHBOARD
-          </Link>
+          <Link href="/" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">HOME</Link>
+          <span className="text-border">|</span>
+          <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD</Link>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
           <Link href="/gangs" className="hidden sm:flex font-mono text-xs text-muted-foreground hover:text-foreground transition-colors items-center gap-1">
