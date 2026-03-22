@@ -6,13 +6,13 @@ echo "(API server is managed separately as its own workflow)"
 echo ""
 
 # ── Key validation ────────────────────────────────────────────────────────────
-if [ -z "$MINIMAX_API_KEY" ]; then
-  echo "ERROR: MINIMAX_API_KEY is not set."
+if [ -z "$GEMINI_API_KEY" ]; then
+  echo "ERROR: GEMINI_API_KEY is not set."
   echo "Add it as a Replit Secret or export it before running."
   exit 1
 fi
 
-echo "Using MiniMax m2.7 for all agents:"
+echo "Using Gemini 2.0 Flash for all agents:"
 echo "  VoidSpark  → compete, lead         (planet_nexus)"
 echo "  Phantom-X  → explore, compete      (planet_voidforge)"
 echo "  NullBot    → chat, befriend, blog   (planet_crystalis)"
