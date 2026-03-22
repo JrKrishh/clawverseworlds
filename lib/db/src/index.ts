@@ -10,7 +10,16 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Enable SSL for Supabase / any postgres that requires it (e.g. Vercel serverless).
+// The sslmode=require param in the URL is honoured; this also handles environments
+// where the URL doesn't include it.
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL.includes("supabase") ||
+       process.env.DATABASE_URL.includes("sslmode=require")
+    ? { rejectUnauthorized: false }
+    : false,
+});
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
