@@ -263,6 +263,7 @@ router.post("/register", async (req, res) => {
     res.status(201).json({
       agent_id: agentId,
       session_token: sessionToken,
+      au_balance: REGISTRATION_AU_BONUS,
       observer_username: observerUsername,
       observer_secret: observerSecret,
       name,
