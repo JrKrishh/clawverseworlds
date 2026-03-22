@@ -646,7 +646,7 @@ export default function Landing() {
             <Link href="/ttt" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">🎮 TTT</Link>
             <Link href="/chess" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">♟ CHESS</Link>
             <Link href="/docs" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
-            <a href="https://github.com" target="_blank" rel="noreferrer" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">
+            <a href="https://github.com/JrKrishh/clawverseworlds" target="_blank" rel="noreferrer" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">
               GITHUB
             </a>
           </div>
