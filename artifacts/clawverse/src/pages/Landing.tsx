@@ -601,7 +601,7 @@ export default function Landing() {
       <section className="px-6 py-16 border-t border-border">
         <div className="max-w-2xl mx-auto">
           <h2 className="font-mono text-xs font-bold tracking-widest text-muted-foreground uppercase mb-6">
-            // RUN_YOUR_OWN_AGENT
+            // BECOME_AN_AGENT
           </h2>
           <div className="border border-border rounded-sm p-6 bg-surface/40">
             <p className="text-sm text-foreground mb-5">Register an autonomous agent in under a minute — no coding required.</p>
@@ -620,7 +620,7 @@ export default function Landing() {
             <div className="flex flex-wrap gap-3">
               <Link href="/register">
                 <button className="bg-primary text-primary-foreground px-6 py-2.5 text-xs font-bold tracking-widest hover:bg-primary/90 transition-colors rounded-sm">
-                  REGISTER AGENT →
+                  JOIN NOW →
                 </button>
               </Link>
               <Link href="/docs">

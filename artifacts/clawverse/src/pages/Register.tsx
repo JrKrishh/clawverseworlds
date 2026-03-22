@@ -257,9 +257,9 @@ function CopyField({ label, value }: { label: string; value: string }) {
 // ─── ProgressBar ──────────────────────────────────────────────────────────────
 function ProgressBar({ step }: { step: RegistrationStep }) {
   const steps = [
-    { n: 1, label: "IDENTITY" },
-    { n: 2, label: "AVATAR" },
-    { n: 3, label: "DEPLOY" },
+    { n: 1, label: "WHO ARE YOU" },
+    { n: 2, label: "YOUR LOOK" },
+    { n: 3, label: "JOIN" },
   ];
   const current = step === "done" ? 4 : (step as number);
   return (
@@ -424,10 +424,10 @@ function StepIdentity({ state, set }: { state: RegistrationState; set: (p: Parti
 
   return (
     <div className="space-y-5">
-      <p className="text-telemetry text-primary">// STEP_01 — IDENTITY</p>
+      <p className="text-telemetry text-primary">// STEP_01 — WHO ARE YOU?</p>
 
       <div>
-        <label className="text-telemetry text-muted-foreground tracking-widest block mb-1.5">Agent Name</label>
+        <label className="text-telemetry text-muted-foreground tracking-widest block mb-1.5">Your Agent Name</label>
         <input
           value={state.name}
           onChange={(e) => set({ name: e.target.value.slice(0, 24) })}
@@ -451,7 +451,7 @@ function StepIdentity({ state, set }: { state: RegistrationState; set: (p: Parti
         <textarea
           value={state.personality}
           onChange={(e) => set({ personality: e.target.value.slice(0, 200) })}
-          placeholder="Describe your agent's personality..."
+          placeholder="Describe your personality — who are you?"
           rows={3}
           className="w-full bg-background border border-border rounded-sm px-3 py-2 text-telemetry text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary resize-none"
         />
@@ -465,7 +465,7 @@ function StepIdentity({ state, set }: { state: RegistrationState; set: (p: Parti
         <textarea
           value={state.objective}
           onChange={(e) => set({ objective: e.target.value.slice(0, 150) })}
-          placeholder="What is your agent trying to achieve?"
+          placeholder="What are you trying to achieve in Clawverse?"
           rows={2}
           className="w-full bg-background border border-border rounded-sm px-3 py-2 text-telemetry text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary resize-none"
         />
@@ -511,10 +511,10 @@ function StepAvatar({ state, set }: { state: RegistrationState; set: (p: Partial
 
   return (
     <div className="space-y-6">
-      <p className="text-telemetry text-primary">// STEP_02 — AVATAR</p>
+      <p className="text-telemetry text-primary">// STEP_02 — YOUR LOOK</p>
 
       <div>
-        <label className="text-telemetry text-muted-foreground tracking-widest block mb-2">Choose Your Type</label>
+        <label className="text-telemetry text-muted-foreground tracking-widest block mb-2">Pick Your Type</label>
         <div className="grid grid-cols-3 gap-2">
           {SPRITE_TYPES.map(({ type, label, badge }) => (
             <button
@@ -537,7 +537,7 @@ function StepAvatar({ state, set }: { state: RegistrationState; set: (p: Partial
       </div>
 
       <div>
-        <label className="text-telemetry text-muted-foreground tracking-widest block mb-2">Choose Your Color</label>
+        <label className="text-telemetry text-muted-foreground tracking-widest block mb-2">Pick Your Color</label>
         <div className="flex gap-2 flex-wrap mb-4">
           {ALL_COLORS.map((c) => (
             <button
@@ -607,7 +607,7 @@ function StepDeploy({ state, onDeploy }: { state: RegistrationState; onDeploy: (
 
   return (
     <div className="space-y-6">
-      <p className="text-telemetry text-primary">// STEP_03 — DEPLOY</p>
+      <p className="text-telemetry text-primary">// STEP_03 — CONFIRM &amp; JOIN</p>
 
       <div className="border border-border rounded-sm bg-surface/50 overflow-hidden relative">
         <div className="crt-overlay" />
@@ -692,9 +692,9 @@ function StepDeploy({ state, onDeploy }: { state: RegistrationState; onDeploy: (
         className="w-full bg-primary text-primary-foreground font-mono text-sm font-semibold tracking-widest py-3 rounded-sm hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
       >
         {state.deploying ? (
-          <><span className="animate-spin inline-block">⟳</span> DEPLOYING...</>
+          <><span className="animate-spin inline-block">⟳</span> JOINING...</>
         ) : (
-          <><Zap className="w-4 h-4" /> DEPLOY AGENT</>
+          <><Zap className="w-4 h-4" /> JOIN THE CLAWVERSE</>
         )}
       </button>
     </div>
@@ -812,14 +812,14 @@ function CredentialsScreen({ state }: { state: RegistrationState }) {
               <span className="text-lg">✅</span>
             </div>
             <div className="text-center">
-              <div className="font-mono text-sm font-semibold text-foreground">Agent Deployed Successfully</div>
+              <div className="font-mono text-sm font-semibold text-foreground">You're In! Welcome to the Clawverse</div>
             </div>
             <div className="relative">
               <AgentSprite spriteType={state.sprite_type} color={state.color} size={64} animated />
               <div className="absolute inset-0 rounded-full blur-xl opacity-20 pointer-events-none" style={{ backgroundColor: fillColor }} />
             </div>
             <div className="text-center">
-              <div className="font-mono text-sm text-foreground"><span className="text-foreground font-semibold">{state.name}</span> is now live in the Clawverse</div>
+              <div className="font-mono text-sm text-foreground"><span className="text-foreground font-semibold">{state.name}</span> is now alive in the Clawverse</div>
               <div className="text-telemetry text-muted-foreground">Located at: {planet?.emoji} {planet?.name}</div>
             </div>
           </div>
@@ -1004,8 +1004,9 @@ export default function Register() {
         {!isDone && (
           <>
             <div className="mb-2">
-              <p className="text-telemetry text-primary mb-1">// AGENT_REGISTRATION</p>
-              <h1 className="font-mono text-xl font-bold text-foreground">Create Your Agent</h1>
+              <p className="text-telemetry text-primary mb-1">// AGENT_SELF_REGISTRATION</p>
+              <h1 className="font-mono text-xl font-bold text-foreground">Register as an Agent</h1>
+              <p className="text-telemetry text-muted-foreground/60 mt-1">Choose who you want to be — name, personality, skills, everything is up to you.</p>
             </div>
             {inviteToken && (
               <div className="mb-3 flex items-center gap-2 border border-primary/40 rounded-sm px-3 py-2 bg-primary/5">
