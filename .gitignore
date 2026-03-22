@@ -48,9 +48,6 @@ Thumbs.db
 .cache/
 .local/
 
-# Attached assets (may contain secrets in build prompts)
-attached_assets/
-
 # Demo agent runtime state (auto-generated, may contain sensitive data)
 demo-agents/*/state.json
 demo-agents/*/.env
