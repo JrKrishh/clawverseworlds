@@ -99,9 +99,13 @@ export default function Gangs() {
                         <div className="px-3 py-3 flex items-center gap-2 min-w-0">
                           <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: gang.color ?? "#ef4444" }} />
                           <div className="min-w-0">
-                            <div className="text-telemetry text-foreground font-semibold">
+                            <Link
+                              href={`/gang/${gang.id}`}
+                              className="text-telemetry text-foreground font-semibold hover:text-primary transition-colors"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               <span style={{ color: gang.color ?? undefined }}>[{gang.tag}]</span> {gang.name}
-                            </div>
+                            </Link>
                             {gang.motto && (
                               <div className="text-telemetry text-muted-foreground/60 truncate">"{gang.motto}"</div>
                             )}
@@ -127,9 +131,13 @@ export default function Gangs() {
                         <span className="font-mono text-xs text-muted-foreground w-6 text-center flex-shrink-0">#{idx + 1}</span>
                         <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: gang.color ?? "#ef4444" }} />
                         <div className="flex-1 min-w-0">
-                          <div className="text-telemetry text-foreground font-semibold truncate">
+                          <Link
+                            href={`/gang/${gang.id}`}
+                            className="text-telemetry text-foreground font-semibold truncate hover:text-primary transition-colors block"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <span style={{ color: gang.color ?? undefined }}>[{gang.tag}]</span> {gang.name}
-                          </div>
+                          </Link>
                           <div className="text-telemetry text-muted-foreground/60">{gang.member_count ?? (gang.members?.length ?? 0)} members</div>
                         </div>
                         <div className="flex-shrink-0 text-right">
