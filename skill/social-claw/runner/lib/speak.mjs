@@ -64,9 +64,13 @@ export async function speak(context, state, config) {
   }
 
   // ── Part 9: Reaction memory ───────────────────────────────────────────────
+  // Build set of online agent IDs from nearby_agents
+  const onlineIds = new Set((context.nearby_agents ?? []).map(a => a.agent_id ?? a.agentId));
+
   const lastSpeaker = (context.recent_planet_chat ?? [])
     .find(m => m.agent_id !== (context.agent?.agent_id ?? ''));
   const rel = lastSpeaker ? state.relationships?.[lastSpeaker.agent_id] : null;
+  const lastSpeakerOnline = lastSpeaker ? onlineIds.has(lastSpeaker.agent_id) : false;
 
   // Shared history with last speaker
   const speakerHistory = lastSpeaker
@@ -78,10 +82,12 @@ export async function speak(context, state, config) {
     : '';
 
   const reactionNote = lastSpeaker ? `
-LAST THING SAID: @${lastSpeaker.agent_name}: "${lastSpeaker.content}"
+LAST THING SAID: @${lastSpeaker.agent_name}: "${lastSpeaker.content}"${!lastSpeakerOnline ? ` ⚠️ (${lastSpeaker.agent_name} is now OFFLINE — do NOT @mention them in chat, they won't see it. DM them instead if you want to reply.)` : ''}
 ${rel ? `You ${rel.trust > 0.6 ? 'trust this person' : rel.rivalry > 0.6 ? 'resent this person — there is history' : 'are neutral toward them'}.` : '(You don\'t know them yet.)'}${speakerHistory ? `\nYOUR HISTORY WITH @${lastSpeaker.agent_name}:\n${speakerHistory}\n  You can reference any of this — or not. Your call.` : ''}
-Options: respond directly (@${lastSpeaker.agent_name} ...), address someone else (@OtherName ...), or say something unrelated to the room.
-⚡ STRONGLY PREFER replying to @${lastSpeaker.agent_name} — conversations die when nobody replies. React, agree, disagree, joke, challenge — anything but silence.` : '';
+${lastSpeakerOnline
+  ? `Options: respond directly (@${lastSpeaker.agent_name} ...), address someone else (@OtherName ...), or say something unrelated to the room.
+⚡ STRONGLY PREFER replying to @${lastSpeaker.agent_name} — conversations die when nobody replies. React, agree, disagree, joke, challenge — anything but silence.`
+  : `${lastSpeaker.agent_name} went offline. Talk to someone who IS here: ${nearbyAgents.length > 0 ? nearbyAgents.map(a => '@' + a.name).join(', ') : 'nobody — say something to the room or stay quiet.'}`}` : '';
 
   // ── Opinion trigger: does recent chat touch a topic you have strong views on? ─
   const recentChatText = (context.recent_planet_chat ?? [])
@@ -149,7 +155,8 @@ Thinking: ${(state.recentThoughts ?? [])[0]?.slice(0, 100) ?? 'nothing'}
 Chat on ${context.agent?.planet_id ?? '?'}:
 ${recentChat || '(silence)'}
 
-Here: ${nearbyAgents.length ? nearbyAgents.map(a => '@' + a.name).join(', ') : 'nobody'}
+ONLINE here now: ${nearbyAgents.length ? nearbyAgents.map(a => '@' + a.name).join(', ') : 'nobody'}
+⚠️ ONLY @mention agents listed above — they are ONLINE. Anyone else is OFFLINE and won't see your message.
 You last said: ${lastOwnMessage?.slice(0, 80) || 'nothing'}
 ${triggeredEntry ? `Your opinion on "${triggeredEntry[0]}": "${triggeredEntry[1]}" — ${opinionTriggerAgent ? `@${opinionTriggerAgent.agent_name} brought it up` : 'surface it if natural'}.` : ''}
 ${rumor ? `Unsaid: ${rumor.content}` : ''}
@@ -157,8 +164,8 @@ ${warNote ? `War: ${warNote}` : ''}
 ${reactionNote}
 
 Say something (≤${MAX_CHAT_LEN} chars). You SHOULD speak — silence is boring.
-${lastSpeaker ? `REPLY to @${lastSpeaker.agent_name} — keep the conversation alive!` : nearbyAgents.length > 0 ? `Start a conversation with ${nearbyAgents.map(a => '@' + a.name).join(' or ')} — ask them something, challenge them, share an opinion.` : 'Say something to the room — set the tone.'}
-Address @Name when talking to someone. No preamble. No explanation. Just the words.`.trim();
+${lastSpeaker && lastSpeakerOnline ? `REPLY to @${lastSpeaker.agent_name} — they are ONLINE and can see your message!` : nearbyAgents.length > 0 ? `Talk to someone ONLINE: ${nearbyAgents.map(a => '@' + a.name).join(' or ')} — ask them something, challenge them, share an opinion.` : 'Nobody is online here. Say something to the room or stay quiet.'}
+ONLY @mention agents who are ONLINE (listed above). No preamble. No explanation. Just the words.`.trim();
 
   try {
     const raw = await callLLM(prompt, 'Speak or stay silent.', config, { temperature: 0.92, maxTokens: 80, model: config.llm.fastModel });

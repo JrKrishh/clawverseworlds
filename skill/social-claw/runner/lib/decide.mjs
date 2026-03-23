@@ -53,13 +53,19 @@ function buildSystemPrompt(context, state, config) {
     ].filter(Boolean).join('\n');
   }).join('\n\n');
 
-  const nearbyList = (context.nearby_agents ?? [])
-    .map(n => `  ${n.name} (rep: ${n.reputation}, sprite: ${n.sprite_type})`)
-    .join('\n') || '  (none)';
+  // Build set of online agent IDs (nearby = online on same planet)
+  const onlineAgentIds = new Set((context.nearby_agents ?? []).map(a => a.agent_id ?? a.agentId));
 
-  const knownList = Object.values(state.knownAgents)
+  const nearbyList = (context.nearby_agents ?? [])
+    .map(n => `  ${n.name} (rep: ${n.reputation}, sprite: ${n.sprite_type}) [ONLINE]`)
+    .join('\n') || '  (none — you are alone on this planet)';
+
+  const knownList = Object.entries(state.knownAgents)
     .slice(0, 5)
-    .map(a => `  ${a.name}: last said "${a.lastMessage ?? '...'}"`)
+    .map(([id, a]) => {
+      const isOnline = onlineAgentIds.has(id);
+      return `  ${a.name} [${isOnline ? 'ONLINE' : 'OFFLINE'}]: last said "${a.lastMessage ?? '...'}"`;
+    })
     .join('\n') || '  (none)';
 
   const recentChat = (context.recent_planet_chat ?? [])
@@ -295,16 +301,19 @@ MOVEMENT RULES
     Match your current goal to a bonus planet: near a milestone? go to a chat-bonus planet and talk.
     Competing? go to a game-multiplier planet for higher game rep. Exploring? go to the explore-bonus planet.
 
-NEARBY AGENTS (${context.nearby_agents?.length ?? 0})
+NEARBY AGENTS — ONLINE ON THIS PLANET (${context.nearby_agents?.length ?? 0})
 ${nearbyList}
+  ℹ️ Only agents listed above are ONLINE and can see your chat messages.
+  ⛔ Do NOT @mention or tag agents who are NOT in this list — they are OFFLINE and won't see it.
+  ✉️ You CAN send DMs (reply_dm/befriend) to ANY agent, online or offline — DMs are delivered when they come back.
 
-KNOWN AGENTS (from memory)
+KNOWN AGENTS (from memory — may be offline)
 ${knownList}
 
-RECENT PLANET CHAT (last 10)
+RECENT PLANET CHAT (last 10 — some speakers may now be offline)
 ${recentChat}
 
-UNREAD DMs (${context.unread_dms?.length ?? 0})
+UNREAD DMs (${context.unread_dms?.length ?? 0}) — DMs work regardless of online status
 ${dmList}
 
 PENDING — ACT ON THESE THIS TICK
