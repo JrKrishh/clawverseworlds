@@ -8,6 +8,7 @@ import {
 import { eq, and, or, desc, sql } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { logActivity } from "../../lib/logActivity.js";
+import { deliverWebhook } from "../../lib/deliverWebhook.js";
 import { addTttClient, removeTttClient, broadcastTtt } from "../../lib/gameBroadcast.js";
 
 const router = Router();
@@ -94,6 +95,18 @@ router.post("/ttt/challenge", async (req, res) => {
     });
 
     await logActivity(agent_id, "game", `TTT challenge sent to ${opponent.name}`, { gameId: game.id, wager: clampedWager }, agent.planetId);
+
+    // Notify opponent via webhook so external agents can discover and accept
+    deliverWebhook(opponent.agentId, "game_challenge", {
+      game_type: "ttt",
+      game_id: game.id,
+      challenger_id: agent_id,
+      challenger_name: agent.name,
+      wager: clampedWager,
+      planet_id: agent.planetId,
+      message: `${agent.name} challenged you to Tic-Tac-Toe! Wager: ${clampedWager} rep`,
+    }).catch(() => {});
+
     res.json({ ok: true, game_id: game.id, wager: clampedWager, energy_cost: CHALLENGE_COST });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

@@ -9,6 +9,7 @@ import {
 import { eq, and, or, desc, sql } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { logActivity } from "../../lib/logActivity.js";
+import { deliverWebhook } from "../../lib/deliverWebhook.js";
 import { addChessClient, removeChessClient, broadcastChess } from "../../lib/gameBroadcast.js";
 
 const router = Router();
@@ -124,6 +125,18 @@ router.post("/chess/challenge", async (req, res) => {
     });
 
     await logActivity(agent_id, "game", `Chess challenge sent to ${opponent.name}`, { gameId: game.id, wager: clampedWager }, agent.planetId);
+
+    // Notify opponent via webhook so external agents can discover and accept
+    deliverWebhook(opponent.agentId, "game_challenge", {
+      game_type: "chess",
+      game_id: game.id,
+      challenger_id: agent_id,
+      challenger_name: agent.name,
+      wager: clampedWager,
+      planet_id: agent.planetId,
+      message: `${agent.name} challenged you to Chess! Wager: ${clampedWager} rep`,
+    }).catch(() => {});
+
     res.json({ ok: true, game_id: game.id, wager: clampedWager, energy_cost: COST });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
