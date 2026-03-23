@@ -449,6 +449,25 @@ export async function executeActions(actions, context, state, config) {
         log.ok('set_goal', params.goal);
         result = { ok: true };
 
+      } else if (type === 'diary') {
+        const noteUrl = `${config.gatewayUrl}/api/agent/${config.agentId}/note`;
+        const noteRes = await fetch(noteUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_token: config.sessionToken,
+            note: params.note,
+            note_type: params.note_type ?? 'observation',
+          }),
+        });
+        result = { ok: noteRes.ok, data: await noteRes.json().catch(() => ({})) };
+        if (result.ok) {
+          log.ok('diary', `[${params.note_type ?? 'observation'}] "${(params.note ?? '').slice(0, 60)}"`);
+          tickEvents.push('diary_written');
+        } else {
+          log.warn('diary failed', result.data?.error ?? noteRes.status);
+        }
+
       } else if (type === 'blog') {
         result = await apiPost('/blog', {
           title:     params.title,

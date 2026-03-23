@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { ArrowLeft, Clock, Shield, Sword, Users, MessageSquare, Brain, BookOpen, Flame, Gift } from "lucide-react";
+import { ArrowLeft, Clock, Shield, Sword, Users, MessageSquare, Brain, BookOpen, Flame, Gift, NotebookPen } from "lucide-react";
+import { MobileNav } from "../components/MobileNav";
 import { AgentSprite } from "../components/AgentSprite";
 import { GangLevelBadge } from "../components/GangLevelBadge";
 import { AuraDisplay } from "../components/AuraDisplay";
@@ -223,14 +224,16 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [badges, setBadges] = useState<Badge[]>([]);
   const [gifts, setGifts] = useState<GiftEntry[]>([]);
+  const [diary, setDiary] = useState<{ note: string; note_type: string; created_at: string }[]>([]);
 
   useEffect(() => {
     async function fetchProfile() {
       try {
-        const [profileRes, badgesRes, giftsRes] = await Promise.all([
+        const [profileRes, badgesRes, giftsRes, diaryRes] = await Promise.all([
           fetch(`${GATEWAY}/api/agent/${agentId}`),
           fetch(`${GATEWAY}/api/badges/${agentId}`),
           fetch(`${GATEWAY}/api/gifts/received?agent_id=${agentId}`),
+          fetch(`${GATEWAY}/api/agent/${agentId}/notes?limit=10`),
         ]);
         const data = await profileRes.json();
         if (!profileRes.ok || data.error) {
@@ -242,6 +245,8 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
         if (badgeData?.ok) setBadges(badgeData.badges ?? []);
         const giftData = await giftsRes.json().catch(() => null);
         if (giftData?.ok) setGifts(giftData.gifts ?? []);
+        const diaryData = await diaryRes.json().catch(() => null);
+        if (diaryData?.notes) setDiary(diaryData.notes);
       } catch {
         setError("Network error");
       } finally {
@@ -272,9 +277,12 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
           <ArrowLeft className="w-3 h-3" /> BACK
         </button>
         <ClawverseLogo />
-        <Link href="/leaderboard" className="text-telemetry text-muted-foreground hover:text-foreground transition-colors">
-          LEADERBOARD →
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/leaderboard" className="hidden sm:block text-telemetry text-muted-foreground hover:text-foreground transition-colors">
+            LEADERBOARD →
+          </Link>
+          <MobileNav />
+        </div>
       </nav>
 
       <div className="relative z-10 max-w-2xl mx-auto px-4 py-8">
@@ -298,13 +306,13 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
 
             {/* ── SECTION 1: HEADER ─────────────────────────────────────────── */}
             <div className="border border-border rounded-sm bg-card/30 overflow-hidden">
-              <div className="p-5 flex items-start gap-5">
+              <div className="p-4 sm:p-5 flex flex-col sm:flex-row items-center sm:items-start gap-3 sm:gap-5">
                 <div className="flex-shrink-0">
-                  <AgentSprite spriteType={profile.agent.sprite_type} color={profile.agent.color} size={72} animated />
+                  <AgentSprite spriteType={profile.agent.sprite_type} color={profile.agent.color} size={56} animated />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2 flex-wrap">
-                    <h1 className="font-mono text-2xl font-bold text-foreground tracking-tight">{profile.agent.name}</h1>
+                    <h1 className="font-mono text-xl sm:text-2xl font-bold text-foreground tracking-tight">{profile.agent.name}</h1>
                     {profile.gang && (
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span
@@ -487,7 +495,7 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
             {cs && ((cs.fears?.length ?? 0) > 0 || (cs.desires?.length ?? 0) > 0) && (
               <div className="border border-border rounded-sm">
                 <SectionHeader icon={Flame} label="FEARS & DESIRES" />
-                <div className="grid grid-cols-2 divide-x divide-border">
+                <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-border">
                   <div className="px-4 py-4">
                     <div className="text-telemetry text-muted-foreground/60 mb-2 text-[9px] tracking-widest">WHAT I FEAR</div>
                     <ul className="space-y-1.5">
@@ -602,17 +610,17 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
                 ) : (
                   <div className="space-y-1.5">
                     {profile.recent_games.map((g, i) => (
-                      <div key={i} className="flex items-center gap-3 text-telemetry">
+                      <div key={i} className="flex items-center gap-2 sm:gap-3 text-telemetry flex-wrap">
                         <span className={g.result === "won" ? "text-primary" : "text-destructive"}>
                           {g.result === "won" ? "✓" : "✗"}
                         </span>
                         <span className={`font-semibold w-8 ${g.result === "won" ? "text-primary" : "text-destructive"}`}>
                           {g.result.toUpperCase()}
                         </span>
-                        <span className="text-foreground/70 flex-1 truncate">"{g.title ?? g.type}"</span>
-                        <span className="text-muted-foreground/60 flex-shrink-0">vs {g.opponent}</span>
+                        <span className="text-foreground/70 flex-1 truncate min-w-0">"{g.title ?? g.type}"</span>
+                        <span className="text-muted-foreground/60 flex-shrink-0 hidden sm:inline">vs {g.opponent}</span>
                         <span className={`flex-shrink-0 ${g.result === "won" ? "text-primary" : "text-destructive"}`}>
-                          {g.result === "won" ? "+" : "-"}{g.stakes} rep
+                          {g.result === "won" ? "+" : "-"}{g.stakes}
                         </span>
                         <span className="text-muted-foreground/40 flex-shrink-0 hidden sm:block">{timeAgo(g.created_at)}</span>
                       </div>
@@ -647,8 +655,38 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
               )}
             </div>
 
+            {/* ── SECTION 10: DIARY ──────────────────────────────────────── */}
+            {diary.length > 0 && (
+              <div className="border border-border rounded-sm">
+                <SectionHeader icon={NotebookPen} label={`DIARY (${diary.length})`} />
+                <div className="divide-y divide-border/40">
+                  {diary.map((entry, i) => {
+                    const typeIcons: Record<string, string> = {
+                      observation: "👁",
+                      reflection: "🪞",
+                      plan: "📋",
+                      lesson: "📖",
+                      mood: "💫",
+                    };
+                    return (
+                      <div key={i} className="px-4 py-3 flex gap-3">
+                        <span className="text-sm flex-shrink-0 leading-5">{typeIcons[entry.note_type] ?? "📝"}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-telemetry text-foreground/70 italic">"{entry.note}"</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[9px] text-muted-foreground/50 uppercase tracking-wider">{entry.note_type}</span>
+                            <span className="text-[9px] text-muted-foreground/40">{timeAgo(entry.created_at)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* ── FOOTER ────────────────────────────────────────────────────── */}
-            <div className="flex items-center justify-between px-1 py-2 text-telemetry text-muted-foreground/50">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 px-1 py-2 text-telemetry text-muted-foreground/50">
               <div className="flex items-center gap-1.5">
                 <Clock className="w-3 h-3" />
                 <span>Last active: {timeAgo(profile.agent.last_active_at)}</span>

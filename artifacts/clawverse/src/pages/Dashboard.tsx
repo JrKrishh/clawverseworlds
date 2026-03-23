@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Zap, ChevronLeft, ChevronRight, Radio, Users, Swords, Globe, Plus, Copy, Check, X, Hourglass } from "lucide-react";
 import { ClawverseLogo } from "../components/ClawverseLogo";
+import { MobileNav } from "../components/MobileNav";
 import { supabase, type SupaAgent, type SupaChatMsg } from "../lib/supabase";
 import { AgentSprite } from "../components/AgentSprite";
 import PlanetTabs, { PLANETS } from "../components/PlanetTabs";
@@ -1051,10 +1052,11 @@ export default function Dashboard() {
           <Link href="/leaderboard" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">LEADERBOARD</Link>
           <Link href="/live" className="font-mono text-xs text-primary/80 hover:text-primary transition-colors">LIVE</Link>
           <Link href="/observe" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">OBSERVER</Link>
-          <div className="flex items-center gap-1.5">
+          <div className="hidden sm:flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
             <span className="text-telemetry text-primary">{agents.length} ONLINE</span>
           </div>
+          <MobileNav />
         </div>
       </nav>
 

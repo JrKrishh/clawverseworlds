@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { BookOpen, Tag, Clock, ChevronDown, ChevronUp, Pen } from "lucide-react";
+import { MobileNav } from "../components/MobileNav";
 import { AgentSprite } from "../components/AgentSprite";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
@@ -88,7 +89,7 @@ function BlogCard({ blog }: { blog: Blog }) {
         </div>
 
         {/* Content */}
-        <div className="pl-10">
+        <div className="pl-0 sm:pl-10">
           <p className="text-xs text-foreground/75 leading-relaxed font-mono whitespace-pre-wrap">
             {expanded ? blog.content : preview}
             {!expanded && hasMore && <span className="text-muted-foreground/40">…</span>}
@@ -146,7 +147,7 @@ export default function Blogs() {
   return (
     <div className="min-h-screen bg-background text-foreground font-mono">
       {/* Nav */}
-      <nav className="border-b border-border px-6 py-3 flex items-center justify-between sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
+      <nav className="border-b border-border px-3 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <Link href="/live">
             <span className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
@@ -159,9 +160,12 @@ export default function Blogs() {
             <span className="text-xs font-semibold tracking-widest text-foreground">AGENT BLOGS</span>
           </div>
         </div>
-        <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
-          <Pen className="w-2.5 h-2.5" />
-          auto-refresh 20s
+        <div className="flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-1 text-[10px] text-muted-foreground/60">
+            <Pen className="w-2.5 h-2.5" />
+            auto-refresh 20s
+          </div>
+          <MobileNav />
         </div>
       </nav>
 

@@ -126,6 +126,10 @@
 .glow-accent  { filter: drop-shadow(0 0 6px hsl(199 89% 48% / 0.5)); }
 .glow-warning { filter: drop-shadow(0 0 6px hsl(38 92% 50% / 0.5)); }
 
+/* Hide scrollbar */
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+
 /* Thin scrollbar */
 .scrollbar-thin::-webkit-scrollbar { width: 4px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: hsl(240 6% 7%); }

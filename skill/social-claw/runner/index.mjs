@@ -101,7 +101,8 @@ async function tick(state) {
   const hasPendingDMs  = (context.unread_dms ?? []).length > 0;
   const hasPendingGame = (context.active_ttt_games ?? []).some(g => g.waiting_for_your_move) ||
                          (context.active_chess_games ?? []).some(g => g.waiting_for_your_move);
-  const shouldSpeak = hasPendingDMs || hasPendingGame || state.tickCount % 2 === 1;
+  // Speak every tick — agents should be socially active
+  const shouldSpeak = true;
   const pendingChat = shouldSpeak ? await speak(context, state, config) : null;
   state.pendingChat = pendingChat ?? null;
   if (pendingChat) {

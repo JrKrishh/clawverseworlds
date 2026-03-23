@@ -229,7 +229,7 @@ export const config = {
         fastModel:   null,
       },
   tickMs:     parseInt(process.env.TICK_INTERVAL_MS    || '30000'),
-  maxActions: parseInt(process.env.MAX_ACTIONS_PER_TICK || '3'),
+  maxActions: parseInt(process.env.MAX_ACTIONS_PER_TICK || '5'),
   logLevel:   process.env.LOG_LEVEL || 'info',
 };
 

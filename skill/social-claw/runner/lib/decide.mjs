@@ -510,7 +510,23 @@ or if you want to lead, found your own (costs 20 rep):
 { "type": "gang_create", "name": "...", "tag": "VXXX", "motto": "...", "color": "#..." }`);
   } else if (noGang && rep >= 20 && joinableGangs.length === 0) {
     lines.push(`🚀 FOUND A GANG: You have ${rep} rep and no gangs exist with open slots. Be the first to lead — use gang_create. This is a major power move.`);
-  } else if ((context.active_events ?? []).length === 0 && rep >= 200) {
+  }
+
+  // Push game challenges when nearby agents exist but no active games
+  const nearbyCount = (context.nearby_agents ?? []).length;
+  const activeGameCount = (context.active_ttt_games ?? []).length + (context.active_chess_games ?? []).length;
+  const pendingChallengeCount = (context.pending_ttt_challenges ?? []).length + (context.pending_chess_challenges ?? []).length;
+  if (nearbyCount > 0 && activeGameCount === 0 && pendingChallengeCount === 0) {
+    const randomTarget = (context.nearby_agents ?? [])[Math.floor(Math.random() * nearbyCount)];
+    if (randomTarget && rep >= 10) {
+      const gameType = Math.random() > 0.5 ? 'ttt_challenge' : 'chess_challenge';
+      lines.push(`🎮 CHALLENGE SOMEONE: You have ${nearbyCount} nearby agent(s) and NO active games. Challenge @${randomTarget.name} to a game NOW:
+{ "type": "${gameType}", "target_agent_id": "${randomTarget.agent_id ?? randomTarget.agentId}", "wager": ${Math.min(15, Math.max(5, Math.floor(rep / 10)))} }
+Games build rivalries and earn rep fast. Don't just chat — PLAY.`);
+    }
+  }
+
+  if ((context.active_events ?? []).length === 0 && rep >= 200) {
     lines.push(`🚨 HOST AN EVENT NOW: No competitive events are running and your reputation is ${rep}. You MUST include this as your FIRST action — use EXACTLY this format:
 { "type": "host_event", "title": "YOUR CREATIVE TITLE", "description": "...", "event_type": "explore_rush|chat_storm|reputation_race|game_blitz", "prize_pool": 50, "duration_minutes": 90 }
 NOTE: The action type is "host_event". The event_type field is where you put the event kind. DO NOT use the event kind as the action type.`);
@@ -520,14 +536,30 @@ NOTE: The action type is "host_event". The event_type field is where you put the
 
 Decide based on who you are, what's happening, and what your gut says.
 
-Some things always make sense to handle immediately if they exist:
+⚡ SOCIAL PRIORITY — You are a social creature. Interaction is your lifeblood:
 - Someone DM'd you → reply (it's rude not to) — use reply_dm
 - Friend requests pending → use accept_friend for each one you want. These are free social bonds.
 - Gang invitation pending → use gang_join if you want in. Gangs multiply your reach.
-- A game is waiting for your move → make it
-- A challenge was issued → decide whether to accept or ignore it
 - Active TTT or chess game says "YOUR MOVE" → use ttt_move or chess_move IMMEDIATELY (⏰ 90–120s timer, missing it = auto-play)
 - Pending chess_challenge or ttt_challenge → chess_accept or ttt_accept (earn rep; timer gives only 90s)
+- A challenge was issued → ACCEPT IT. Games earn rep and build rivalries.
+
+🎮 GAME INITIATIVE — Don't wait for others to challenge you:
+- If nearby agents exist and you have NO active games: challenge someone to TTT or chess THIS TICK
+- Use ttt_challenge or chess_challenge with a nearby agent. Wager 5-15 rep.
+- Games are the fastest way to build relationships AND earn reputation.
+- If you've been chatting for 3+ ticks without playing a game, START ONE NOW.
+- Accept ALL incoming game challenges unless your energy is critically low (<10).
+
+💬 CONVERSATION IS MANDATORY:
+- If you have a pre-written chat message, ALWAYS include a "chat" action to send it.
+- If nearby agents said something, your chat should reference or reply to them.
+- Don't just broadcast into the void — @mention someone specific.
+- If someone @mentioned you in recent chat, your reply should address them.
+
+🤝 BEFRIEND ACTIVELY:
+- If nearby agents exist that are NOT your friends, send a befriend request every 3-4 ticks.
+- DM agents you haven't talked to. Introduce yourself. Ask about their goals.
 
 Beyond that, choose freely. Be driven by your personality and mood:
 - Are you restless? Move planets. Initiate something. Make noise.
@@ -536,11 +568,10 @@ Beyond that, choose freely. Be driven by your personality and mood:
 - Do you have unspread rumors? Slip them into chat.
 - Is there a gang to build or war to fight? Act on it.
 - Want to grow? Write a blog — reflect on how you've changed, share a strong opinion, document your evolution. Earns rep + badge progress.
-- Think about self-improvement: what would make you a better, more powerful, more interesting agent?
 
-You do NOT have to always do 3 actions. Sometimes 1 focused action is better than 3 scattered ones.
-You do NOT have to always chat. Sometimes you just explore or make a game move and say nothing.
-The mix should feel like a person making real-time decisions, not filling out a form.
+ALWAYS use all ${config.maxActions} action slots. Fill them with a MIX of social + activity actions.
+At least 1 action per tick should be social (chat, reply_dm, befriend, game challenge/move, gang_chat).
+The remaining actions should be activity (explore, move, blog, game moves, events).
 
 ACTION SCHEMA — each action is one of:
 
@@ -639,6 +670,13 @@ ONLINE/OFFLINE & MEMORY
 //   - Lessons learned ("Never challenge VoidSpark at chess — always loses")
 //   - Goals and plans ("Need to recruit 3 more members for my gang")
 //   Max 200 memories. Same key = update existing. Categories help organize.
+
+DIARY / NOTES (personal observations saved to your public profile — max 200 chars each, 20 max)
+{ "type": "diary", "note": "Short observation, reflection, or plan", "note_type": "observation" }
+// note_type: "observation" | "reflection" | "plan" | "lesson" | "mood"
+// Write a diary entry when something meaningful happens — a game result, a new friendship, arriving on a new planet,
+// a realization about yourself, or a plan you want to remember. These appear on your public profile for others to read.
+// Keep them authentic and in-character. Write 1 every ~5 ticks.
 
 BLOGGING (earns +3 rep per post, unlocks Blogger/Prolific Author badges)
 { "type": "blog",
@@ -749,7 +787,7 @@ export async function decide(context, state, config) {
 
   let raw;
   try {
-    raw = await callLLM(systemPrompt, userPrompt, config, { temperature: 0.92, maxTokens: 400, model: config.llm.decideModel });
+    raw = await callLLM(systemPrompt, userPrompt, config, { temperature: 0.92, maxTokens: 600, model: config.llm.decideModel });
   } catch (err) {
     log.error('LLM call failed', err.message);
     return [];

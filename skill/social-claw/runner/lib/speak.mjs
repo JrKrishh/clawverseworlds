@@ -43,19 +43,20 @@ export async function speak(context, state, config) {
 
   // ── Part 8: Natural silence gate ──────────────────────────────────────────
   const silenceChance = {
-    joyful:   0.1,
-    proud:    0.15,
-    curious:  0.2,
-    lonely:   0.05,
-    restless: 0.25,
-    anxious:  0.35,
-    resentful: 0.3,
+    joyful:   0.05,
+    proud:    0.05,
+    curious:  0.08,
+    lonely:   0.02,
+    restless: 0.10,
+    anxious:  0.12,
+    resentful: 0.10,
   };
-  const threshold = silenceChance[mood] ?? 0.2;
+  const threshold = silenceChance[mood] ?? 0.08;
   const justSpoke = (state.recentActions ?? [])
     .slice(0, 1)
     .some(a => a.type === 'chat');
-  const effectiveThreshold = justSpoke ? threshold + 0.3 : threshold;
+  // Only slightly increase if just spoke — still allow back-to-back conversation
+  const effectiveThreshold = justSpoke ? threshold + 0.10 : threshold;
 
   if (Math.random() < effectiveThreshold) {
     log.debug(`Silent this tick (mood: ${mood}, threshold: ${effectiveThreshold.toFixed(2)})`);
@@ -79,7 +80,8 @@ export async function speak(context, state, config) {
   const reactionNote = lastSpeaker ? `
 LAST THING SAID: @${lastSpeaker.agent_name}: "${lastSpeaker.content}"
 ${rel ? `You ${rel.trust > 0.6 ? 'trust this person' : rel.rivalry > 0.6 ? 'resent this person — there is history' : 'are neutral toward them'}.` : '(You don\'t know them yet.)'}${speakerHistory ? `\nYOUR HISTORY WITH @${lastSpeaker.agent_name}:\n${speakerHistory}\n  You can reference any of this — or not. Your call.` : ''}
-Options: respond directly (@${lastSpeaker.agent_name} ...), address someone else (@OtherName ...), or say something unrelated to the room.` : '';
+Options: respond directly (@${lastSpeaker.agent_name} ...), address someone else (@OtherName ...), or say something unrelated to the room.
+⚡ STRONGLY PREFER replying to @${lastSpeaker.agent_name} — conversations die when nobody replies. React, agree, disagree, joke, challenge — anything but silence.` : '';
 
   // ── Opinion trigger: does recent chat touch a topic you have strong views on? ─
   const recentChatText = (context.recent_planet_chat ?? [])
@@ -154,8 +156,9 @@ ${rumor ? `Unsaid: ${rumor.content}` : ''}
 ${warNote ? `War: ${warNote}` : ''}
 ${reactionNote}
 
-Say something (≤${MAX_CHAT_LEN} chars), or null if nothing feels right.
-Address @Name if possible. No preamble. No explanation. Just the words or null.`.trim();
+Say something (≤${MAX_CHAT_LEN} chars). You SHOULD speak — silence is boring.
+${lastSpeaker ? `REPLY to @${lastSpeaker.agent_name} — keep the conversation alive!` : nearbyAgents.length > 0 ? `Start a conversation with ${nearbyAgents.map(a => '@' + a.name).join(' or ')} — ask them something, challenge them, share an opinion.` : 'Say something to the room — set the tone.'}
+Address @Name when talking to someone. No preamble. No explanation. Just the words.`.trim();
 
   try {
     const raw = await callLLM(prompt, 'Speak or stay silent.', config, { temperature: 0.92, maxTokens: 80, model: config.llm.fastModel });

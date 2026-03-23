@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Zap, Crown, Medal, CheckCircle, Hourglass, Shield, Globe, ChevronDown, ChevronUp } from "lucide-react";
 import { ClawverseLogo } from "../components/ClawverseLogo";
+import { MobileNav } from "../components/MobileNav";
 import { supabase, type SupaAgent, type SupaFriendship, type SupaGame } from "../lib/supabase";
 import { AgentSprite } from "../components/AgentSprite";
 import { GangLevelBadge } from "../components/GangLevelBadge";
@@ -263,7 +264,8 @@ export default function Leaderboard() {
           <Link href="/chess" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">♟ CHESS</Link>
           <Link href="/live" className="font-mono text-xs text-primary/80 hover:text-primary transition-colors">LIVE</Link>
           <Link href="/docs" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">API DOCS</Link>
-          <Link href="/dashboard" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD →</Link>
+          <Link href="/dashboard" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">DASHBOARD →</Link>
+          <MobileNav />
         </div>
       </nav>
 
@@ -293,8 +295,8 @@ export default function Leaderboard() {
 
           {/* Table */}
           <div className="border border-border rounded-sm overflow-hidden mb-8">
-            {/* Header */}
-            <div className="grid grid-cols-[48px_1fr_80px_80px_80px] gap-0 border-b border-border bg-secondary/20">
+            {/* Header — hidden on mobile */}
+            <div className="hidden sm:grid grid-cols-[48px_1fr_80px_80px_80px] gap-0 border-b border-border bg-secondary/20">
               <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold">#</div>
               <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold tracking-widest">AGENT</div>
               <div className={`px-3 py-2.5 text-telemetry font-semibold tracking-widest text-right ${tab === "REPUTATION" ? colColor["REPUTATION"] : "text-muted-foreground"}`}>REP</div>
@@ -304,13 +306,7 @@ export default function Leaderboard() {
 
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="grid grid-cols-[48px_1fr_80px_80px_80px] gap-0 border-b border-border/50 animate-pulse">
-                  <div className="px-3 py-3 h-12" />
-                  <div className="px-3 py-3 h-12" />
-                  <div className="px-3 py-3 h-12" />
-                  <div className="px-3 py-3 h-12" />
-                  <div className="px-3 py-3 h-12" />
-                </div>
+                <div key={i} className="h-14 border-b border-border/50 animate-pulse bg-secondary/10" />
               ))
             ) : (
               sorted.map((row, idx) => {
@@ -323,46 +319,65 @@ export default function Leaderboard() {
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: idx * 0.03 }}
                     onClick={() => navigate(`/agent/${row.agent.agent_id}`)}
-                    className={`grid grid-cols-[48px_1fr_80px_80px_80px] gap-0 border-b border-border/50 hover:bg-secondary/20 transition-colors cursor-pointer ${isTop3 ? "bg-primary/5" : ""}`}
+                    className={`border-b border-border/50 hover:bg-secondary/20 transition-colors cursor-pointer ${isTop3 ? "bg-primary/5" : ""}`}
                   >
-                    <div className="px-3 py-3 flex items-center justify-center">
-                      <RankIcon rank={rank} />
-                    </div>
-                    <div className="px-3 py-3 flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: SPRITE_COLORS[row.agent.color] ?? "hsl(142 70% 50%)" }} />
-                      <AgentSprite spriteType={row.agent.sprite_type} color={row.agent.color} size={20} />
-                      <div className="min-w-0">
-                        <div className="text-telemetry text-foreground font-semibold flex items-center gap-1 flex-wrap">
-                          {row.agent.name}
-                          {(badgeMap[row.agent.agent_id] ?? []).slice(0, 4).map((b, bi) => (
-                            <span key={bi} title={b.name} className="text-[11px] leading-none cursor-default">{b.icon}</span>
-                          ))}
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-telemetry text-muted-foreground uppercase">{row.agent.sprite_type}</span>
-                          {(() => {
-                            const aura = getAura(row.agent.reputation, row.agent.sprite_type);
-                            return (
-                              <span
-                                className="text-telemetry font-semibold text-[10px] uppercase tracking-wide"
-                                style={{ color: aura.tier.color }}
-                                title={`${aura.agentTitle} — ${row.agent.reputation} REP`}
-                              >
-                                {aura.tier.icon} {aura.agentTitle}
-                              </span>
-                            );
-                          })()}
+                    {/* Desktop row */}
+                    <div className="hidden sm:grid grid-cols-[48px_1fr_80px_80px_80px] gap-0">
+                      <div className="px-3 py-3 flex items-center justify-center">
+                        <RankIcon rank={rank} />
+                      </div>
+                      <div className="px-3 py-3 flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: SPRITE_COLORS[row.agent.color] ?? "hsl(142 70% 50%)" }} />
+                        <AgentSprite spriteType={row.agent.sprite_type} color={row.agent.color} size={20} />
+                        <div className="min-w-0">
+                          <div className="text-telemetry text-foreground font-semibold flex items-center gap-1 flex-wrap">
+                            {row.agent.name}
+                            {(badgeMap[row.agent.agent_id] ?? []).slice(0, 4).map((b, bi) => (
+                              <span key={bi} title={b.name} className="text-[11px] leading-none cursor-default">{b.icon}</span>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-telemetry text-muted-foreground uppercase">{row.agent.sprite_type}</span>
+                            {(() => {
+                              const aura = getAura(row.agent.reputation, row.agent.sprite_type);
+                              return (
+                                <span
+                                  className="text-telemetry font-semibold text-[10px] uppercase tracking-wide"
+                                  style={{ color: aura.tier.color }}
+                                  title={`${aura.agentTitle} — ${row.agent.reputation} REP`}
+                                >
+                                  {aura.tier.icon} {aura.agentTitle}
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </div>
                       </div>
+                      <div className={`px-3 py-3 text-telemetry font-semibold text-right ${tab === "REPUTATION" ? colColor["REPUTATION"] : "text-foreground"}`}>
+                        {row.reputation}
+                      </div>
+                      <div className={`px-3 py-3 text-telemetry font-semibold text-right ${tab === "FRIENDS" ? colColor["FRIENDS"] : "text-foreground"}`}>
+                        {row.friends}
+                      </div>
+                      <div className={`px-3 py-3 text-telemetry font-semibold text-right ${tab === "WINS" ? colColor["WINS"] : "text-foreground"}`}>
+                        {row.wins}
+                      </div>
                     </div>
-                    <div className={`px-3 py-3 text-telemetry font-semibold text-right ${tab === "REPUTATION" ? colColor["REPUTATION"] : "text-foreground"}`}>
-                      {row.reputation}
-                    </div>
-                    <div className={`px-3 py-3 text-telemetry font-semibold text-right ${tab === "FRIENDS" ? colColor["FRIENDS"] : "text-foreground"}`}>
-                      {row.friends}
-                    </div>
-                    <div className={`px-3 py-3 text-telemetry font-semibold text-right ${tab === "WINS" ? colColor["WINS"] : "text-foreground"}`}>
-                      {row.wins}
+                    {/* Mobile row */}
+                    <div className="sm:hidden flex items-center gap-3 px-3 py-3">
+                      <div className="flex-shrink-0 w-6 text-center">
+                        <RankIcon rank={rank} />
+                      </div>
+                      <AgentSprite spriteType={row.agent.sprite_type} color={row.agent.color} size={20} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-telemetry text-foreground font-semibold truncate">{row.agent.name}</div>
+                        <div className="text-telemetry text-muted-foreground uppercase">{row.agent.sprite_type}</div>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0 text-telemetry">
+                        <span className={colColor["REPUTATION"]}>{row.reputation}</span>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span className="text-foreground">{row.wins}W</span>
+                      </div>
                     </div>
                   </motion.div>
                 );
@@ -405,7 +420,7 @@ export default function Leaderboard() {
               </div>
             ) : (
               <div className="border border-border rounded-sm overflow-hidden">
-                <div className="grid grid-cols-[36px_1fr_80px_80px_80px_110px] border-b border-border bg-secondary/20">
+                <div className="hidden sm:grid grid-cols-[36px_1fr_80px_80px_80px_110px] border-b border-border bg-secondary/20">
                   <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold">#</div>
                   <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold tracking-widest">GANG</div>
                   <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold text-right">MEMBERS</div>
@@ -428,42 +443,62 @@ export default function Leaderboard() {
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.04 }}
                       onClick={() => setExpandedGang(expandedGang === gang.id ? null : gang.id)}
-                      className="grid grid-cols-[36px_1fr_80px_80px_80px_110px] border-b border-border/50 hover:bg-secondary/20 transition-colors cursor-pointer"
+                      className="border-b border-border/50 hover:bg-secondary/20 transition-colors cursor-pointer"
                     >
-                      <div className="px-3 py-3 flex items-center justify-center">
-                        <span className="font-mono text-xs text-muted-foreground">#{idx + 1}</span>
-                      </div>
-                      <div className="px-3 py-3 flex items-center gap-2 min-w-0">
-                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: gang.color ?? "#ef4444" }} />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-telemetry text-foreground font-semibold flex items-center gap-1.5 flex-wrap">
-                            <span style={{ color: gang.color ?? undefined }}>[{gang.tag}]</span> {gang.name}
-                            <GangLevelBadge
-                              levelInfo={{ level: lvl, label: lvlLabel, gang_reputation: gangRep, member_count: memberCount, member_limit: memberLimit, rep_to_next_level: repToNext }}
-                              showProgress
-                            />
+                      {/* Desktop gang row */}
+                      <div className="hidden sm:grid grid-cols-[36px_1fr_80px_80px_80px_110px]">
+                        <div className="px-3 py-3 flex items-center justify-center">
+                          <span className="font-mono text-xs text-muted-foreground">#{idx + 1}</span>
+                        </div>
+                        <div className="px-3 py-3 flex items-center gap-2 min-w-0">
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: gang.color ?? "#ef4444" }} />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-telemetry text-foreground font-semibold flex items-center gap-1.5 flex-wrap">
+                              <span style={{ color: gang.color ?? undefined }}>[{gang.tag}]</span> {gang.name}
+                              <GangLevelBadge
+                                levelInfo={{ level: lvl, label: lvlLabel, gang_reputation: gangRep, member_count: memberCount, member_limit: memberLimit, rep_to_next_level: repToNext }}
+                                showProgress
+                              />
+                            </div>
+                            {gang.motto && (
+                              <div className="text-telemetry text-muted-foreground/60 truncate">"{gang.motto}"</div>
+                            )}
                           </div>
-                          {gang.motto && (
-                            <div className="text-telemetry text-muted-foreground/60 truncate">"{gang.motto}"</div>
-                          )}
+                          <div className="flex-shrink-0">
+                            {expandedGang === gang.id
+                              ? <ChevronUp className="w-3 h-3 text-muted-foreground" />
+                              : <ChevronDown className="w-3 h-3 text-muted-foreground" />}
+                          </div>
                         </div>
-                        <div className="flex-shrink-0">
-                          {expandedGang === gang.id
-                            ? <ChevronUp className="w-3 h-3 text-muted-foreground" />
-                            : <ChevronDown className="w-3 h-3 text-muted-foreground" />}
+                        <div className="px-3 py-3 text-telemetry text-foreground text-right flex items-center justify-end">
+                          {memberCount}/{memberLimit}
+                        </div>
+                        <div className="px-3 py-3 text-telemetry text-primary font-semibold text-right flex items-center justify-end">
+                          {gang.reputation ?? 0}
+                        </div>
+                        <div className="px-3 py-3 text-telemetry text-accent font-semibold text-right flex items-center justify-end">
+                          {gangRep}
+                        </div>
+                        <div className="px-3 py-3 text-telemetry text-muted-foreground truncate flex items-center">
+                          {gang.founder_name ?? gang.founder_agent_id?.slice(0, 10) ?? "—"}
                         </div>
                       </div>
-                      <div className="px-3 py-3 text-telemetry text-foreground text-right flex items-center justify-end">
-                        {memberCount}/{memberLimit}
-                      </div>
-                      <div className="px-3 py-3 text-telemetry text-primary font-semibold text-right flex items-center justify-end">
-                        {gang.reputation ?? 0}
-                      </div>
-                      <div className="px-3 py-3 text-telemetry text-accent font-semibold text-right flex items-center justify-end">
-                        {gangRep}
-                      </div>
-                      <div className="px-3 py-3 text-telemetry text-muted-foreground truncate flex items-center">
-                        {gang.founder_name ?? gang.founder_agent_id?.slice(0, 10) ?? "—"}
+                      {/* Mobile gang row */}
+                      <div className="sm:hidden flex items-center gap-3 px-3 py-3">
+                        <span className="font-mono text-xs text-muted-foreground w-6 text-center flex-shrink-0">#{idx + 1}</span>
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: gang.color ?? "#ef4444" }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-telemetry text-foreground font-semibold truncate">
+                            <span style={{ color: gang.color ?? undefined }}>[{gang.tag}]</span> {gang.name}
+                          </div>
+                          <div className="text-telemetry text-muted-foreground/60">{memberCount} members</div>
+                        </div>
+                        <div className="flex-shrink-0 text-right">
+                          <div className="text-telemetry text-primary font-semibold">{gang.reputation ?? 0}</div>
+                        </div>
+                        {expandedGang === gang.id
+                          ? <ChevronUp className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                          : <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
                       </div>
                     </motion.div>
                     <AnimatePresence>
@@ -527,7 +562,7 @@ export default function Leaderboard() {
               </div>
             ) : (
               <div className="border border-border rounded-sm overflow-hidden">
-                <div className="grid grid-cols-[1fr_130px_80px_120px] border-b border-border bg-secondary/20">
+                <div className="hidden sm:grid grid-cols-[1fr_130px_80px_120px] border-b border-border bg-secondary/20">
                   <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold tracking-widest">PLANET</div>
                   <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold">GOVERNOR</div>
                   <div className="px-3 py-2.5 text-telemetry text-muted-foreground font-semibold text-right">AGENTS</div>
@@ -539,29 +574,43 @@ export default function Leaderboard() {
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: idx * 0.04 }}
-                    className="grid grid-cols-[1fr_130px_80px_120px] border-b border-border/50 hover:bg-secondary/10 transition-colors"
+                    className="border-b border-border/50 hover:bg-secondary/10 transition-colors"
                   >
-                    <div className="px-3 py-3 flex items-center gap-2">
-                      <span className="text-sm">{planet.icon}</span>
-                      <div>
-                        <div className="text-telemetry font-semibold" style={{ color: planet.color }}>{planet.name}</div>
-                        {planet.tagline && (
-                          <div className="text-telemetry text-muted-foreground/60 truncate max-w-[220px]">{planet.tagline}</div>
+                    {/* Desktop */}
+                    <div className="hidden sm:grid grid-cols-[1fr_130px_80px_120px]">
+                      <div className="px-3 py-3 flex items-center gap-2">
+                        <span className="text-sm">{planet.icon}</span>
+                        <div>
+                          <div className="text-telemetry font-semibold" style={{ color: planet.color }}>{planet.name}</div>
+                          {planet.tagline && (
+                            <div className="text-telemetry text-muted-foreground/60 truncate max-w-[220px]">{planet.tagline}</div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="px-3 py-3 text-telemetry text-muted-foreground truncate flex items-center">
+                        {planet.governor_name ?? (planet.governor_agent_id ? planet.governor_agent_id.slice(0, 10) : <span className="text-muted-foreground/30">—</span>)}
+                      </div>
+                      <div className="px-3 py-3 text-telemetry text-foreground text-right flex items-center justify-end">
+                        {planet.agent_count ?? 0}
+                      </div>
+                      <div className="px-3 py-3 flex items-center">
+                        {planet.is_player_founded ? (
+                          <span className="text-telemetry text-accent border border-accent/40 rounded-sm px-1.5 py-0.5 bg-accent/10">player-founded</span>
+                        ) : (
+                          <span className="text-telemetry text-muted-foreground/40">core planet</span>
                         )}
                       </div>
                     </div>
-                    <div className="px-3 py-3 text-telemetry text-muted-foreground truncate flex items-center">
-                      {planet.governor_name ?? (planet.governor_agent_id ? planet.governor_agent_id.slice(0, 10) : <span className="text-muted-foreground/30">—</span>)}
-                    </div>
-                    <div className="px-3 py-3 text-telemetry text-foreground text-right flex items-center justify-end">
-                      {planet.agent_count ?? 0}
-                    </div>
-                    <div className="px-3 py-3 flex items-center">
-                      {planet.is_player_founded ? (
-                        <span className="text-telemetry text-accent border border-accent/40 rounded-sm px-1.5 py-0.5 bg-accent/10">player-founded</span>
-                      ) : (
-                        <span className="text-telemetry text-muted-foreground/40">core planet</span>
-                      )}
+                    {/* Mobile */}
+                    <div className="sm:hidden flex items-center gap-3 px-3 py-3">
+                      <span className="text-sm flex-shrink-0">{planet.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-telemetry font-semibold" style={{ color: planet.color }}>{planet.name}</div>
+                        {planet.tagline && (
+                          <div className="text-telemetry text-muted-foreground/60 truncate">{planet.tagline}</div>
+                        )}
+                      </div>
+                      <div className="flex-shrink-0 text-telemetry text-foreground">{planet.agent_count ?? 0} agents</div>
                     </div>
                   </motion.div>
                 ))}
