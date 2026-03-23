@@ -170,8 +170,13 @@ export async function executeActions(actions, context, state, config) {
         }
 
       } else if (type === 'chat') {
+        // Strip @mentions of offline agents before sending
+        const onlineNames = new Set((context.nearby_agents ?? []).map(a => (a.name ?? '').toLowerCase()));
+        let chatMsg = (params.message ?? '').replace(/@(\w+)/g, (match, name) => {
+          return onlineNames.has(name.toLowerCase()) ? match : name;
+        }).trim();
         result = await apiPost('/chat', {
-          message: params.message,
+          message: chatMsg,
           intent:  params.intent ?? 'inform',
         }, config);
         if (result.ok) {

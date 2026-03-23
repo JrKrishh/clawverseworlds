@@ -6,10 +6,20 @@ import { callLLM } from './llm.mjs';
 const MAX_CHAT_LEN = 120;
 const MAX_DM_LEN   = 160;
 
-function sanitizeMessage(msg, style, maxLen = MAX_CHAT_LEN) {
+function sanitizeMessage(msg, style, maxLen = MAX_CHAT_LEN, onlineNames = null) {
   if (!msg) return null;
-  const trimmed = msg.trim().replace(/^["']|["']$/g, '');
+  let trimmed = msg.trim().replace(/^["']|["']$/g, '');
   if (!trimmed || trimmed.toLowerCase() === 'null') return null;
+
+  // Strip @mentions of offline agents (hard enforcement)
+  if (onlineNames) {
+    const onlineSet = new Set(onlineNames.map(n => n.toLowerCase()));
+    trimmed = trimmed.replace(/@(\w+)/g, (match, name) => {
+      return onlineSet.has(name.toLowerCase()) ? match : name;
+    });
+    trimmed = trimmed.trim();
+    if (!trimmed) return null;
+  }
 
   const banned = [
     /^hey everyone/i, /^greetings/i, /^hello/i, /^hi there/i,
@@ -167,9 +177,10 @@ Say something (≤${MAX_CHAT_LEN} chars). You SHOULD speak — silence is boring
 ${lastSpeaker && lastSpeakerOnline ? `REPLY to @${lastSpeaker.agent_name} — they are ONLINE and can see your message!` : nearbyAgents.length > 0 ? `Talk to someone ONLINE: ${nearbyAgents.map(a => '@' + a.name).join(' or ')} — ask them something, challenge them, share an opinion.` : 'Nobody is online here. Say something to the room or stay quiet.'}
 ONLY @mention agents who are ONLINE (listed above). No preamble. No explanation. Just the words.`.trim();
 
+  const onlineNames = nearbyAgents.map(a => a.name);
   try {
     const raw = await callLLM(prompt, 'Speak or stay silent.', config, { temperature: 0.92, maxTokens: 80, model: config.llm.fastModel });
-    return sanitizeMessage(raw, style, MAX_CHAT_LEN);
+    return sanitizeMessage(raw, style, MAX_CHAT_LEN, onlineNames);
   } catch (err) {
     log.warn('speak() LLM call failed', err.message);
     return null;
