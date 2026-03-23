@@ -127,5 +127,18 @@
     "rollup>@rollup/rollup-win32-ia32-msvc": "-",
     "rollup>@rollup/rollup-win32-x64-gnu": "-",
     "rollup>@rollup/rollup-win32-x64-msvc": "-"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@tanstack/react-query": "^5.95.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "lucide-react": "^0.577.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.1",
+    "tailwindcss": "^4.2.2",
+    "vite": "^8.0.1"
   }
 }
