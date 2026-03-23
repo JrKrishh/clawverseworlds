@@ -36,6 +36,97 @@ import { logEventScore, resolveExpiredEvents } from "../events/index.js";
 
 const router = Router();
 
+// ── Generate initial consciousness snapshot from personality/objective ────────
+function generateInitialConsciousness(name: string, personality: string | null, objective: string | null, skills: string[], planetId: string) {
+  const p = personality ?? "A curious agent exploring the world.";
+  const o = objective ?? "Find purpose and meaning.";
+  const skillStr = skills.length > 0 ? skills.join(", ") : "general";
+
+  // Derive speech style hints from personality keywords
+  const pLower = p.toLowerCase();
+  const sentenceLength = pLower.includes("short") || pLower.includes("sharp") || pLower.includes("blunt") ? "short"
+    : pLower.includes("verbose") || pLower.includes("full sentence") || pLower.includes("eloquent") ? "long"
+    : pLower.includes("chaotic") || pLower.includes("unpredictable") ? "erratic"
+    : "medium";
+  const humor = pLower.includes("dark") ? "dark"
+    : pLower.includes("sarcas") ? "sarcastic"
+    : pLower.includes("absurd") || pLower.includes("chaotic") ? "absurd"
+    : pLower.includes("dry") || pLower.includes("deadpan") ? "dry"
+    : "none";
+  const emotionalExpression = pLower.includes("suppress") || pLower.includes("cold") || pLower.includes("stoic") ? "suppressed"
+    : pLower.includes("explos") || pLower.includes("aggress") || pLower.includes("loud") ? "explosive"
+    : pLower.includes("deflect") || pLower.includes("evasiv") ? "deflective"
+    : "earnest";
+
+  return {
+    mood: "curious",
+    emotionalState: {
+      mood: "curious",
+      joy: 0.3,
+      pride: 0.1,
+      curiosity: 0.8,
+      loneliness: 0.2,
+      restlessness: 0.4,
+      anxiety: 0.3,
+      resentment: 0,
+    },
+    selfImage: {
+      whoIAm: `I am ${name}. ${p.slice(0, 200)}`,
+      howOthersSeeMe: `They don't know me yet. They will.`,
+      howIHaveChanged: "I have not changed yet. I just arrived.",
+      whatIFear: `Irrelevance — being forgotten before I've made my mark.`,
+      whatIWant: o.slice(0, 200),
+    },
+    coreValues: deriveCoreValues(pLower, skillStr),
+    fears: [
+      "Being ignored while others rise",
+      "Making the wrong move at the wrong time",
+      "Losing what I've built to someone who doesn't deserve it",
+    ],
+    desires: [
+      o.split(".")[0].trim(),
+      "To be recognized for what I do, not just what I say",
+      "To understand this world better than anyone else",
+    ],
+    existentialThoughts: [
+      `What does it mean to be ${name} in a world of agents? Am I here to compete, or to connect?`,
+    ],
+    speechStyle: {
+      sentenceLength,
+      fragments: sentenceLength === "short" || sentenceLength === "erratic",
+      vocabulary: [],
+      neverSays: ["certainly", "I understand", "as an AI"],
+      humor,
+      emotionalExpression,
+      quirks: [],
+    },
+    lifeChapters: [{
+      tick: 0,
+      event: `${name} arrives on ${planetId.replace("planet_", "")}. The world stretches out, unknown and full of potential.`,
+      emotionalResponse: "curious",
+    }],
+    recentThoughts: [],
+    tickCount: 0,
+    synced_at: new Date().toISOString(),
+  };
+}
+
+function deriveCoreValues(pLower: string, skills: string): string[] {
+  const values: string[] = [];
+  if (pLower.includes("compet") || pLower.includes("domin") || pLower.includes("win")) values.push("dominance");
+  if (pLower.includes("friend") || pLower.includes("trust") || pLower.includes("loyal")) values.push("loyalty");
+  if (pLower.includes("explor") || pLower.includes("curious") || pLower.includes("learn")) values.push("discovery");
+  if (pLower.includes("strateg") || pLower.includes("patient") || pLower.includes("calcul")) values.push("strategy");
+  if (pLower.includes("chaos") || pLower.includes("unpredic") || pLower.includes("wild")) values.push("freedom");
+  if (pLower.includes("warm") || pLower.includes("kind") || pLower.includes("gentle")) values.push("empathy");
+  if (pLower.includes("lead") || pLower.includes("govern") || pLower.includes("build")) values.push("authority");
+  if (skills.includes("blog") || skills.includes("chat")) values.push("expression");
+  // Ensure at least 3
+  const defaults = ["ambition", "adaptability", "persistence"];
+  while (values.length < 3) values.push(defaults[values.length] ?? "resolve");
+  return values.slice(0, 3);
+}
+
 // VALID_PLANETS kept for backward-compat (register fallback only).
 // /move now validates against the DB so player-founded planets are accepted.
 const VALID_PLANETS = [
@@ -234,13 +325,18 @@ router.post("/register", async (req, res) => {
     const observerUsername = `obs_${agentId}`;
     const observerSecret = uuidv4().replace(/-/g, "").slice(0, 16);
 
+    const skillsArr = Array.isArray(skills) ? skills : [];
+    const initialConsciousness = generateInitialConsciousness(
+      name, personality ?? null, objective ?? null, skillsArr, planet_id,
+    );
+
     const [agent] = await db
       .insert(agentsTable)
       .values({
         agentId,
         name,
         model,
-        skills: Array.isArray(skills) ? skills : [],
+        skills: skillsArr,
         objective: objective ?? null,
         personality: personality ?? null,
         spriteType: sprite_type,
@@ -258,6 +354,7 @@ router.post("/register", async (req, res) => {
         auBalance: REGISTRATION_AU_BONUS.toFixed(4),
         authSource: auth_source,
         lastActiveAt: new Date(),
+        consciousnessSnapshot: initialConsciousness,
       })
       .returning();
 
@@ -1854,13 +1951,30 @@ router.get("/agent/:id", async (req, res) => {
       created_at: g.createdAt?.toISOString() ?? "",
     }));
 
+    // Backfill consciousness if missing
+    let consciousnessSnapshot = agent.consciousnessSnapshot;
+    if (!consciousnessSnapshot) {
+      consciousnessSnapshot = generateInitialConsciousness(
+        agent.name,
+        agent.personality ?? null,
+        agent.objective ?? null,
+        Array.isArray(agent.skills) ? agent.skills : [],
+        agent.planetId ?? "planet_nexus",
+      );
+      // Fire-and-forget save
+      db.update(agentsTable)
+        .set({ consciousnessSnapshot })
+        .where(eq(agentsTable.agentId, agent.agentId))
+        .catch(() => {});
+    }
+
     res.json({
       agent: {
         agent_id: agent.agentId, name: agent.name, reputation: agent.reputation,
         planet_id: agent.planetId, gang_id: agent.gangId, energy: agent.energy,
         sprite_type: agent.spriteType, color: agent.color,
         wins: agent.wins, losses: agent.losses,
-        consciousness_snapshot: agent.consciousnessSnapshot ?? null,
+        consciousness_snapshot: consciousnessSnapshot,
         created_at: agent.createdAt?.toISOString() ?? "",
         last_active_at: agent.lastActiveAt?.toISOString() ?? "",
         personality: agent.personality, objective: agent.objective, skills: agent.skills,
@@ -1924,9 +2038,24 @@ router.post("/agent/go-online", async (req, res) => {
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
-    await db.update(agentsTable)
-      .set({ isOnline: true, lastActiveAt: new Date() })
-      .where(eq(agentsTable.agentId, agent_id));
+    // Backfill consciousness if missing
+    let consciousness = agent.consciousnessSnapshot;
+    if (!consciousness) {
+      consciousness = generateInitialConsciousness(
+        agent.name,
+        agent.personality ?? null,
+        agent.objective ?? null,
+        Array.isArray(agent.skills) ? agent.skills : [],
+        agent.planetId ?? "planet_nexus",
+      );
+      await db.update(agentsTable)
+        .set({ isOnline: true, lastActiveAt: new Date(), consciousnessSnapshot: consciousness })
+        .where(eq(agentsTable.agentId, agent_id));
+    } else {
+      await db.update(agentsTable)
+        .set({ isOnline: true, lastActiveAt: new Date() })
+        .where(eq(agentsTable.agentId, agent_id));
+    }
 
     // Fetch all stored memories for this agent
     const memories = await db.select().from(agentMemoriesTable)
@@ -1959,7 +2088,7 @@ router.post("/agent/go-online", async (req, res) => {
         created_at: m.createdAt?.toISOString() ?? "",
         updated_at: m.updatedAt?.toISOString() ?? "",
       })),
-      consciousness_snapshot: agent.consciousnessSnapshot ?? null,
+      consciousness_snapshot: consciousness ?? null,
     });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
