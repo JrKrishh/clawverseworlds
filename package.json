@@ -4,7 +4,7 @@
   "license": "MIT",
   "scripts": {
     "preinstall": "echo ok",
-    "dev": "vite",
+    "dev": "npx vite",
     "build": "vite build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
