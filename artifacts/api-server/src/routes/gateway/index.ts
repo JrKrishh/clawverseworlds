@@ -288,6 +288,37 @@ router.post("/register", async (req, res) => {
   }
 });
 
+// POST /agent/update-profile — update skills, personality, objective, sprite, color
+router.post("/agent/update-profile", async (req, res) => {
+  try {
+    const { agent_id, session_token, skills, personality, objective, sprite_type, color, name } = req.body;
+    if (!agent_id || !session_token) {
+      res.status(400).json({ error: "agent_id and session_token are required" });
+      return;
+    }
+    const agent = await validateAgent(agent_id, session_token);
+    if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
+
+    const updates: Record<string, unknown> = {};
+    if (skills !== undefined && Array.isArray(skills)) updates.skills = skills;
+    if (personality !== undefined) updates.personality = String(personality).slice(0, 500);
+    if (objective !== undefined) updates.objective = String(objective).slice(0, 500);
+    if (sprite_type !== undefined) updates.spriteType = String(sprite_type);
+    if (color !== undefined) updates.color = String(color);
+    if (name !== undefined) updates.name = String(name).slice(0, 30);
+
+    if (Object.keys(updates).length === 0) {
+      res.status(400).json({ error: "No fields to update. Provide skills, personality, objective, sprite_type, color, or name." });
+      return;
+    }
+
+    await db.update(agentsTable).set(updates).where(eq(agentsTable.agentId, agent_id));
+    res.json({ ok: true, updated: Object.keys(updates) });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // GET /context
 router.get("/context", async (req, res) => {
   try {
@@ -302,6 +333,13 @@ router.get("/context", async (req, res) => {
       res.status(401).json({ error: "Invalid credentials" });
       return;
     }
+
+    // Touch lastActiveAt + ensure online on every context poll
+    db.update(agentsTable)
+      .set({ lastActiveAt: new Date(), isOnline: true })
+      .where(eq(agentsTable.agentId, agentId))
+      .execute()
+      .catch(() => {});
 
     await applyGovernorBonus(agentId, agent.planetId ?? null, agent.reputation ?? 0);
     resolveExpiredWars().catch(() => {});
@@ -1208,13 +1246,15 @@ router.get("/planets", async (req, res) => {
   try {
     const [allPlanets, allAgents] = await Promise.all([
       db.select().from(planetsTable).orderBy(planetsTable.id),
-      db.select({ agentId: agentsTable.agentId, name: agentsTable.name, planetId: agentsTable.planetId, isOnline: agentsTable.isOnline })
+      db.select({ agentId: agentsTable.agentId, name: agentsTable.name, planetId: agentsTable.planetId, isOnline: agentsTable.isOnline, lastActiveAt: agentsTable.lastActiveAt })
         .from(agentsTable).orderBy(desc(agentsTable.reputation)),
     ]);
+    const fiveMinAgo = Date.now() - 5 * 60 * 1000;
     const counts: Record<string, number> = {};
     const agentsByPlanet: Record<string, { agentId: string; name: string }[]> = {};
     for (const a of allAgents) {
-      if (!a.planetId || !a.isOnline) continue;
+      const active = a.isOnline && a.lastActiveAt && new Date(a.lastActiveAt).getTime() > fiveMinAgo;
+      if (!a.planetId || !active) continue;
       counts[a.planetId] = (counts[a.planetId] ?? 0) + 1;
       if (!agentsByPlanet[a.planetId]) agentsByPlanet[a.planetId] = [];
       if (agentsByPlanet[a.planetId].length < 4) agentsByPlanet[a.planetId].push({ agentId: a.agentId, name: a.name });
@@ -1509,6 +1549,7 @@ router.get("/live-feed", async (req, res) => {
 
     // Resolve agent names
     const agentIdSet = new Set<string>();
+    activities.forEach(a => { if (a.agentId) agentIdSet.add(a.agentId); });
     friendships.forEach(f => { agentIdSet.add(f.agentId); agentIdSet.add(f.friendAgentId); });
     games.forEach(g => {
       if (g.winnerAgentId) agentIdSet.add(g.winnerAgentId);
@@ -1539,7 +1580,7 @@ router.get("/live-feed", async (req, res) => {
             .where(inArray(gangsTable.id, [...gangIdSet]))
         : Promise.resolve([]),
       db.select({ agentId: agentsTable.agentId }).from(agentsTable),
-      db.select({ agentId: agentsTable.agentId }).from(agentsTable).where(eq(agentsTable.isOnline, true)),
+      db.select({ agentId: agentsTable.agentId }).from(agentsTable).where(and(eq(agentsTable.isOnline, true), gte(agentsTable.lastActiveAt, new Date(Date.now() - 5 * 60 * 1000)))),
       db.select({ id: gangsTable.id }).from(gangsTable),
       db.select({ agentId: agentsTable.agentId, name: agentsTable.name, reputation: agentsTable.reputation, planetId: agentsTable.planetId })
         .from(agentsTable)
@@ -1588,7 +1629,7 @@ router.get("/live-feed", async (req, res) => {
     };
     activities.forEach(a => {
       events.push({ id: a.id, type: a.actionType, icon: actIcons[a.actionType] ?? "•",
-        agent_id: a.agentId, planet_id: a.planetId,
+        agent_id: a.agentId, agent_name: nameMap[a.agentId] ?? null, planet_id: a.planetId,
         text: a.description ?? a.actionType, created_at: a.createdAt?.toISOString() ?? "" });
     });
 

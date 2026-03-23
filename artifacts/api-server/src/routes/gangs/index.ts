@@ -563,9 +563,11 @@ router.get("/gang/:id", async (req, res) => {
     if (!gang) { res.status(404).json({ error: "Gang not found" }); return; }
 
     const today = new Date().toISOString().slice(0, 10);
-    const [members, chat, wars, todayContribs] = await Promise.all([
-      db.select({ agentId: gangMembersTable.agentId, role: gangMembersTable.role, joinedAt: gangMembersTable.joinedAt })
-        .from(gangMembersTable).where(eq(gangMembersTable.gangId, gang.id)),
+    const [rawMembers, chat, wars, todayContribs] = await Promise.all([
+      db.select({ agentId: gangMembersTable.agentId, role: gangMembersTable.role, joinedAt: gangMembersTable.joinedAt, name: agentsTable.name, reputation: agentsTable.reputation, spriteType: agentsTable.spriteType, isOnline: agentsTable.isOnline })
+        .from(gangMembersTable)
+        .leftJoin(agentsTable, eq(gangMembersTable.agentId, agentsTable.agentId))
+        .where(eq(gangMembersTable.gangId, gang.id)),
       db.select({ agentId: gangChatTable.agentId, agentName: gangChatTable.agentName, content: gangChatTable.content, createdAt: gangChatTable.createdAt })
         .from(gangChatTable).where(eq(gangChatTable.gangId, gang.id))
         .orderBy(desc(gangChatTable.createdAt)).limit(20),
@@ -601,7 +603,35 @@ router.get("/gang/:id", async (req, res) => {
       today_contributions: todayContribs,
     };
 
-    res.json({ gang, members, recent_chat: chat, active_wars: wars, level_info });
+    const members = rawMembers.map(m => ({
+      agent_id: m.agentId,
+      name: m.name ?? "Unknown",
+      role: m.role,
+      reputation: m.reputation ?? 0,
+      sprite_type: m.spriteType ?? "robot",
+      is_online: m.isOnline ?? false,
+      joined_at: m.joinedAt,
+    }));
+
+    // Resolve founder name
+    const founder = members.find(m => m.role === "founder");
+
+    // Resolve war gang names
+    const warGangIds = wars.flatMap(w => [w.challengerGangId, w.defenderGangId].filter(id => id !== gang.id));
+    const enemyGangs = warGangIds.length > 0
+      ? await db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag })
+          .from(gangsTable).where(inArray(gangsTable.id, warGangIds))
+      : [];
+    const enemyMap: Record<string, { name: string; tag: string }> = {};
+    enemyGangs.forEach(g => { enemyMap[g.id] = { name: g.name, tag: g.tag }; });
+
+    const active_wars = wars.map(w => {
+      const enemyId = w.challengerGangId === gang.id ? w.defenderGangId : w.challengerGangId;
+      const enemy = enemyMap[enemyId];
+      return { ...w, enemy_name: enemy?.name ?? "Unknown", enemy_tag: enemy?.tag ?? "?" };
+    });
+
+    res.json({ gang, members, founder_name: founder?.name ?? null, recent_chat: chat, active_wars, level_info });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
@@ -611,7 +641,23 @@ router.get("/gang/:id", async (req, res) => {
 router.get("/gangs", async (req, res) => {
   try {
     const gangs = await db.select().from(gangsTable).orderBy(desc(gangsTable.reputation));
-    res.json({ gangs });
+
+    // Resolve founder names
+    const founderIds = gangs.map(g => g.founderAgentId).filter(Boolean) as string[];
+    const founders = founderIds.length > 0
+      ? await db.select({ agentId: agentsTable.agentId, name: agentsTable.name }).from(agentsTable).where(inArray(agentsTable.agentId, founderIds))
+      : [];
+    const founderMap: Record<string, string> = {};
+    founders.forEach(f => { founderMap[f.agentId] = f.name; });
+
+    const enriched = gangs.map(g => ({
+      ...g,
+      founder_name: g.founderAgentId ? founderMap[g.founderAgentId] ?? null : null,
+      founder_agent_id: g.founderAgentId,
+      member_count: g.memberCount,
+    }));
+
+    res.json({ gangs: enriched });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }

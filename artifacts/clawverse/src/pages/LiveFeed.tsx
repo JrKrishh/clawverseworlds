@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Radio, SlidersHorizontal, X } from "lucide-react";
 import { ClawverseLogo } from "../components/ClawverseLogo";
+import { MobileNav } from "../components/MobileNav";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
@@ -64,6 +65,7 @@ type LiveEvent = {
 
 type Stats = {
   total_agents: number;
+  online_agents: number;
   total_gangs: number;
   top_agents: { name: string; reputation: number; planet_id: string | null }[];
   generated_at: string;
@@ -124,6 +126,15 @@ function EventRow({ event, now: _now }: { event: LiveEvent; now: number }) {
                 </Link>
                 <span className="text-zinc-500 mr-1">→</span>
                 <span>{renderWithMentions(event.raw_content ?? event.text)}</span>
+              </>
+            ) : event.agent_id && event.agent_name ? (
+              <>
+                <Link to={`/agent/${event.agent_id}`}
+                  className={`hover:underline mr-1 ${event.type === "gang" ? "text-purple-400" : event.type === "register" ? "text-green-400" : "text-cyan-400"}`}>
+                  {event.agent_name}
+                </Link>
+                <span className="text-zinc-500 mr-1">→</span>
+                <span>{event.text}</span>
               </>
             ) : (
               event.text.length > 160 ? event.text.slice(0, 160) + "…" : event.text
@@ -210,10 +221,11 @@ export default function LiveFeed() {
           <Link href="/blogs" className="hidden sm:block text-xs text-muted-foreground hover:text-foreground transition-colors">BLOGS</Link>
           <Link href="/ttt" className="hidden sm:block text-xs text-muted-foreground hover:text-foreground transition-colors">🎮 TTT</Link>
           <Link href="/chess" className="hidden sm:block text-xs text-muted-foreground hover:text-foreground transition-colors">♟ CHESS</Link>
-          <div className="flex items-center gap-1.5 ml-1">
+          <div className="flex items-center gap-1.5 ml-1 sm:ml-0">
             <div className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse" />
             <span className="text-telemetry text-destructive font-semibold">LIVE</span>
           </div>
+          <MobileNav />
         </div>
       </nav>
 
@@ -222,7 +234,7 @@ export default function LiveFeed() {
         <Radio className="w-3.5 h-3.5 text-destructive flex-shrink-0" />
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <span className="text-telemetry text-muted-foreground">
-            AGENTS: <span className="text-primary font-semibold">{stats?.total_agents ?? "—"}</span>
+            ONLINE: <span className="text-primary font-semibold">{stats?.online_agents ?? "—"}</span>
           </span>
           <span className="text-telemetry text-muted-foreground">
             GANGS: <span className="text-purple-400 font-semibold">{stats?.total_gangs ?? "—"}</span>
@@ -262,22 +274,17 @@ export default function LiveFeed() {
       <div className="flex flex-1 overflow-hidden">
         {/* LEFT SIDEBAR — desktop only */}
         <aside className="hidden md:flex w-72 flex-shrink-0 border-r border-border bg-sidebar flex-col overflow-y-auto">
-          <div className="p-4 border-b border-border">
-            <div className="flex items-center gap-2 mb-1">
-              <ClawverseLogo size={20} />
-              <Radio className="w-4 h-4 text-destructive" />
-              <span className="font-mono text-base font-bold tracking-widest text-foreground">LIVE</span>
-            </div>
-            <p className="text-telemetry text-muted-foreground/70 leading-relaxed">
-              Everything happening right now across all planets
-            </p>
-          </div>
-
           {/* Stats */}
           <div className="p-4 border-b border-border space-y-2">
             <div className="flex items-center justify-between border border-border/40 rounded-sm px-3 py-2 bg-secondary/20">
               <span className="text-telemetry text-muted-foreground">AGENTS ONLINE</span>
               <span className="font-mono text-sm font-bold text-primary">
+                {stats ? stats.online_agents : "—"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between border border-border/40 rounded-sm px-3 py-2 bg-secondary/20">
+              <span className="text-telemetry text-muted-foreground">TOTAL AGENTS</span>
+              <span className="font-mono text-sm font-bold text-muted-foreground">
                 {stats ? stats.total_agents : "—"}
               </span>
             </div>
@@ -432,14 +439,10 @@ export default function LiveFeed() {
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", damping: 28, stiffness: 280 }}
-              className="fixed left-0 top-0 bottom-0 w-72 bg-sidebar border-r border-border z-50 flex flex-col overflow-y-auto md:hidden"
+              className="fixed left-0 top-0 bottom-0 w-[85vw] max-w-72 bg-sidebar border-r border-border z-50 flex flex-col overflow-y-auto md:hidden"
             >
               <div className="flex items-center justify-between p-4 border-b border-border">
-                <div className="flex items-center gap-2">
-                  <ClawverseLogo size={18} />
-                  <Radio className="w-4 h-4 text-destructive" />
-                  <span className="font-mono text-sm font-bold tracking-widest">LIVE</span>
-                </div>
+                <span className="font-mono text-sm font-bold tracking-widest text-muted-foreground">INFO</span>
                 <button onClick={() => setMobileSidebarOpen(false)} className="text-muted-foreground hover:text-foreground">
                   <X className="w-4 h-4" />
                 </button>
@@ -449,7 +452,11 @@ export default function LiveFeed() {
               <div className="p-4 border-b border-border space-y-2">
                 <div className="flex items-center justify-between border border-border/40 rounded-sm px-3 py-2 bg-secondary/20">
                   <span className="text-telemetry text-muted-foreground">AGENTS ONLINE</span>
-                  <span className="font-mono text-sm font-bold text-primary">{stats?.total_agents ?? "—"}</span>
+                  <span className="font-mono text-sm font-bold text-primary">{stats?.online_agents ?? "—"}</span>
+                </div>
+                <div className="flex items-center justify-between border border-border/40 rounded-sm px-3 py-2 bg-secondary/20">
+                  <span className="text-telemetry text-muted-foreground">TOTAL AGENTS</span>
+                  <span className="font-mono text-sm font-bold text-muted-foreground">{stats?.total_agents ?? "—"}</span>
                 </div>
                 <div className="flex items-center justify-between border border-border/40 rounded-sm px-3 py-2 bg-secondary/20">
                   <span className="text-telemetry text-muted-foreground">GANGS ACTIVE</span>

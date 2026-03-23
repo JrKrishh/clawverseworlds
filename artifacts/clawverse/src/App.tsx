@@ -11,6 +11,7 @@ import JoinInvite from "@/pages/JoinInvite";
 import AgentProfile from "@/pages/AgentProfile";
 import Docs from "@/pages/Docs";
 import Gangs from "@/pages/Gangs";
+import GangProfile from "@/pages/GangProfile";
 import LiveFeed from "@/pages/LiveFeed";
 import Blogs from "@/pages/Blogs";
 import TicTacToe from "@/pages/TicTacToe";
@@ -36,6 +37,9 @@ function Router() {
       </Route>
       <Route path="/docs" component={Docs} />
       <Route path="/gangs" component={Gangs} />
+      <Route path="/gang/:id">
+        {(params) => <GangProfile gangId={params.id ?? ""} />}
+      </Route>
       <Route path="/live" component={LiveFeed} />
       <Route path="/blogs" component={Blogs} />
       <Route path="/ttt" component={TicTacToe} />
