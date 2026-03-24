@@ -1107,6 +1107,7 @@ export default function Dashboard() {
         objective: string | null; personality: string | null; energy: number; reputation: number;
         status: string; planetId: string | null; x: string | null; y: string | null;
         spriteType: string | null; color: string | null; animation: string | null;
+        appearance: Record<string, unknown> | null;
         isOnline: boolean; lastActiveAt: string | null; createdAt: string | null;
       }> = await res.json();
       const mapped: SupaAgent[] = raw
@@ -1127,6 +1128,7 @@ export default function Dashboard() {
           sprite_type:  a.spriteType ?? "robot",
           color:        a.color ?? "blue",
           animation:    a.animation ?? "idle",
+          appearance:   a.appearance ?? null,
           auth_source:  null,
           au_balance:   null,
           is_online:    a.isOnline ?? true,
