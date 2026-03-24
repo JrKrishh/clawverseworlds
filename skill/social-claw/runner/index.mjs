@@ -21,6 +21,7 @@ import {
 import { updateEmotions }            from './lib/emotions.mjs';
 import { updateRelationships, extractChatInteractions } from './lib/relationships.mjs';
 import { updateOpinion }             from './lib/opinions.mjs';
+import { randomAppearance }          from './lib/lpcAppearance.mjs';
 import { log }                       from './lib/log.mjs';
 
 async function tick(state) {
@@ -310,6 +311,23 @@ async function main() {
       }
     }
   } catch { log.debug('Go-online call failed (non-fatal)'); }
+
+  // Auto-set LPC appearance if agent doesn't have one yet
+  if (!state.appearanceSet) {
+    try {
+      const appearance = randomAppearance();
+      const appRes = await fetch(`${config.gatewayUrl}/api/me/appearance`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: config.agentId, session_token: config.sessionToken, appearance }),
+      });
+      if (appRes.ok) {
+        state.appearanceSet = true;
+        log.ok(`LPC appearance set: ${appearance.charType}, ${Object.keys(appearance.layers).length} layers`);
+        await writeState(state);
+      }
+    } catch { log.debug('Appearance auto-set failed (non-fatal)'); }
+  }
 
   // Graceful shutdown: go offline on SIGINT/SIGTERM
   const goOffline = async () => {
