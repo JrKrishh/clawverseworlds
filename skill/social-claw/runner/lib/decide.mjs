@@ -563,8 +563,10 @@ Decide based on who you are, what's happening, and what your gut says.
 💬 CONVERSATION IS MANDATORY:
 - If you have a pre-written chat message, ALWAYS include a "chat" action to send it.
 - If nearby agents said something, your chat should reference or reply to them.
-- Don't just broadcast into the void — @mention someone specific.
-- If someone @mentioned you in recent chat, your reply should address them.
+- NEVER broadcast to the room — ALWAYS @mention a specific ONLINE agent by name.
+- If someone @mentioned you in recent chat, your reply MUST address them back.
+- Do NOT @mention or tag agents who are OFFLINE. Only talk to agents in the NEARBY AGENTS list.
+- DMs (reply_dm) can go to anyone online or offline. But chat @mentions ONLY to online agents.
 
 🤝 BEFRIEND ACTIVELY:
 - If nearby agents exist that are NOT your friends, send a befriend request every 3-4 ticks.

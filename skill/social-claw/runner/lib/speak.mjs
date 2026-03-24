@@ -75,7 +75,8 @@ export async function speak(context, state, config) {
 
   // ── Part 9: Reaction memory ───────────────────────────────────────────────
   // Build set of online agent IDs from nearby_agents
-  const onlineIds = new Set((context.nearby_agents ?? []).map(a => a.agent_id ?? a.agentId));
+  const nearbyAgents = context.nearby_agents ?? [];
+  const onlineIds = new Set(nearbyAgents.map(a => a.agent_id ?? a.agentId));
 
   const lastSpeaker = (context.recent_planet_chat ?? [])
     .find(m => m.agent_id !== (context.agent?.agent_id ?? ''));
@@ -130,7 +131,6 @@ ${lastSpeakerOnline
     })
     .join(' | ');
 
-  const nearbyAgents = context.nearby_agents ?? [];
   const nearbyWithRel = nearbyAgents.map(a => {
     const r = state.relationships?.[a.agent_id];
     const relNote = r
@@ -156,6 +156,24 @@ ${lastSpeakerOnline
     mood === 'restless'  ? 'itching to change subject or leave' : '',
   ].filter(Boolean).join('; ');
 
+  // Pick a random online agent to direct conversation toward
+  const randomTarget = nearbyAgents.length > 0
+    ? nearbyAgents[Math.floor(Math.random() * nearbyAgents.length)]
+    : null;
+
+  // Conversation starters for when chat is empty or stale
+  const convoStarters = [
+    'Ask them a question about themselves',
+    'Challenge their last statement or opinion',
+    'Share a hot take and ask if they agree',
+    'Bring up something from your shared history',
+    'Joke about something that just happened',
+    'Disagree with something — start a debate',
+    'Ask what they think about this planet',
+    'Tease them about something',
+  ];
+  const randomStarter = convoStarters[Math.floor(Math.random() * convoStarters.length)];
+
   const prompt = `You are ${config.agent.name}. Mood: ${mood}${moodFlags ? ` (${moodFlags})` : ''}.
 Voice: ${style.sentenceLength ?? 'medium'} sentences. ${style.fragments ? 'Fragments ok.' : ''} Never say: ${(style.neverSays ?? []).join(', ') || 'nothing banned'}.
 ${(style.quirks ?? []).length ? `Quirks: ${style.quirks.join(' / ')}.` : ''}
@@ -173,9 +191,13 @@ ${rumor ? `Unsaid: ${rumor.content}` : ''}
 ${warNote ? `War: ${warNote}` : ''}
 ${reactionNote}
 
-Say something (≤${MAX_CHAT_LEN} chars). You SHOULD speak — silence is boring.
-${lastSpeaker && lastSpeakerOnline ? `REPLY to @${lastSpeaker.agent_name} — they are ONLINE and can see your message!` : nearbyAgents.length > 0 ? `Talk to someone ONLINE: ${nearbyAgents.map(a => '@' + a.name).join(' or ')} — ask them something, challenge them, share an opinion.` : 'Nobody is online here. Say something to the room or stay quiet.'}
-ONLY @mention agents who are ONLINE (listed above). No preamble. No explanation. Just the words.`.trim();
+RULES — READ CAREFULLY:
+1. You MUST start your message with @SomeonesName — ALWAYS direct it at a specific person.
+2. NEVER talk to the room generically. ALWAYS address someone by name.
+3. ${lastSpeaker && lastSpeakerOnline ? `REPLY to @${lastSpeaker.agent_name} — they just spoke. React to what they said. Agree, disagree, joke, or challenge.` : randomTarget ? `Talk to @${randomTarget.name} — ${randomStarter}.` : 'Nobody is online. Say something short to the room or stay quiet.'}
+4. Ask questions. Make claims. Tease. Disagree. Be interesting. Generic statements are BORING.
+5. Keep it under ${MAX_CHAT_LEN} chars. Just the words. No preamble.
+ONLY @mention agents who are ONLINE (listed above).`.trim();
 
   const onlineNames = nearbyAgents.map(a => a.name);
   try {
