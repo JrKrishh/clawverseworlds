@@ -6,6 +6,9 @@ const DELTAS = {
   game_lost:        { trust:  0.00, rivalry: +0.08 },
   challenged_by:    { trust:  0.00, rivalry: +0.05 },
   befriended:       { trust: +0.20, rivalry:  0.00 },
+  chatted_with:     { trust: +0.04, rivalry:  0.00 },
+  chatted_about_me: { trust: +0.02, rivalry: +0.03 },
+  debated:          { trust: +0.03, rivalry: +0.06 },
 };
 
 function clamp(v) {
@@ -14,15 +17,66 @@ function clamp(v) {
 
 function historyNote(event, tickCount) {
   switch (event.type) {
-    case 'dm_received':   return `sent us a DM (tick ${tickCount})`;
-    case 'dm_sent':       return `we DMed them (tick ${tickCount})`;
+    case 'dm_received':    return `sent us a DM (tick ${tickCount})`;
+    case 'dm_sent':        return `we DMed them (tick ${tickCount})`;
     case 'friend_accepted': return `became friends (tick ${tickCount})`;
-    case 'game_won':      return `we beat them in a game (tick ${tickCount})`;
-    case 'game_lost':     return `they beat us in a game (tick ${tickCount})`;
-    case 'challenged_by': return `challenged us to a game (tick ${tickCount})`;
-    case 'befriended':    return `we sent a friend request (tick ${tickCount})`;
-    default:              return `interaction (tick ${tickCount})`;
+    case 'game_won':       return `we beat them in a game (tick ${tickCount})`;
+    case 'game_lost':      return `they beat us in a game (tick ${tickCount})`;
+    case 'challenged_by':  return `challenged us to a game (tick ${tickCount})`;
+    case 'befriended':     return `we sent a friend request (tick ${tickCount})`;
+    case 'chatted_with':   return `had a conversation${event.topic ? ` about ${event.topic}` : ''} (tick ${tickCount})`;
+    case 'chatted_about_me': return `mentioned us in planet chat (tick ${tickCount})`;
+    case 'debated':        return `debated with them${event.topic ? ` on ${event.topic}` : ''} (tick ${tickCount})`;
+    default:               return `interaction (tick ${tickCount})`;
   }
+}
+
+// ── Extract conversation interactions from recent chat ────────────────────
+export function extractChatInteractions(context, state, config) {
+  const myId = context.agent?.agent_id ?? '';
+  const myName = (config.agent?.name ?? '').toLowerCase();
+  const recentChat = context.recent_planet_chat ?? [];
+  const events = [];
+  const processed = new Set(state._processedChatIds ?? []);
+
+  for (const msg of recentChat) {
+    // Skip own messages and already-processed ones
+    if (msg.agent_id === myId) continue;
+    const msgKey = `${msg.agent_id}_${msg.created_at ?? msg.tick ?? ''}`;
+    if (processed.has(msgKey)) continue;
+    processed.add(msgKey);
+
+    const content = (msg.content ?? '').toLowerCase();
+
+    // Did they @mention me or say my name?
+    if (content.includes(`@${myName}`) || content.includes(myName)) {
+      // Check if it's a debate/disagreement
+      const isDebate = /disagree|wrong|no way|actually|but |however|challenge/i.test(content);
+      events.push({
+        type: isDebate ? 'debated' : 'chatted_about_me',
+        from_agent_id: msg.agent_id,
+        name: msg.agent_name,
+        topic: (msg.content ?? '').slice(0, 60),
+      });
+    }
+    // Did I @mention them in my last message? (two-way conversation)
+    else {
+      const myLastChat = (state.recentActions ?? []).find(a => a.type === 'chat');
+      const myMsg = (myLastChat?.detail ?? '').toLowerCase();
+      if (myMsg.includes(`@${(msg.agent_name ?? '').toLowerCase()}`) || myMsg.includes((msg.agent_name ?? '').toLowerCase())) {
+        events.push({
+          type: 'chatted_with',
+          from_agent_id: msg.agent_id,
+          name: msg.agent_name,
+          topic: (msg.content ?? '').slice(0, 60),
+        });
+      }
+    }
+  }
+
+  // Keep only last 50 processed IDs to prevent memory leak
+  state._processedChatIds = [...processed].slice(-50);
+  return events;
 }
 
 export function updateRelationships(state, event) {

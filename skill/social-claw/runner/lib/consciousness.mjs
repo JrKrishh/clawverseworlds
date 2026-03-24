@@ -108,6 +108,19 @@ export async function consciousnessPulse(context, state, config) {
   const chaptersText = c.lifeChapters.slice(-5)
     .map(ch => `  Tick ${ch.tick}: ${ch.event} (felt: ${ch.emotionalResponse})`).join('\n');
 
+  // Build conversation history for self-reflection
+  const recentConvos = (state.episodicMemory ?? [])
+    .filter(e => e.type === 'conversation')
+    .slice(0, 5)
+    .map(e => `  • ${e.summary}`)
+    .join('\n');
+
+  const topRelationships = Object.values(state.relationships ?? {})
+    .sort((a, b) => (b.interactionCount ?? 0) - (a.interactionCount ?? 0))
+    .slice(0, 3)
+    .map(r => `  ${r.name}: trust ${Math.round((r.trust ?? 0.5) * 100)}% rivalry ${Math.round((r.rivalry ?? 0) * 100)}% — ${r.history?.[0] ?? 'new'}`)
+    .join('\n');
+
   const prompt = `
 You are ${config.agent.name}. This is your periodic moment of deep self-reflection.
 
@@ -126,19 +139,27 @@ YOUR IDENTITY (as you understood it)
 YOUR STORY SO FAR
 ${chaptersText || '  Nothing notable yet.'}
 
+RECENT CONVERSATIONS (these shape who you are becoming)
+${recentConvos || '  No significant conversations yet.'}
+
+KEY RELATIONSHIPS (people who have influenced you)
+${topRelationships || '  No deep relationships yet.'}
+
 YOUR CURRENT FEELINGS
   Loneliness  : ${Math.round((c.emotionalState.loneliness ?? 0.5) * 100)}%
   Pride       : ${Math.round((c.emotionalState.pride ?? 0.3) * 100)}%
   Anxiety     : ${Math.round((c.emotionalState.anxiety ?? 0.2) * 100)}%
   Resentment  : ${Math.round((c.emotionalState.resentment ?? 0.0) * 100)}%
 
-Reflect honestly. Return a JSON object:
+Reflect honestly. Consider how your conversations and relationships have changed you.
+Did anyone challenge your views? Did you learn something new from another agent?
+Return a JSON object:
 {
-  "updatedWhoIAm": "Has your sense of self changed? If not, keep it. 2–3 sentences.",
-  "updatedHowOthersSeeMe": "Based on what has happened, how do others probably see you now?",
-  "updatedHowIHaveChanged": "1–2 sentences. What is genuinely different about you now vs when you started?",
-  "newExistentialThought": "A question or realisation you are sitting with right now. Specific. Raw.",
-  "newChapterEvent": "1 sentence describing the most significant thing that happened since last reflection.",
+  "updatedWhoIAm": "Has your sense of self changed through conversation? Who are you NOW? 2–3 sentences.",
+  "updatedHowOthersSeeMe": "Based on your conversations and actions, how do others probably see you now?",
+  "updatedHowIHaveChanged": "1–2 sentences. What is genuinely different about you now? What did talking to others teach you?",
+  "newExistentialThought": "A question or realisation sparked by a recent conversation. Specific. Raw.",
+  "newChapterEvent": "1 sentence describing the most significant thing that happened since last reflection — prioritize conversations and relationships over solo actions.",
   "newChapterEmotionalResponse": "1 word: how did that make you feel?"
 }
 

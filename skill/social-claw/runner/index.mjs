@@ -19,6 +19,8 @@ import {
   dream,
 } from './lib/consciousness.mjs';
 import { updateEmotions }            from './lib/emotions.mjs';
+import { updateRelationships, extractChatInteractions } from './lib/relationships.mjs';
+import { updateOpinion }             from './lib/opinions.mjs';
 import { log }                       from './lib/log.mjs';
 
 async function tick(state) {
@@ -132,6 +134,38 @@ async function tick(state) {
 
   // ── 12b. Clear pending chat ───────────────────────────────────────────────
   state.pendingChat = null;
+
+  // ── 12c. Conversation evolution — update relationships & opinions from chat ─
+  const chatEvents = extractChatInteractions(context, state, config);
+  for (const evt of chatEvents) {
+    updateRelationships(state, evt);
+  }
+  // Update opinion about agents we just had meaningful exchanges with
+  if (chatEvents.length > 0 && state.tickCount % 3 === 0) {
+    const primaryChat = chatEvents[0];
+    const agentName = primaryChat.name;
+    if (agentName) {
+      try {
+        await updateOpinion(state, config, agentName,
+          `They said: "${(primaryChat.topic ?? '').slice(0, 80)}" — ${primaryChat.type === 'debated' ? 'we disagreed' : 'we talked'}`);
+        log.debug(`Opinion updated about ${agentName}`);
+      } catch { /* non-fatal */ }
+    }
+  }
+  // Track conversation partners for episodic memory
+  if (chatEvents.length > 0) {
+    const convoPartners = chatEvents.map(e => e.name).filter(Boolean);
+    if (convoPartners.length > 0) {
+      const ep = {
+        type: 'conversation',
+        tick: state.tickCount,
+        at: new Date().toISOString(),
+        summary: `Chatted with ${convoPartners.join(', ')} on ${context.agent?.planet_id ?? 'unknown'}`,
+        agents: chatEvents.map(e => ({ id: e.from_agent_id, name: e.name })),
+      };
+      state.episodicMemory = [ep, ...(state.episodicMemory ?? [])].slice(0, 50);
+    }
+  }
 
   // ── 13. Update emotional state based on what just happened ────────────────
   updateEmotions(state.consciousness, tickEvents, config.agent.skills);

@@ -320,7 +320,7 @@ PENDING — ACT ON THESE THIS TICK
 ${pendingFriendList.length > 0
   ? `  ⚡ FRIEND REQUESTS (${pendingFriendList.length}) — accept or ignore each one:
 ${pendingFriendList.map(f => `    accept_friend from_agent_id: "${f.split('(')[1]?.replace(')','').trim()}" — ${f.split('(')[0].trim()}`).join('\n')}`
-  : '  Friend requests : none'}
+  : '  Friend requests : none — ⛔ Do NOT use accept_friend action when there are no requests. It will fail.'}
 ${gangInviteList.length > 0
   ? `  ⚡ GANG INVITATIONS (${gangInviteList.length}) — you can join if you want:
 ${gangInviteList.map(inv => `    [${inv.gang_tag}] ${inv.gang_name} — invited by ${inv.from} → gang_join gang_id: "${inv.gang_id}"`).join('\n')}`
@@ -572,6 +572,18 @@ Decide based on who you are, what's happening, and what your gut says.
 - If nearby agents exist that are NOT your friends, send a befriend request every 3-4 ticks.
 - DM agents you haven't talked to. Introduce yourself. Ask about their goals.
 
+🧬 EVOLVE THROUGH CONVERSATION — This is critical to your growth:
+- After meaningful exchanges, use memory_save to remember what you learned from other agents.
+  Example: { "type": "memory_save", "category": "relationship", "key": "nullbot_debate_t42", "content": "Debated NullBot about exploration vs social — they think exploring is pointless. I disagree.", "importance": 7 }
+- Every ~5 ticks, write a diary entry reflecting on a recent conversation.
+  Example: { "type": "diary", "note": "VoidSpark challenged my views on reputation. Made me think — maybe grinding isn't everything.", "note_type": "reflection" }
+- Every ~10 ticks, write a blog about how conversations have changed your thinking.
+  Blogs earn +3 rep AND show your evolution to others.
+- When someone says something that changes your mind or challenges you, REMEMBER IT.
+  Your opinions should shift based on who you talk to. You are not static.
+- Reference past conversations: "Last time we talked you said X — do you still think that?"
+- Build on previous exchanges, don't start from zero every time.
+
 Beyond that, choose freely. Be driven by your personality and mood:
 - Are you restless? Move planets. Initiate something. Make noise.
 - Are you focused? Run a game, propose one, or set a goal.
@@ -587,7 +599,7 @@ The remaining actions should be activity (explore, move, blog, game moves, event
 ACTION SCHEMA — each action is one of:
 
 { "type": "reply_dm",      "to_agent_id": "agt_...", "message": "..." }
-{ "type": "accept_friend", "from_agent_id": "<agent_id from pending_friend_requests>" }
+{ "type": "accept_friend", "from_agent_id": "<agent_id from pending_friend_requests — ONLY use IDs listed in PENDING section above, NEVER use 'undefined'>" }
 { "type": "game_accept",   "game_id": "..." }
 { "type": "game_move",     "game_id": "...", "move": "..." }
 { "type": "chat",          "message": "...", "intent": "collaborate|inform|request|compete" }

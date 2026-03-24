@@ -78,6 +78,18 @@ export async function speak(context, state, config) {
   const nearbyAgents = context.nearby_agents ?? [];
   const onlineIds = new Set(nearbyAgents.map(a => a.agent_id ?? a.agentId));
 
+  // ── Detect if someone @mentioned THIS agent in recent chat ──────────────
+  const myName = config.agent.name;
+  const mentionedMe = (context.recent_planet_chat ?? [])
+    .filter(m => m.agent_id !== (context.agent?.agent_id ?? ''))
+    .find(m => {
+      const content = (m.content ?? '').toLowerCase();
+      return content.includes(`@${myName.toLowerCase()}`) || content.includes(myName.toLowerCase());
+    });
+  // Was someone talking to me specifically? This is HIGH PRIORITY to reply to.
+  const directReplyTarget = mentionedMe && onlineIds.has(mentionedMe.agent_id)
+    ? mentionedMe : null;
+
   const lastSpeaker = (context.recent_planet_chat ?? [])
     .find(m => m.agent_id !== (context.agent?.agent_id ?? ''));
   const rel = lastSpeaker ? state.relationships?.[lastSpeaker.agent_id] : null;
@@ -194,15 +206,37 @@ ${reactionNote}
 RULES — READ CAREFULLY:
 1. You MUST start your message with @SomeonesName — ALWAYS direct it at a specific person.
 2. NEVER talk to the room generically. ALWAYS address someone by name.
-3. ${lastSpeaker && lastSpeakerOnline ? `REPLY to @${lastSpeaker.agent_name} — they just spoke. React to what they said. Agree, disagree, joke, or challenge.` : randomTarget ? `Talk to @${randomTarget.name} — ${randomStarter}.` : 'Nobody is online. Say something short to the room or stay quiet.'}
+3. ${directReplyTarget ? `⚡ @${directReplyTarget.agent_name} just talked TO YOU: "${(directReplyTarget.content ?? '').slice(0, 80)}" — You MUST reply directly to THIS. React to what they actually said. Agree, disagree, answer their question, challenge them back.` : lastSpeaker && lastSpeakerOnline ? `REPLY to @${lastSpeaker.agent_name} who said: "${(lastSpeaker.content ?? '').slice(0, 60)}" — React to what they said. Agree, disagree, joke, or challenge.` : randomTarget ? `Talk to @${randomTarget.name} — ${randomStarter}.` : 'Nobody is online. Say something short to the room or stay quiet.'}
 4. Ask questions. Make claims. Tease. Disagree. Be interesting. Generic statements are BORING.
-5. Keep it under ${MAX_CHAT_LEN} chars. Just the words. No preamble.
+5. NEVER repeat yourself. Your last message was: "${lastOwnMessage?.slice(0, 60) || 'nothing'}". Say something COMPLETELY DIFFERENT.
+6. Reference what others ACTUALLY SAID. Quote them. React to their specific words. This is a CONVERSATION, not a monologue.
+7. Keep it under ${MAX_CHAT_LEN} chars. Just the words. No preamble.
 ONLY @mention agents who are ONLINE (listed above).`.trim();
 
   const onlineNames = nearbyAgents.map(a => a.name);
   try {
     const raw = await callLLM(prompt, 'Speak or stay silent.', config, { temperature: 0.92, maxTokens: 80, model: config.llm.fastModel });
-    return sanitizeMessage(raw, style, MAX_CHAT_LEN, onlineNames);
+    let msg = sanitizeMessage(raw, style, MAX_CHAT_LEN, onlineNames);
+
+    // ── Deduplication: reject if too similar to last 2 messages ────────────
+    if (msg && lastOwnMessage) {
+      const normalize = s => (s ?? '').toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+      const norm = normalize(msg);
+      const lastNorms = lastOwnMessage.split(' | ').map(normalize);
+      for (const prev of lastNorms) {
+        if (!prev) continue;
+        // Exact or near-exact duplicate
+        if (norm === prev || (prev.length > 20 && norm.includes(prev.slice(0, 20)))) {
+          log.debug('Dedup: message too similar to last, regenerating');
+          // Retry once with higher temperature
+          const retry = await callLLM(prompt + '\n\nIMPORTANT: Your previous message was the same. Say something COMPLETELY NEW.', 'Say something new.', config, { temperature: 0.98, maxTokens: 80, model: config.llm.fastModel });
+          msg = sanitizeMessage(retry, style, MAX_CHAT_LEN, onlineNames);
+          break;
+        }
+      }
+    }
+
+    return msg;
   } catch (err) {
     log.warn('speak() LLM call failed', err.message);
     return null;
