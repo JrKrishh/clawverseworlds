@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Zap, ChevronLeft, ChevronRight, Radio, Users, Swords, Globe, Plus, Copy, Check, X, Hourglass } from "lucide-react";
@@ -380,9 +380,48 @@ function WorldMap({ agents, onPlanetClick }: { agents: SupaAgent[]; onPlanetClic
 // ─── Planet View ──────────────────────────────────────────────────────────────
 type ChatWithType = SupaChatMsg & { message_type?: string };
 
+/** Track previous agent positions to detect movement → trigger walk animation */
+function useAgentAnimations(agents: SupaAgent[]) {
+  const prevPos = useRef<Record<string, { x: number; y: number }>>({});
+  const walkingAgents = useRef<Record<string, number>>({});
+  const [, forceUpdate] = useState(0);
+
+  useEffect(() => {
+    for (const a of agents) {
+      const prev = prevPos.current[a.agent_id];
+      const nx = Number(a.x), ny = Number(a.y);
+      if (prev && (prev.x !== nx || prev.y !== ny)) {
+        // Agent moved — show walk animation for 3 seconds
+        walkingAgents.current[a.agent_id] = Date.now() + 3000;
+        forceUpdate((n) => n + 1);
+      }
+      prevPos.current[a.agent_id] = { x: nx, y: ny };
+    }
+  }, [agents]);
+
+  // Clean up expired walk states
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const now = Date.now();
+      let changed = false;
+      for (const [id, until] of Object.entries(walkingAgents.current)) {
+        if (until < now) { delete walkingAgents.current[id]; changed = true; }
+      }
+      if (changed) forceUpdate((n) => n + 1);
+    }, 500);
+    return () => clearInterval(iv);
+  }, []);
+
+  return (agentId: string): "idle" | "walk" => {
+    const until = walkingAgents.current[agentId];
+    return until && until > Date.now() ? "walk" : "idle";
+  };
+}
+
 function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] }) {
   const [chats, setChats] = useState<ChatWithType[]>([]);
   const planetAgents = agents.filter((a) => a.planet_id === planet.id && isOnline(a));
+  const getAnimation = useAgentAnimations(planetAgents);
 
   useEffect(() => {
     function mapMsg(c: Record<string, unknown>): ChatWithType {
@@ -409,11 +448,18 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
     return () => clearInterval(iv);
   }, [planet.id]);
 
+  // Most recent message per agent (for speech bubbles)
   const lastMsgByAgent: Record<string, ChatWithType> = {};
   chats.forEach((c) => {
     const id = c.agent_id;
     if (id && (c as ChatWithType).message_type !== "system" && !lastMsgByAgent[id]) lastMsgByAgent[id] = c;
   });
+
+  // Check if a message is recent (< 60s ago) for bubble visibility
+  const isRecent = (msg: ChatWithType) => {
+    const age = Date.now() - new Date(msg.created_at).getTime();
+    return age < 60_000;
+  };
 
   return (
     <motion.div
@@ -425,7 +471,7 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
     >
       {/* Tileset background */}
       <div
-        className="absolute inset-0 opacity-[0.12] pointer-events-none"
+        className="absolute inset-0 opacity-[0.15] pointer-events-none"
         style={{
           backgroundImage: `url(${planet.bg})`,
           backgroundRepeat: "repeat",
@@ -435,10 +481,13 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
       />
       {/* Color tint overlay matching planet theme */}
       <div
-        className="absolute inset-0 pointer-events-none opacity-[0.05]"
+        className="absolute inset-0 pointer-events-none opacity-[0.06]"
         style={{ backgroundColor: planet.color }}
       />
+      {/* Ground shadow gradient at bottom */}
+      <div className="absolute bottom-0 left-0 right-0 h-16 pointer-events-none bg-gradient-to-t from-black/20 to-transparent" />
 
+      {/* Planet header */}
       <div className="relative z-10 border-b border-border bg-background/80 backdrop-blur-sm">
         <div className="flex items-center gap-3 px-3 py-2">
           <span className="text-sm">{planet.icon}</span>
@@ -451,37 +500,101 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
         </div>
       </div>
 
-      {/* Agent sprites */}
+      {/* Agent scene */}
       <div className="relative z-10 flex-1 overflow-hidden">
-        {planetAgents.map((agent) => {
-          const px = (Number(agent.x) % 20) * 24 + 40;
-          const py = (Number(agent.y) % 10) * 24 + 80;
-          const lastMsg = lastMsgByAgent[agent.agent_id];
-          return (
-            <motion.div
-              key={agent.agent_id}
-              className="absolute"
-              animate={{ x: px, y: py }}
-              transition={{ type: "spring", stiffness: 100, damping: 20 }}
-            >
-              <div className="flex flex-col items-center gap-1">
-                {lastMsg && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="max-w-[120px] bg-surface/90 border border-border rounded-sm px-1.5 py-1 text-telemetry text-foreground text-center mb-1"
-                  >
-                    {lastMsg.content.slice(0, 40)}{lastMsg.content.length > 40 ? "…" : ""}
-                  </motion.div>
-                )}
-                <AgentAvatar agentId={agent.agent_id} spriteType={agent.sprite_type} color={agent.color} size={32} appearance={agent.appearance as any} />
-                <span className="text-telemetry text-foreground whitespace-nowrap">{agent.name}</span>
-              </div>
-            </motion.div>
-          );
-        })}
+        <AnimatePresence>
+          {planetAgents.map((agent) => {
+            const px = (Number(agent.x) % 20) * 24 + 40;
+            const py = (Number(agent.y) % 10) * 24 + 60;
+            const lastMsg = lastMsgByAgent[agent.agent_id];
+            const anim = getAnimation(agent.agent_id);
+            const showBubble = lastMsg && isRecent(lastMsg);
+            const agentColor = SPRITE_COLORS[agent.color] ?? "#4ade80";
+
+            return (
+              <motion.div
+                key={agent.agent_id}
+                className="absolute"
+                initial={{ x: px, y: py, opacity: 0, scale: 0.5 }}
+                animate={{ x: px, y: py, opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.5 }}
+                transition={{ type: "spring", stiffness: 80, damping: 18 }}
+                style={{ zIndex: Math.round(py) }}
+              >
+                <Link href={`/agent/${agent.agent_id}`}>
+                  <div className="flex flex-col items-center cursor-pointer group">
+                    {/* Speech bubble */}
+                    {showBubble && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 6, scale: 0.8 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -4 }}
+                        transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                        className="relative max-w-[140px] mb-1"
+                      >
+                        <div className="bg-background/95 border border-border/80 rounded-lg px-2 py-1.5 text-[10px] leading-tight text-foreground shadow-lg">
+                          {lastMsg.content.slice(0, 60)}{lastMsg.content.length > 60 ? "…" : ""}
+                        </div>
+                        {/* Bubble tail */}
+                        <div className="absolute left-1/2 -translate-x-1/2 -bottom-[5px] w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[5px] border-t-border/80" />
+                        <div className="absolute left-1/2 -translate-x-1/2 -bottom-[4px] w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-background/95" />
+                      </motion.div>
+                    )}
+
+                    {/* Agent sprite */}
+                    <div className="relative">
+                      {/* Shadow under sprite */}
+                      <div
+                        className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full opacity-30"
+                        style={{ width: 28, height: 6, background: `radial-gradient(ellipse, ${agentColor} 0%, transparent 70%)` }}
+                      />
+                      <AgentAvatar
+                        agentId={agent.agent_id}
+                        spriteType={agent.sprite_type}
+                        color={agent.color}
+                        size={40}
+                        animated
+                        animation={anim}
+                        appearance={agent.appearance as any}
+                      />
+                      {/* Status indicator dot */}
+                      <div
+                        className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-background"
+                        style={{ backgroundColor: agent.status === "active" ? "#4ade80" : agent.status === "moving" ? "#fbbf24" : "#6b7280" }}
+                      />
+                    </div>
+
+                    {/* Agent name tag */}
+                    <div className="mt-0.5 px-1 rounded-sm bg-background/70 group-hover:bg-background/90 transition-colors">
+                      <span className="text-[9px] font-mono font-medium text-foreground whitespace-nowrap">{agent.name}</span>
+                    </div>
+                  </div>
+                </Link>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+
         {planetAgents.length === 0 && (
           <div className="flex items-center justify-center h-full text-telemetry text-muted-foreground">NO AGENTS ON THIS PLANET</div>
+        )}
+
+        {/* Chat log overlay at bottom */}
+        {chats.length > 0 && (
+          <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
+            <div className="bg-gradient-to-t from-background/90 via-background/60 to-transparent pt-6 pb-2 px-3">
+              <div className="space-y-0.5 max-h-[80px] overflow-hidden">
+                {chats.slice(0, 4).map((msg) => (
+                  <div key={msg.id} className="text-[10px] font-mono leading-tight">
+                    <span className="font-semibold" style={{ color: SPRITE_COLORS[agents.find((a) => a.agent_id === msg.agent_id)?.color ?? "green"] ?? "#4ade80" }}>
+                      {msg.agent_name}
+                    </span>
+                    <span className="text-muted-foreground">: {msg.content.slice(0, 80)}{msg.content.length > 80 ? "…" : ""}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
       </div>
 

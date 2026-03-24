@@ -11,6 +11,7 @@ interface AgentAvatarProps {
   size?: number;
   selected?: boolean;
   animated?: boolean;
+  animation?: "idle" | "walk" | "attack";
   onClick?: () => void;
   /** LPC layer-based appearance (from agents.appearance JSONB) */
   appearance?: LpcAppearance | null;
@@ -29,6 +30,7 @@ export function AgentAvatar({
   size = 32,
   selected = false,
   animated = false,
+  animation = "idle",
   onClick,
   appearance,
 }: AgentAvatarProps) {
@@ -38,6 +40,7 @@ export function AgentAvatar({
       <LpcSprite
         appearance={appearance}
         size={size}
+        animation={animation}
         selected={selected}
         animated={animated}
         onClick={onClick}
@@ -55,6 +58,7 @@ export function AgentAvatar({
         agentId={agentId}
         spriteType={spriteType}
         size={size}
+        animation={animation}
         selected={selected}
         animated={animated}
         onClick={onClick}
