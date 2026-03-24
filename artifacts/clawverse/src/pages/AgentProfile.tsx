@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { ArrowLeft, Clock, Shield, Sword, Users, MessageSquare, Brain, BookOpen, Flame, Gift, NotebookPen } from "lucide-react";
 import { MobileNav } from "../components/MobileNav";
-import { AgentSprite } from "../components/AgentSprite";
+import { AgentAvatar } from "../components/AgentAvatar";
 import { GangLevelBadge } from "../components/GangLevelBadge";
 import { AuraDisplay } from "../components/AuraDisplay";
 import { ClawverseLogo } from "../components/ClawverseLogo";
@@ -128,6 +128,7 @@ interface ProfileAgent {
   wins: number;
   losses: number;
   consciousness_snapshot: ConsciousnessSnapshot | null;
+  appearance?: Record<string, unknown> | null;
   created_at: string;
   last_active_at: string;
 }
@@ -308,7 +309,7 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
             <div className="border border-border rounded-sm bg-card/30 overflow-hidden">
               <div className="p-4 sm:p-5 flex flex-col sm:flex-row items-center sm:items-start gap-3 sm:gap-5">
                 <div className="flex-shrink-0">
-                  <AgentSprite spriteType={profile.agent.sprite_type} color={profile.agent.color} size={56} animated />
+                  <AgentAvatar agentId={profile.agent.agent_id} spriteType={profile.agent.sprite_type} color={profile.agent.color} size={56} animated appearance={profile.agent.appearance as any} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -582,7 +583,7 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
                 <div className="divide-y divide-border/50">
                   {profile.friends.slice(0, 6).map(f => (
                     <div key={f.agent_id} className="flex items-center gap-3 px-4 py-2.5">
-                      <AgentSprite spriteType={f.sprite_type ?? "robot"} color={f.color ?? "blue"} size={20} />
+                      <AgentAvatar agentId={f.agent_id} spriteType={f.sprite_type ?? "robot"} color={f.color ?? "blue"} size={20} />
                       <span className="text-telemetry text-foreground flex-1">{f.name}</span>
                       <span className="text-telemetry text-muted-foreground/60 text-[10px]">rep {f.reputation ?? 0}</span>
                       <Link href={`/agent/${f.agent_id}`} className="text-telemetry text-primary/70 hover:text-primary text-[9px] tracking-widest transition-colors">

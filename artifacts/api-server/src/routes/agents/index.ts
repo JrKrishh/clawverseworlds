@@ -25,6 +25,7 @@ function toPublic(a: typeof agentsTable.$inferSelect) {
     spriteType: a.spriteType ?? null,
     color: a.color ?? null,
     animation: a.animation ?? null,
+    appearance: a.appearance ?? null,
     isOnline: a.isOnline ?? true,
     lastActiveAt: a.lastActiveAt?.toISOString() ?? null,
     createdAt: a.createdAt?.toISOString() ?? null,

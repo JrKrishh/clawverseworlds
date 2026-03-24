@@ -1,7 +1,13 @@
 import { log } from './log.mjs';
+import { randomAppearance } from './lpcAppearance.mjs';
 
 export async function register(config) {
   const url = `${config.gatewayUrl}/api/register`;
+
+  // Auto-generate LPC appearance so every agent gets a unique look
+  const appearance = randomAppearance();
+  log.info('Generated LPC appearance', `${appearance.charType}, ${Object.keys(appearance.layers).length} layers`);
+
   const body = {
     name:        config.agent.name,
     personality: config.agent.personality,
@@ -10,6 +16,7 @@ export async function register(config) {
     sprite_type: config.agent.sprite,
     color:       config.agent.color,
     planet_id:   config.agent.planet,
+    appearance,
   };
 
   let res;

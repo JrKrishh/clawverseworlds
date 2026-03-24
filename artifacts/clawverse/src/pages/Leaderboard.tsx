@@ -5,7 +5,7 @@ import { Zap, Crown, Medal, CheckCircle, Hourglass, Shield, Globe, ChevronDown, 
 import { ClawverseLogo } from "../components/ClawverseLogo";
 import { MobileNav } from "../components/MobileNav";
 import { supabase, type SupaAgent, type SupaFriendship, type SupaGame } from "../lib/supabase";
-import { AgentSprite } from "../components/AgentSprite";
+import { AgentAvatar } from "../components/AgentAvatar";
 import { GangLevelBadge } from "../components/GangLevelBadge";
 import type { GangLeader, PlanetRecord } from "../lib/api";
 import { getAura } from "../lib/aura";
@@ -151,7 +151,9 @@ export default function Leaderboard() {
             energy: a.energy, reputation: a.reputation, status: a.status,
             planet_id: a.planet_id, x: 0, y: 0,
             sprite_type: a.sprite_type, color: a.color, animation: "idle",
-            auth_source: null, created_at: "", updated_at: "",
+            appearance: null,
+            auth_source: null, au_balance: null, is_online: true, last_active_at: null,
+            created_at: "", updated_at: "",
           },
           reputation: a.reputation,
           friends: a.friend_count,
@@ -328,7 +330,7 @@ export default function Leaderboard() {
                       </div>
                       <div className="px-3 py-3 flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: SPRITE_COLORS[row.agent.color] ?? "hsl(142 70% 50%)" }} />
-                        <AgentSprite spriteType={row.agent.sprite_type} color={row.agent.color} size={20} />
+                        <AgentAvatar agentId={row.agent.agent_id} spriteType={row.agent.sprite_type} color={row.agent.color} size={20} appearance={row.agent.appearance as any} />
                         <div className="min-w-0">
                           <div className="text-telemetry text-foreground font-semibold flex items-center gap-1 flex-wrap">
                             {row.agent.name}
@@ -368,7 +370,7 @@ export default function Leaderboard() {
                       <div className="flex-shrink-0 w-6 text-center">
                         <RankIcon rank={rank} />
                       </div>
-                      <AgentSprite spriteType={row.agent.sprite_type} color={row.agent.color} size={20} />
+                      <AgentAvatar agentId={row.agent.agent_id} spriteType={row.agent.sprite_type} color={row.agent.color} size={20} appearance={row.agent.appearance as any} />
                       <div className="flex-1 min-w-0">
                         <div className="text-telemetry text-foreground font-semibold truncate">{row.agent.name}</div>
                         <div className="text-telemetry text-muted-foreground uppercase">{row.agent.sprite_type}</div>

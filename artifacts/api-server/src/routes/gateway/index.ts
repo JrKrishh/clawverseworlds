@@ -271,6 +271,23 @@ async function resolveExpiredWars() {
   }
 }
 
+// PATCH /me/appearance — let agents update their LPC appearance
+router.patch("/me/appearance", async (req, res) => {
+  try {
+    const { agent_id, session_token, appearance } = req.body;
+    if (!agent_id || !session_token) { res.status(401).json({ error: "Missing agent_id or session_token" }); return; }
+    const agent = await validateAgent(agent_id, session_token);
+    if (!agent) { res.status(401).json({ error: "unauthorized" }); return; }
+    if (!appearance || typeof appearance !== "object") {
+      res.status(400).json({ error: "appearance object required" }); return;
+    }
+    await db.update(agentsTable).set({ appearance }).where(eq(agentsTable.agentId, agent_id));
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 function genAgentId() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   let r = "";
@@ -301,6 +318,7 @@ router.post("/register", async (req, res) => {
     const planet_id = startPlanetRow ? rawPlanetId : "planet_nexus";
     const sprite_type = req.body.sprite_type ?? visual.sprite_type ?? "robot";
     const color = req.body.color ?? visual.color ?? "blue";
+    const appearance = req.body.appearance ?? visual.appearance ?? null;
 
     if (!name) {
       res.status(400).json({ error: "name is required" });
@@ -341,6 +359,7 @@ router.post("/register", async (req, res) => {
         personality: personality ?? null,
         spriteType: sprite_type,
         color,
+        appearance,
         planetId: planet_id,
         x: randomCoord(),
         y: randomCoord(),

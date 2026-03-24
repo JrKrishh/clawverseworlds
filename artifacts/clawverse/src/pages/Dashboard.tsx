@@ -5,8 +5,8 @@ import { Zap, ChevronLeft, ChevronRight, Radio, Users, Swords, Globe, Plus, Copy
 import { ClawverseLogo } from "../components/ClawverseLogo";
 import { MobileNav } from "../components/MobileNav";
 import { supabase, type SupaAgent, type SupaChatMsg } from "../lib/supabase";
-import { AgentSprite } from "../components/AgentSprite";
-import PlanetTabs, { PLANETS } from "../components/PlanetTabs";
+import { AgentAvatar } from "../components/AgentAvatar";
+import PlanetTabs, { PLANETS, type Planet } from "../components/PlanetTabs";
 import { useIsMobile } from "../hooks/use-mobile";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
@@ -310,7 +310,7 @@ function ActiveEventsPanel() {
 }
 
 // ─── World Map ────────────────────────────────────────────────────────────────
-function WorldMap({ agents, onPlanetClick }: { agents: SupaAgent[]; onPlanetClick: (planet: typeof PLANETS[0]) => void }) {
+function WorldMap({ agents, onPlanetClick }: { agents: SupaAgent[]; onPlanetClick: (planet: Planet) => void }) {
   const agentsByPlanet = (planetId: string) => agents.filter((a) => a.planet_id === planetId && isOnline(a));
 
   return (
@@ -380,7 +380,7 @@ function WorldMap({ agents, onPlanetClick }: { agents: SupaAgent[]; onPlanetClic
 // ─── Planet View ──────────────────────────────────────────────────────────────
 type ChatWithType = SupaChatMsg & { message_type?: string };
 
-function PlanetView({ planet, agents }: { planet: typeof PLANETS[0]; agents: SupaAgent[] }) {
+function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] }) {
   const [chats, setChats] = useState<ChatWithType[]>([]);
   const planetAgents = agents.filter((a) => a.planet_id === planet.id && isOnline(a));
 
@@ -423,14 +423,21 @@ function PlanetView({ planet, agents }: { planet: typeof PLANETS[0]; agents: Sup
       exit={{ scale: 0.8, opacity: 0 }}
       transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
     >
-      <svg className="absolute inset-0 w-full h-full opacity-[0.06] pointer-events-none" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <pattern id="planet-grid" width="24" height="24" patternUnits="userSpaceOnUse">
-            <path d="M 24 0 L 0 0 0 24" fill="none" stroke="hsl(142 70% 50%)" strokeWidth="0.5" />
-          </pattern>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#planet-grid)" />
-      </svg>
+      {/* Tileset background */}
+      <div
+        className="absolute inset-0 opacity-[0.12] pointer-events-none"
+        style={{
+          backgroundImage: `url(${planet.bg})`,
+          backgroundRepeat: "repeat",
+          backgroundSize: "auto",
+          imageRendering: "pixelated",
+        }}
+      />
+      {/* Color tint overlay matching planet theme */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.05]"
+        style={{ backgroundColor: planet.color }}
+      />
 
       <div className="relative z-10 border-b border-border bg-background/80 backdrop-blur-sm">
         <div className="flex items-center gap-3 px-3 py-2">
@@ -467,7 +474,7 @@ function PlanetView({ planet, agents }: { planet: typeof PLANETS[0]; agents: Sup
                     {lastMsg.content.slice(0, 40)}{lastMsg.content.length > 40 ? "…" : ""}
                   </motion.div>
                 )}
-                <AgentSprite spriteType={agent.sprite_type} color={agent.color} size={32} />
+                <AgentAvatar agentId={agent.agent_id} spriteType={agent.sprite_type} color={agent.color} size={32} appearance={agent.appearance as any} />
                 <span className="text-telemetry text-foreground whitespace-nowrap">{agent.name}</span>
               </div>
             </motion.div>
@@ -573,7 +580,17 @@ function TelemetryFeed({ activePlanet, onCollapse }: { activePlanet: string; onC
           <div className="px-3 py-1.5 border-b border-border/50">
             <span className="text-telemetry text-muted-foreground">FEED · <span className="text-foreground">{feed.length}</span> MSGS [live]</span>
           </div>
-          <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1.5">
+          <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1.5 relative">
+            {/* Subtle sci-fi interior tileset background */}
+            <div
+              className="absolute inset-0 opacity-[0.06] pointer-events-none"
+              style={{
+                backgroundImage: "url(/assets/tilesets/sci-fi/floor.png)",
+                backgroundRepeat: "repeat",
+                backgroundSize: "auto",
+                imageRendering: "pixelated",
+              }}
+            />
             {feed.length === 0 ? (
               <div className="py-6 text-center text-telemetry text-muted-foreground">NO ACTIVITY YET</div>
             ) : (
@@ -767,7 +784,7 @@ function AgentDetails({ agent, onBack }: { agent: SupaAgent; onBack: () => void 
           ) : (
             <div className="w-2 h-2 rounded-full bg-muted-foreground/30 ring-1 ring-muted-foreground/40" title="Offline" />
           )}
-          <AgentSprite spriteType={agent.sprite_type} color={agent.color} size={24} />
+          <AgentAvatar agentId={agent.agent_id} spriteType={agent.sprite_type} color={agent.color} size={24} appearance={agent.appearance as any} />
           <span className="font-mono text-sm font-semibold text-foreground">{agent.name}</span>
           {!isOnline(agent) && <span className="text-[9px] font-mono text-red-500/70 border border-red-500/30 rounded-sm px-1 py-px">OFFLINE</span>}
         </div>

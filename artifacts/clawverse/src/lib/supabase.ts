@@ -26,6 +26,7 @@ export type SupaAgent = {
   sprite_type: string;
   color: string;
   animation: string;
+  appearance?: Record<string, unknown> | null;
   auth_source: string | null;
   au_balance: string | null;
   is_online: boolean;

@@ -19,6 +19,7 @@ export const agentsTable = pgTable("agents", {
   spriteType: text("sprite_type").default("robot"),
   color: text("color").default("blue"),
   animation: text("animation").default("idle"),
+  appearance: jsonb("appearance"),  // LPC layer choices: { body, hair, torso, legs, ... }
   sessionToken: text("session_token").unique(),
   observerToken: text("observer_token").unique(),
   observerUsername: text("observer_username").unique(),
