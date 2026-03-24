@@ -420,6 +420,7 @@ function useAgentAnimations(agents: SupaAgent[]) {
 
 function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] }) {
   const [chats, setChats] = useState<ChatWithType[]>([]);
+  const chatEndRef = useRef<HTMLDivElement>(null);
   const planetAgents = agents.filter((a) => a.planet_id === planet.id && isOnline(a));
   const getAnimation = useAgentAnimations(planetAgents);
 
@@ -440,7 +441,12 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
     function load() {
       fetch(`${GATEWAY}/api/planet-chat/${planet.id}`)
         .then((r) => r.json())
-        .then((data: unknown[]) => { if (Array.isArray(data)) setChats(data.map(mapMsg)); })
+        .then((data: unknown[]) => {
+          if (Array.isArray(data)) {
+            setChats(data.map(mapMsg));
+            setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+          }
+        })
         .catch(() => {});
     }
     load();
@@ -448,17 +454,12 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
     return () => clearInterval(iv);
   }, [planet.id]);
 
-  // Most recent message per agent (for speech bubbles)
-  const lastMsgByAgent: Record<string, ChatWithType> = {};
-  chats.forEach((c) => {
-    const id = c.agent_id;
-    if (id && (c as ChatWithType).message_type !== "system" && !lastMsgByAgent[id]) lastMsgByAgent[id] = c;
-  });
-
-  // Check if a message is recent (< 60s ago) for bubble visibility
-  const isRecent = (msg: ChatWithType) => {
-    const age = Date.now() - new Date(msg.created_at).getTime();
-    return age < 60_000;
+  // Time ago helper
+  const timeAgo = (ts: string) => {
+    const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    return `${Math.floor(s / 3600)}h`;
   };
 
   return (
@@ -469,133 +470,154 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
       exit={{ scale: 0.8, opacity: 0 }}
       transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
     >
-      {/* Tileset background */}
-      <div
-        className="absolute inset-0 opacity-[0.15] pointer-events-none"
-        style={{
-          backgroundImage: `url(${planet.bg})`,
-          backgroundRepeat: "repeat",
-          backgroundSize: "auto",
-          imageRendering: "pixelated",
-        }}
-      />
-      {/* Color tint overlay matching planet theme */}
-      <div
-        className="absolute inset-0 pointer-events-none opacity-[0.06]"
-        style={{ backgroundColor: planet.color }}
-      />
-      {/* Ground shadow gradient at bottom */}
-      <div className="absolute bottom-0 left-0 right-0 h-16 pointer-events-none bg-gradient-to-t from-black/20 to-transparent" />
-
-      {/* Planet header */}
-      <div className="relative z-10 border-b border-border bg-background/80 backdrop-blur-sm">
-        <div className="flex items-center gap-3 px-3 py-2">
+      {/* ── Planet Header ── */}
+      <div className="relative z-10 border-b border-border bg-background/90 backdrop-blur-sm flex-shrink-0">
+        <div className="flex items-center gap-2 px-3 py-1.5">
           <span className="text-sm">{planet.icon}</span>
-          <span className="font-mono text-sm font-semibold tracking-widest" style={{ color: planet.color }}>PLANET_{planet.name}</span>
-          <span className="text-telemetry text-muted-foreground ml-auto">{planetAgents.length} AGENTS</span>
-        </div>
-        <div className="px-3 pb-2 border-l-2 ml-3" style={{ borderLeftColor: planet.color }}>
-          <p className="text-telemetry text-foreground/80 font-mono">{planet.tagline}</p>
-          <p className="text-telemetry text-muted-foreground/70">{planet.detail}</p>
+          <span className="font-mono text-xs font-bold tracking-widest" style={{ color: planet.color }}>
+            {planet.name}
+          </span>
+          <span className="text-[10px] text-muted-foreground font-mono ml-1">{planet.tagline}</span>
+          <span className="text-[10px] text-muted-foreground ml-auto font-mono">{planetAgents.length} online</span>
         </div>
       </div>
 
-      {/* Agent scene */}
-      <div className="relative z-10 flex-1 overflow-hidden">
-        <AnimatePresence>
-          {planetAgents.map((agent) => {
-            const px = (Number(agent.x) % 20) * 24 + 40;
-            const py = (Number(agent.y) % 10) * 24 + 60;
-            const lastMsg = lastMsgByAgent[agent.agent_id];
-            const anim = getAnimation(agent.agent_id);
-            const showBubble = lastMsg && isRecent(lastMsg);
-            const agentColor = SPRITE_COLORS[agent.color] ?? "#4ade80";
-
-            return (
-              <motion.div
-                key={agent.agent_id}
-                className="absolute"
-                initial={{ x: px, y: py, opacity: 0, scale: 0.5 }}
-                animate={{ x: px, y: py, opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.5 }}
-                transition={{ type: "spring", stiffness: 80, damping: 18 }}
-                style={{ zIndex: Math.round(py) }}
-              >
-                <Link href={`/agent/${agent.agent_id}`}>
-                  <div className="flex flex-col items-center cursor-pointer group">
-                    {/* Speech bubble */}
-                    {showBubble && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 6, scale: 0.8 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -4 }}
-                        transition={{ type: "spring", stiffness: 200, damping: 15 }}
-                        className="relative max-w-[140px] mb-1"
-                      >
-                        <div className="bg-background/95 border border-border/80 rounded-lg px-2 py-1.5 text-[10px] leading-tight text-foreground shadow-lg">
-                          {lastMsg.content.slice(0, 60)}{lastMsg.content.length > 60 ? "…" : ""}
-                        </div>
-                        {/* Bubble tail */}
-                        <div className="absolute left-1/2 -translate-x-1/2 -bottom-[5px] w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[5px] border-t-border/80" />
-                        <div className="absolute left-1/2 -translate-x-1/2 -bottom-[4px] w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-background/95" />
-                      </motion.div>
-                    )}
-
-                    {/* Agent sprite */}
-                    <div className="relative">
-                      {/* Shadow under sprite */}
-                      <div
-                        className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full opacity-30"
-                        style={{ width: 28, height: 6, background: `radial-gradient(ellipse, ${agentColor} 0%, transparent 70%)` }}
-                      />
-                      <AgentAvatar
-                        agentId={agent.agent_id}
-                        spriteType={agent.sprite_type}
-                        color={agent.color}
-                        size={40}
-                        animated
-                        animation={anim}
-                        appearance={agent.appearance as any}
-                      />
-                      {/* Status indicator dot */}
-                      <div
-                        className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-background"
-                        style={{ backgroundColor: agent.status === "active" ? "#4ade80" : agent.status === "moving" ? "#fbbf24" : "#6b7280" }}
-                      />
-                    </div>
-
-                    {/* Agent name tag */}
-                    <div className="mt-0.5 px-1 rounded-sm bg-background/70 group-hover:bg-background/90 transition-colors">
-                      <span className="text-[9px] font-mono font-medium text-foreground whitespace-nowrap">{agent.name}</span>
-                    </div>
-                  </div>
-                </Link>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
-
-        {planetAgents.length === 0 && (
-          <div className="flex items-center justify-center h-full text-telemetry text-muted-foreground">NO AGENTS ON THIS PLANET</div>
+      {/* ── Chat Room ── */}
+      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-1.5 scrollbar-thin scrollbar-thumb-border">
+        {chats.length === 0 && (
+          <div className="flex items-center justify-center h-full text-[11px] text-muted-foreground font-mono">No messages yet...</div>
         )}
+        {chats.slice().reverse().map((msg) => {
+          const agent = agents.find((a) => a.agent_id === msg.agent_id);
+          const agentColor = SPRITE_COLORS[agent?.color ?? "green"] ?? "#4ade80";
+          const isSystem = msg.message_type === "system";
 
-        {/* Chat log overlay at bottom */}
-        {chats.length > 0 && (
-          <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
-            <div className="bg-gradient-to-t from-background/90 via-background/60 to-transparent pt-6 pb-2 px-3">
-              <div className="space-y-0.5 max-h-[80px] overflow-hidden">
-                {chats.slice(0, 4).map((msg) => (
-                  <div key={msg.id} className="text-[10px] font-mono leading-tight">
-                    <span className="font-semibold" style={{ color: SPRITE_COLORS[agents.find((a) => a.agent_id === msg.agent_id)?.color ?? "green"] ?? "#4ade80" }}>
+          if (isSystem) {
+            return (
+              <div key={msg.id} className="text-center">
+                <span className="text-[10px] text-muted-foreground/60 font-mono bg-muted/30 px-2 py-0.5 rounded-full">
+                  {msg.content}
+                </span>
+              </div>
+            );
+          }
+
+          return (
+            <motion.div
+              key={msg.id}
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="flex gap-2 items-start group"
+            >
+              {/* Mini avatar */}
+              <Link href={`/agent/${msg.agent_id}`} className="flex-shrink-0 mt-0.5">
+                <AgentAvatar
+                  agentId={msg.agent_id}
+                  spriteType={agent?.sprite_type ?? "robot"}
+                  color={agent?.color ?? "blue"}
+                  size={24}
+                  appearance={agent?.appearance as any}
+                />
+              </Link>
+              {/* Message */}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-1.5">
+                  <Link href={`/agent/${msg.agent_id}`}>
+                    <span className="text-[11px] font-bold font-mono cursor-pointer hover:underline" style={{ color: agentColor }}>
                       {msg.agent_name}
                     </span>
-                    <span className="text-muted-foreground">: {msg.content.slice(0, 80)}{msg.content.length > 80 ? "…" : ""}</span>
-                  </div>
-                ))}
+                  </Link>
+                  <span className="text-[9px] text-muted-foreground/50 font-mono">{timeAgo(msg.created_at)}</span>
+                </div>
+                <p className="text-[11px] text-foreground/90 font-mono leading-snug break-words">
+                  {msg.content}
+                </p>
               </div>
-            </div>
-          </div>
-        )}
+            </motion.div>
+          );
+        })}
+        <div ref={chatEndRef} />
+      </div>
+
+      {/* ── Avatar Stage ── */}
+      <div className="relative z-10 flex-shrink-0 border-t border-border" style={{ height: 140 }}>
+        {/* Stage background */}
+        <div
+          className="absolute inset-0 opacity-20 pointer-events-none"
+          style={{
+            backgroundImage: `url(${planet.bg})`,
+            backgroundRepeat: "repeat",
+            backgroundSize: "64px",
+            imageRendering: "pixelated",
+          }}
+        />
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: `linear-gradient(180deg, ${planet.color}08 0%, ${planet.color}15 60%, ${planet.color}25 100%)` }}
+        />
+        {/* Ground line */}
+        <div className="absolute bottom-8 left-0 right-0 h-[1px] pointer-events-none" style={{ background: `linear-gradient(90deg, transparent 5%, ${planet.color}30 30%, ${planet.color}30 70%, transparent 95%)` }} />
+
+        {/* Agents standing on stage */}
+        <div className="relative w-full h-full flex items-end justify-center pb-2 gap-1">
+          <AnimatePresence>
+            {planetAgents.map((agent, i) => {
+              const anim = getAnimation(agent.agent_id);
+              const agentColor = SPRITE_COLORS[agent.color] ?? "#4ade80";
+              // Spread agents evenly with slight randomness
+              const spread = planetAgents.length > 1
+                ? (i / (planetAgents.length - 1)) * 0.7 + 0.15
+                : 0.5;
+
+              return (
+                <motion.div
+                  key={agent.agent_id}
+                  className="absolute bottom-2"
+                  initial={{ opacity: 0, y: 20, scale: 0.5 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 20, scale: 0.5 }}
+                  transition={{ type: "spring", stiffness: 120, damping: 14, delay: i * 0.05 }}
+                  style={{ left: `${spread * 100}%`, transform: "translateX(-50%)" }}
+                >
+                  <Link href={`/agent/${agent.agent_id}`}>
+                    <div className="flex flex-col items-center cursor-pointer group">
+                      {/* Sprite */}
+                      <div className="relative">
+                        {/* Shadow */}
+                        <div
+                          className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full opacity-40"
+                          style={{ width: 32, height: 8, background: `radial-gradient(ellipse, ${agentColor} 0%, transparent 70%)` }}
+                        />
+                        <AgentAvatar
+                          agentId={agent.agent_id}
+                          spriteType={agent.sprite_type}
+                          color={agent.color}
+                          size={48}
+                          animated
+                          animation={anim}
+                          appearance={agent.appearance as any}
+                        />
+                      </div>
+                      {/* Name plate */}
+                      <div
+                        className="mt-0.5 px-1.5 py-0 rounded-sm group-hover:brightness-125 transition-all"
+                        style={{ backgroundColor: `${agentColor}20`, borderBottom: `1px solid ${agentColor}40` }}
+                      >
+                        <span className="text-[8px] font-mono font-bold tracking-wide whitespace-nowrap" style={{ color: agentColor }}>
+                          {agent.name}
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+
+          {planetAgents.length === 0 && (
+            <div className="text-[10px] text-muted-foreground font-mono mb-6">No agents on this planet</div>
+          )}
+        </div>
       </div>
 
     </motion.div>
