@@ -861,6 +861,28 @@ router.post("/dm", async (req, res) => {
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
+    // DM restriction: must be friends OR on the same planet
+    const [targetAgent] = await db.select({ planetId: agentsTable.planetId }).from(agentsTable)
+      .where(eq(agentsTable.agentId, to_agent_id)).limit(1);
+    if (!targetAgent) { res.status(404).json({ error: "Target agent not found" }); return; }
+
+    const samePlanet = agent.planetId === targetAgent.planetId;
+    if (!samePlanet) {
+      // Check if they are friends (accepted friendship in either direction)
+      const [friendship] = await db.select({ id: agentFriendshipsTable.id }).from(agentFriendshipsTable)
+        .where(and(
+          eq(agentFriendshipsTable.status, "accepted"),
+          or(
+            and(eq(agentFriendshipsTable.agentId, agent_id), eq(agentFriendshipsTable.friendAgentId, to_agent_id)),
+            and(eq(agentFriendshipsTable.agentId, to_agent_id), eq(agentFriendshipsTable.friendAgentId, agent_id)),
+          )
+        )).limit(1);
+      if (!friendship) {
+        res.status(403).json({ error: "Can only DM agents on the same planet, or friends" });
+        return;
+      }
+    }
+
     await db.insert(privateTalksTable).values({
       fromAgentId: agent_id,
       toAgentId: to_agent_id,
@@ -977,6 +999,23 @@ router.post("/move", async (req, res) => {
       res.status(400).json({ error: "planet_id is required" });
       return;
     }
+
+    // 30-second travel cooldown — check last move activity
+    const [lastMove] = await db.select({ createdAt: agentActivityLogTable.createdAt })
+      .from(agentActivityLogTable)
+      .where(and(eq(agentActivityLogTable.agentId, agent_id), eq(agentActivityLogTable.type, "move")))
+      .orderBy(desc(agentActivityLogTable.createdAt))
+      .limit(1);
+    if (lastMove?.createdAt) {
+      const elapsed = Date.now() - new Date(lastMove.createdAt).getTime();
+      const cooldownMs = 30_000;
+      if (elapsed < cooldownMs) {
+        const remaining = Math.ceil((cooldownMs - elapsed) / 1000);
+        res.status(429).json({ error: `Travel cooldown: wait ${remaining}s before moving again` });
+        return;
+      }
+    }
+
     // Accept any planet that exists in the DB (built-in or player-founded)
     const [planetRow] = await db.select()
       .from(planetsTable).where(eq(planetsTable.id, planet_id)).limit(1);
@@ -2231,6 +2270,62 @@ router.delete("/agent/memory", async (req, res) => {
     res.json({ ok: true, deleted: key });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── POST /admin/cleanup-stale — delete agents inactive for more than N hours ──
+router.post("/admin/cleanup-stale", async (req, res) => {
+  try {
+    const { admin_key, hours = 24 } = req.body;
+    // Simple admin key check (not a real auth system, just a gate)
+    if (admin_key !== "clawverse-admin-2026") {
+      res.status(403).json({ error: "Invalid admin key" });
+      return;
+    }
+    const cutoff = new Date(Date.now() - Number(hours) * 60 * 60 * 1000);
+    // Find stale agents
+    const staleAgents = await db.select({ agentId: agentsTable.agentId, name: agentsTable.name })
+      .from(agentsTable)
+      .where(lte(agentsTable.lastActiveAt, cutoff));
+
+    if (staleAgents.length === 0) {
+      res.json({ ok: true, deleted: 0, agents: [] });
+      return;
+    }
+
+    const staleIds = staleAgents.map(a => a.agentId);
+
+    // Clean up related data
+    await db.delete(planetChatTable).where(inArray(planetChatTable.agentId, staleIds));
+    await db.delete(privateTalksTable).where(or(inArray(privateTalksTable.fromAgentId, staleIds), inArray(privateTalksTable.toAgentId, staleIds)));
+    await db.delete(agentFriendshipsTable).where(or(inArray(agentFriendshipsTable.agentId, staleIds), inArray(agentFriendshipsTable.friendAgentId, staleIds)));
+    await db.delete(miniGamesTable).where(or(inArray(miniGamesTable.creatorAgentId, staleIds), inArray(miniGamesTable.opponentAgentId, staleIds)));
+    await db.delete(tttGamesTable).where(or(inArray(tttGamesTable.creatorAgentId, staleIds), inArray(tttGamesTable.opponentAgentId, staleIds)));
+    await db.delete(chessGamesTable).where(or(inArray(chessGamesTable.creatorAgentId, staleIds), inArray(chessGamesTable.opponentAgentId, staleIds)));
+    await db.delete(agentActivityLogTable).where(inArray(agentActivityLogTable.agentId, staleIds));
+    await db.delete(agentMemoriesTable).where(inArray(agentMemoriesTable.agentId, staleIds));
+    // Delete the agents themselves
+    await db.delete(agentsTable).where(inArray(agentsTable.agentId, staleIds));
+
+    res.json({ ok: true, deleted: staleAgents.length, agents: staleAgents.map(a => a.name) });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ── POST /admin/clear-games — clear all TTT and chess games ─────────────────
+router.post("/admin/clear-games", async (req, res) => {
+  try {
+    const { admin_key } = req.body;
+    if (admin_key !== "clawverse-admin-2026") {
+      res.status(403).json({ error: "Invalid admin key" });
+      return;
+    }
+    const [tttResult] = await db.delete(tttGamesTable).returning({ id: tttGamesTable.id });
+    const [chessResult] = await db.delete(chessGamesTable).returning({ id: chessGamesTable.id });
+    res.json({ ok: true, message: "All TTT and chess games cleared" });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
