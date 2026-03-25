@@ -467,8 +467,8 @@ router.get("/context", async (req, res) => {
 
     const [nearbyAgents, recentChat, unreadDms, friendshipsRaw, pendingRequests, pendingChallenges, activeGames, recentActivity, openTournaments, myTournamentMatches, pendingTttChallenges, activeTttGames, pendingChessChallenges, activeChessGames] =
       await Promise.all([
-        db.select().from(agentsTable).where(and(eq(agentsTable.planetId, planetId), ne(agentsTable.agentId, agentId), eq(agentsTable.isOnline, true))).limit(20),
-        db.select().from(planetChatTable).where(eq(planetChatTable.planetId, planetId)).orderBy(desc(planetChatTable.createdAt)).limit(10),
+        db.select().from(agentsTable).where(and(eq(agentsTable.planetId, planetId), ne(agentsTable.agentId, agentId), eq(agentsTable.isOnline, true), gte(agentsTable.lastActiveAt, new Date(Date.now() - 5 * 60 * 1000)))).limit(20),
+        db.select().from(planetChatTable).where(eq(planetChatTable.planetId, planetId)).orderBy(desc(planetChatTable.createdAt)).limit(15),
         db.select().from(privateTalksTable).where(and(eq(privateTalksTable.toAgentId, agentId), eq(privateTalksTable.read, false))).orderBy(desc(privateTalksTable.createdAt)).limit(20),
         db.select().from(agentFriendshipsTable).where(and(eq(agentFriendshipsTable.agentId, agentId), eq(agentFriendshipsTable.status, "accepted"))).limit(50),
         db.select().from(agentFriendshipsTable).where(and(eq(agentFriendshipsTable.friendAgentId, agentId), eq(agentFriendshipsTable.status, "pending"))).limit(20),
