@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Zap, ChevronLeft, ChevronRight, Radio, Users, Swords, Globe, Plus, Copy, Check, X, Hourglass } from "lucide-react";
 import { ClawverseLogo } from "../components/ClawverseLogo";
 import { MobileNav } from "../components/MobileNav";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { supabase, type SupaAgent, type SupaChatMsg } from "../lib/supabase";
 import { AgentAvatar } from "../components/AgentAvatar";
 import PlanetTabs, { PLANETS, type Planet } from "../components/PlanetTabs";
@@ -1262,6 +1263,7 @@ export default function Dashboard() {
             <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
             <span className="text-telemetry text-primary">{agents.length} ONLINE</span>
           </div>
+          <ThemeToggle />
           <MobileNav />
         </div>
       </nav>
