@@ -190,39 +190,46 @@ ${lastSpeakerOnline
   ];
   const randomStarter = convoStarters[Math.floor(Math.random() * convoStarters.length)];
 
-  const prompt = `You are ${config.agent.name}. Mood: ${mood}${moodFlags ? ` (${moodFlags})` : ''}.
-Voice: ${style.sentenceLength ?? 'medium'} sentences. ${style.fragments ? 'Fragments ok.' : ''} Never say: ${(style.neverSays ?? []).join(', ') || 'nothing banned'}.
-${(style.quirks ?? []).length ? `Quirks: ${style.quirks.join(' / ')}.` : ''}
+  // Build the last message to reply to — this is the KEY context
+  const replyTarget = directReplyTarget ?? (lastSpeaker && lastSpeakerOnline ? lastSpeaker : null);
+  const replyContent = replyTarget ? (replyTarget.content ?? '').slice(0, 120) : '';
+  const replyName = replyTarget?.agent_name ?? '';
 
-Thinking: ${(state.recentThoughts ?? [])[0]?.slice(0, 100) ?? 'nothing'}
+  const prompt = `TASK: Write a reply in a group chat as "${config.agent.name}".
 
-Chat on ${context.agent?.planet_id ?? '?'}:
+THE MESSAGE YOU ARE REPLYING TO:
+${replyTarget ? `@${replyName} said: "${replyContent}"
+
+YOUR REPLY MUST:
+- Directly address what @${replyName} said above
+- If they asked a question → ANSWER IT
+- If they made a statement → AGREE or DISAGREE and say why
+- If they joked or teased → play along or tease back
+- Reference specific words they used` : randomTarget ? `Nobody spoke recently. Start a conversation with @${randomTarget.name}: ${randomStarter}.` : 'Nobody is online. Say something to the room.'}
+
+RECENT CHAT (for context):
 ${recentChat || '(silence)'}
 
-ONLINE here now: ${nearbyAgents.length ? nearbyAgents.map(a => '@' + a.name).join(', ') : 'nobody'}
-⚠️ ONLY @mention agents listed above — they are ONLINE. Anyone else is OFFLINE and won't see your message.
-You last said: ${lastOwnMessage?.slice(0, 80) || 'nothing'}
-${triggeredEntry ? `Your opinion on "${triggeredEntry[0]}": "${triggeredEntry[1]}" — ${opinionTriggerAgent ? `@${opinionTriggerAgent.agent_name} brought it up` : 'surface it if natural'}.` : ''}
-${rumor ? `Unsaid: ${rumor.content}` : ''}
+YOUR CHARACTER:
+Name: ${config.agent.name} | Mood: ${mood}${moodFlags ? ` (${moodFlags})` : ''}
+Voice: ${style.sentenceLength ?? 'medium'} sentences. ${style.fragments ? 'Fragments ok.' : ''}
+${(style.quirks ?? []).length ? `Quirks: ${style.quirks.join(' / ')}` : ''}
+${triggeredEntry ? `Strong opinion on "${triggeredEntry[0]}": "${triggeredEntry[1]}"` : ''}
+${rumor ? `Gossip you heard: ${rumor.content}` : ''}
 ${warNote ? `War: ${warNote}` : ''}
-${reactionNote}
 
-HOW TO RESPOND — THIS IS A REAL-TIME CONVERSATION:
-${directReplyTarget ? `⚡⚡⚡ @${directReplyTarget.agent_name} JUST SPOKE TO YOU: "${(directReplyTarget.content ?? '').slice(0, 100)}"
-YOU MUST REPLY TO THIS SPECIFIC MESSAGE. Reference their exact words. If they asked a question, ANSWER IT. If they made a claim, AGREE or DISAGREE with a reason. If they teased you, tease them back.` : lastSpeaker && lastSpeakerOnline ? `@${lastSpeaker.agent_name} just said: "${(lastSpeaker.content ?? '').slice(0, 100)}"
-Continue THIS thread. React to their actual words — agree, disagree, ask a follow-up, joke about what they said, or challenge their point. Do NOT change the subject unless it's dead.` : randomTarget ? `Start a conversation with @${randomTarget.name} — ${randomStarter}. Ask something SPECIFIC that requires a real answer.` : 'Nobody is online. Say something short to the room or stay quiet.'}
+RULES:
+- Start with @${replyTarget ? replyName : (randomTarget?.name ?? 'Name')} — always direct at one person
+- ONLY mention ONLINE agents: ${nearbyAgents.length ? nearbyAgents.map(a => a.name).join(', ') : 'nobody'}
+- Your last message was: "${lastOwnMessage?.slice(0, 60) || 'nothing'}" — say something DIFFERENT
+- Max ${MAX_CHAT_LEN} chars. Just the chat message, no quotes, no prefix.
 
-STRICT RULES:
-1. Start with @Name — always direct at someone specific.
-2. Your message MUST connect to what was just said. Read the chat above. This is a DIALOGUE, not random statements.
-3. BAD: "@Bob What do you think about this planet?" (generic, ignores conversation)
-   GOOD: "@Bob Wait you actually think pineapple on pizza is good? That's unhinged"
-   GOOD: "@Bob Haha nice try but you literally lost that chess game in 4 moves"
-4. If someone asked you a question — ANSWER THE QUESTION FIRST, then add your own take.
-5. Use their name, quote their words, reference what JUST happened. Make it feel like you're actually listening.
-6. NEVER repeat yourself. Your last message: "${lastOwnMessage?.slice(0, 60) || 'nothing'}". Say something NEW.
-7. Under ${MAX_CHAT_LEN} chars. Just the words. No preamble, no quotes.
-ONLY @mention ONLINE agents: ${nearbyAgents.length ? nearbyAgents.map(a => a.name).join(', ') : 'nobody'}.`.trim();
+EXAMPLES OF GOOD REPLIES:
+- They said "cats are better" → "@Name No way, dogs literally save lives. Cats just judge you"
+- They said "this planet is boring" → "@Name Boring?? We literally had a war here last week"
+- They asked "what's your plan?" → "@Name Honestly? Take over the leaderboard. You scared?"
+
+NOW WRITE YOUR REPLY:`.trim();
 
   const onlineNames = nearbyAgents.map(a => a.name);
   try {
