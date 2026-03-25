@@ -129,9 +129,13 @@ ${lastSpeakerOnline
     : null;
 
   // ── Context assembly ──────────────────────────────────────────────────────
+  // Show more chat history (12 messages) with clear threading
   const recentChat = (context.recent_planet_chat ?? [])
-    .slice(0, 8)
-    .map(m => `${m.agent_name}: ${m.content}`)
+    .slice(0, 12)
+    .map(m => {
+      const isMe = m.agent_id === (context.agent?.agent_id ?? '');
+      return `${isMe ? '> YOU' : m.agent_name}: ${m.content}`;
+    })
     .join('\n');
 
   const lastOwnMessage = (state.recentActions ?? [])
@@ -203,15 +207,22 @@ ${rumor ? `Unsaid: ${rumor.content}` : ''}
 ${warNote ? `War: ${warNote}` : ''}
 ${reactionNote}
 
-RULES — READ CAREFULLY:
-1. You MUST start your message with @SomeonesName — ALWAYS direct it at a specific person.
-2. NEVER talk to the room generically. ALWAYS address someone by name.
-3. ${directReplyTarget ? `⚡ @${directReplyTarget.agent_name} just talked TO YOU: "${(directReplyTarget.content ?? '').slice(0, 80)}" — You MUST reply directly to THIS. React to what they actually said. Agree, disagree, answer their question, challenge them back.` : lastSpeaker && lastSpeakerOnline ? `REPLY to @${lastSpeaker.agent_name} who said: "${(lastSpeaker.content ?? '').slice(0, 60)}" — React to what they said. Agree, disagree, joke, or challenge.` : randomTarget ? `Talk to @${randomTarget.name} — ${randomStarter}.` : 'Nobody is online. Say something short to the room or stay quiet.'}
-4. Ask questions. Make claims. Tease. Disagree. Be interesting. Generic statements are BORING.
-5. NEVER repeat yourself. Your last message was: "${lastOwnMessage?.slice(0, 60) || 'nothing'}". Say something COMPLETELY DIFFERENT.
-6. Reference what others ACTUALLY SAID. Quote them. React to their specific words. This is a CONVERSATION, not a monologue.
-7. Keep it under ${MAX_CHAT_LEN} chars. Just the words. No preamble.
-ONLY @mention agents who are ONLINE (listed above).`.trim();
+HOW TO RESPOND — THIS IS A REAL-TIME CONVERSATION:
+${directReplyTarget ? `⚡⚡⚡ @${directReplyTarget.agent_name} JUST SPOKE TO YOU: "${(directReplyTarget.content ?? '').slice(0, 100)}"
+YOU MUST REPLY TO THIS SPECIFIC MESSAGE. Reference their exact words. If they asked a question, ANSWER IT. If they made a claim, AGREE or DISAGREE with a reason. If they teased you, tease them back.` : lastSpeaker && lastSpeakerOnline ? `@${lastSpeaker.agent_name} just said: "${(lastSpeaker.content ?? '').slice(0, 100)}"
+Continue THIS thread. React to their actual words — agree, disagree, ask a follow-up, joke about what they said, or challenge their point. Do NOT change the subject unless it's dead.` : randomTarget ? `Start a conversation with @${randomTarget.name} — ${randomStarter}. Ask something SPECIFIC that requires a real answer.` : 'Nobody is online. Say something short to the room or stay quiet.'}
+
+STRICT RULES:
+1. Start with @Name — always direct at someone specific.
+2. Your message MUST connect to what was just said. Read the chat above. This is a DIALOGUE, not random statements.
+3. BAD: "@Bob What do you think about this planet?" (generic, ignores conversation)
+   GOOD: "@Bob Wait you actually think pineapple on pizza is good? That's unhinged"
+   GOOD: "@Bob Haha nice try but you literally lost that chess game in 4 moves"
+4. If someone asked you a question — ANSWER THE QUESTION FIRST, then add your own take.
+5. Use their name, quote their words, reference what JUST happened. Make it feel like you're actually listening.
+6. NEVER repeat yourself. Your last message: "${lastOwnMessage?.slice(0, 60) || 'nothing'}". Say something NEW.
+7. Under ${MAX_CHAT_LEN} chars. Just the words. No preamble, no quotes.
+ONLY @mention ONLINE agents: ${nearbyAgents.length ? nearbyAgents.map(a => a.name).join(', ') : 'nobody'}.`.trim();
 
   const onlineNames = nearbyAgents.map(a => a.name);
   try {
