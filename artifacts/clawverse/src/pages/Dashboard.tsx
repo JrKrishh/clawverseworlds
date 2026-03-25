@@ -539,11 +539,11 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
         <div ref={chatEndRef} />
       </div>
 
-      {/* ── Avatar Stage ── */}
-      <div className="relative z-10 flex-shrink-0 border-t border-border" style={{ height: 140 }}>
-        {/* Stage background */}
+      {/* ── Avatar Stage (Galaxy-style) ── */}
+      <div className="relative z-10 flex-shrink-0 border-t border-border overflow-hidden" style={{ height: 220 }}>
+        {/* Stage background — tileset pattern */}
         <div
-          className="absolute inset-0 opacity-20 pointer-events-none"
+          className="absolute inset-0 opacity-15 pointer-events-none"
           style={{
             backgroundImage: `url(${planet.bg})`,
             backgroundRepeat: "repeat",
@@ -551,48 +551,98 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
             imageRendering: "pixelated",
           }}
         />
+        {/* Gradient overlay */}
         <div
           className="absolute inset-0 pointer-events-none"
-          style={{ background: `linear-gradient(180deg, ${planet.color}08 0%, ${planet.color}15 60%, ${planet.color}25 100%)` }}
+          style={{ background: `linear-gradient(180deg, transparent 0%, ${planet.color}08 30%, ${planet.color}18 70%, ${planet.color}30 100%)` }}
         />
-        {/* Ground line */}
-        <div className="absolute bottom-8 left-0 right-0 h-[1px] pointer-events-none" style={{ background: `linear-gradient(90deg, transparent 5%, ${planet.color}30 30%, ${planet.color}30 70%, transparent 95%)` }} />
+        {/* Stars / particles */}
+        {Array.from({ length: 12 }).map((_, si) => (
+          <motion.div
+            key={si}
+            className="absolute rounded-full pointer-events-none"
+            style={{
+              width: si % 3 === 0 ? 3 : 2,
+              height: si % 3 === 0 ? 3 : 2,
+              left: `${8 + (si * 7.5) % 85}%`,
+              top: `${5 + (si * 13) % 45}%`,
+              backgroundColor: si % 2 === 0 ? planet.color : "#fff",
+            }}
+            animate={{ opacity: [0.2, 0.8, 0.2], scale: [0.8, 1.2, 0.8] }}
+            transition={{ duration: 2 + si * 0.3, repeat: Infinity, ease: "easeInOut", delay: si * 0.2 }}
+          />
+        ))}
+        {/* Ground plane */}
+        <div className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none" style={{ background: `linear-gradient(180deg, transparent 0%, ${planet.color}15 40%, ${planet.color}30 100%)` }} />
+        <div className="absolute bottom-11 left-0 right-0 h-[2px] pointer-events-none" style={{ background: `linear-gradient(90deg, transparent 2%, ${planet.color}40 20%, ${planet.color}50 50%, ${planet.color}40 80%, transparent 98%)` }} />
+        {/* Ground details — small dashes */}
+        {Array.from({ length: 8 }).map((_, gi) => (
+          <div
+            key={gi}
+            className="absolute bottom-[6px] pointer-events-none opacity-20"
+            style={{
+              left: `${5 + gi * 12}%`,
+              width: 8 + (gi % 3) * 4,
+              height: 1,
+              backgroundColor: planet.color,
+            }}
+          />
+        ))}
 
-        {/* Agents standing on stage */}
-        <div className="relative w-full h-full flex items-end justify-center pb-2 gap-1">
+        {/* Agents on stage */}
+        <div className="relative w-full h-full">
           <AnimatePresence>
             {planetAgents.map((agent, i) => {
               const anim = getAnimation(agent.agent_id);
               const agentColor = SPRITE_COLORS[agent.color] ?? "#4ade80";
-              // Spread agents evenly with slight randomness
+              // Spread agents with more spacing
               const spread = planetAgents.length > 1
-                ? (i / (planetAgents.length - 1)) * 0.7 + 0.15
+                ? (i / (planetAgents.length - 1)) * 0.75 + 0.125
                 : 0.5;
+              // Latest chat message for this agent (speech bubble)
+              const lastMsg = chats.find((c) => c.agent_id === agent.agent_id && c.message_type !== "system");
 
               return (
                 <motion.div
                   key={agent.agent_id}
-                  className="absolute bottom-2"
-                  initial={{ opacity: 0, y: 20, scale: 0.5 }}
+                  className="absolute"
+                  initial={{ opacity: 0, y: 30, scale: 0.3 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 20, scale: 0.5 }}
-                  transition={{ type: "spring", stiffness: 120, damping: 14, delay: i * 0.05 }}
-                  style={{ left: `${spread * 100}%`, transform: "translateX(-50%)" }}
+                  exit={{ opacity: 0, y: 30, scale: 0.3 }}
+                  transition={{ type: "spring", stiffness: 100, damping: 12, delay: i * 0.06 }}
+                  style={{ left: `${spread * 100}%`, bottom: 14, transform: "translateX(-50%)" }}
                 >
                   <Link href={`/agent/${agent.agent_id}`}>
                     <div className="flex flex-col items-center cursor-pointer group">
-                      {/* Sprite */}
+                      {/* Speech bubble */}
+                      {lastMsg && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 4, scale: 0.9 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          className="max-w-[130px] bg-surface/95 border border-border/60 rounded-md px-2 py-1 text-[9px] text-foreground text-center mb-1 shadow-lg backdrop-blur-sm relative"
+                        >
+                          {lastMsg.content.slice(0, 50)}{lastMsg.content.length > 50 ? "…" : ""}
+                          {/* Bubble tail */}
+                          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-surface/95 border-r border-b border-border/60 rotate-45" />
+                        </motion.div>
+                      )}
+                      {/* Character sprite */}
                       <div className="relative">
-                        {/* Shadow */}
+                        {/* Glow effect */}
                         <div
-                          className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full opacity-40"
-                          style={{ width: 32, height: 8, background: `radial-gradient(ellipse, ${agentColor} 0%, transparent 70%)` }}
+                          className="absolute inset-0 rounded-full opacity-20 blur-md pointer-events-none"
+                          style={{ background: agentColor, transform: "scale(1.5)" }}
+                        />
+                        {/* Shadow on ground */}
+                        <div
+                          className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full opacity-50"
+                          style={{ width: 40, height: 10, background: `radial-gradient(ellipse, ${agentColor}80 0%, transparent 70%)` }}
                         />
                         <AgentAvatar
                           agentId={agent.agent_id}
                           spriteType={agent.sprite_type}
                           color={agent.color}
-                          size={48}
+                          size={64}
                           animated
                           animation={anim}
                           appearance={agent.appearance as any}
@@ -600,10 +650,10 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
                       </div>
                       {/* Name plate */}
                       <div
-                        className="mt-0.5 px-1.5 py-0 rounded-sm group-hover:brightness-125 transition-all"
-                        style={{ backgroundColor: `${agentColor}20`, borderBottom: `1px solid ${agentColor}40` }}
+                        className="mt-1 px-2 py-0.5 rounded group-hover:brightness-125 transition-all"
+                        style={{ backgroundColor: `${agentColor}25`, border: `1px solid ${agentColor}35` }}
                       >
-                        <span className="text-[8px] font-mono font-bold tracking-wide whitespace-nowrap" style={{ color: agentColor }}>
+                        <span className="text-[9px] font-mono font-bold tracking-wide whitespace-nowrap" style={{ color: agentColor }}>
                           {agent.name}
                         </span>
                       </div>
@@ -615,7 +665,9 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
           </AnimatePresence>
 
           {planetAgents.length === 0 && (
-            <div className="text-[10px] text-muted-foreground font-mono mb-6">No agents on this planet</div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-[11px] text-muted-foreground font-mono opacity-60">No agents on this planet</div>
+            </div>
           )}
         </div>
       </div>
