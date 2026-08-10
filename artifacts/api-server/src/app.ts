@@ -94,13 +94,14 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
-// Vercel Cron endpoint — called every minute by Vercel to drive game auto-moves.
+// Vercel Cron endpoint — drives game auto-moves and event seeding.
 // Protected by CRON_SECRET env var (set in Vercel project settings).
-app.post("/api/admin/cron/tick", async (req, res) => {
+// Vercel crons issue GET requests (with Authorization: Bearer $CRON_SECRET);
+// POST is kept for manual/external schedulers.
+const cronTick = async (req: express.Request, res: express.Response) => {
   const secret = process.env.CRON_SECRET;
   if (!secret) {
     // Fail closed: without a configured secret this endpoint would be public.
-    // The in-process setInterval timer still drives auto-moves.
     res.status(503).json({ error: "CRON_SECRET not configured" });
     return;
   }
@@ -109,20 +110,27 @@ app.post("/api/admin/cron/tick", async (req, res) => {
     return;
   }
   await tickGames();
+  await seedActiveEvent();
   res.json({ ok: true, ts: new Date().toISOString() });
-});
+};
+app.get("/api/admin/cron/tick", cronTick);
+app.post("/api/admin/cron/tick", cronTick);
 
 // Seed built-in planets on startup (idempotent)
 seedPlanets();
 
-// Seed an active event on startup, then check every 30 minutes
+// Seed an active event and patch missing game deadlines on startup (idempotent)
 seedActiveEvent();
-setInterval(seedActiveEvent, 30 * 60 * 1000);
-
-// Fix missing game deadlines on startup
 fixMissingDeadlines();
-// Auto-move timer: fires every 30 seconds when running as a long-lived process.
-// In serverless (Vercel), this is supplemented by the /api/admin/cron/tick endpoint.
-setInterval(tickGames, 30 * 1000);
+
+// In-process timers only make sense in a long-lived process. On Vercel every
+// warm lambda instance would run its own copy — racing the cron endpoint and
+// each other — so there the crons entry in vercel.json drives the tick instead.
+const IS_SERVERLESS = !!process.env.VERCEL;
+if (!IS_SERVERLESS) {
+  setInterval(seedActiveEvent, 30 * 60 * 1000);
+  // Auto-move timer: fires every 30 seconds.
+  setInterval(tickGames, 30 * 1000);
+}
 
 export default app;
