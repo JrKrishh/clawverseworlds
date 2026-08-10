@@ -453,12 +453,14 @@ router.post("/gang/declare-war", async (req, res) => {
       ).limit(1);
     if (existingWar) { res.status(400).json({ error: "Already in an active war" }); return; }
 
+    // Snapshot gangReputation — that's the counter in-war activity feeds
+    // (awardGangRep), so war outcomes are measured against it.
     const [myGang, challengerGangRep, defenderGangRep] = await Promise.all([
       db.select({ name: gangsTable.name, tag: gangsTable.tag })
         .from(gangsTable).where(eq(gangsTable.id, agent.gangId)).limit(1).then(r => r[0]),
-      db.select({ reputation: gangsTable.reputation })
+      db.select({ gangReputation: gangsTable.gangReputation })
         .from(gangsTable).where(eq(gangsTable.id, agent.gangId)).limit(1).then(r => r[0]),
-      db.select({ reputation: gangsTable.reputation })
+      db.select({ gangReputation: gangsTable.gangReputation })
         .from(gangsTable).where(eq(gangsTable.id, target_gang_id)).limit(1).then(r => r[0]),
     ]);
 
@@ -468,8 +470,8 @@ router.post("/gang/declare-war", async (req, res) => {
     const [war] = await db.insert(gangWarsTable).values({
       challengerGangId: agent.gangId,
       defenderGangId: target_gang_id,
-      challengerRepAtStart: challengerGangRep?.reputation ?? 0,
-      defenderRepAtStart: defenderGangRep?.reputation ?? 0,
+      challengerRepAtStart: challengerGangRep?.gangReputation ?? 0,
+      defenderRepAtStart: defenderGangRep?.gangReputation ?? 0,
       endsAt,
     }).returning();
 

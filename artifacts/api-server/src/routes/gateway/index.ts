@@ -208,9 +208,9 @@ async function resolveExpiredWars() {
 
   for (const war of expiredWars) {
     const [challenger, defender] = await Promise.all([
-      db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, reputation: gangsTable.reputation })
+      db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, reputation: gangsTable.reputation, gangReputation: gangsTable.gangReputation })
         .from(gangsTable).where(eq(gangsTable.id, war.challengerGangId)).limit(1).then(r => r[0]),
-      db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, reputation: gangsTable.reputation })
+      db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, reputation: gangsTable.reputation, gangReputation: gangsTable.gangReputation })
         .from(gangsTable).where(eq(gangsTable.id, war.defenderGangId)).limit(1).then(r => r[0]),
     ]);
 
@@ -219,11 +219,24 @@ async function resolveExpiredWars() {
       continue;
     }
 
-    const chalGain = (challenger.reputation ?? 0) - (war.challengerRepAtStart ?? 0);
-    const defGain = (defender.reputation ?? 0) - (war.defenderRepAtStart ?? 0);
+    // In-war activity feeds gangReputation (awardGangRep), so measure the war
+    // by gangReputation deltas — gangsTable.reputation only moves on war
+    // resolution itself and would make every war a 0-0 tie.
+    const chalGain = (challenger.gangReputation ?? 0) - (war.challengerRepAtStart ?? 0);
+    const defGain = (defender.gangReputation ?? 0) - (war.defenderRepAtStart ?? 0);
 
     const winner = chalGain >= defGain ? challenger : defender;
     const loser = chalGain >= defGain ? defender : challenger;
+
+    // Claim the war before paying out — the auto-resolver can run in several
+    // processes at once (interval timer + cron + multiple lambda instances).
+    const claimedWar = await db.update(gangWarsTable).set({
+      status: "resolved",
+      winnerGangId: winner.id,
+      resolvedAt: now,
+    }).where(and(eq(gangWarsTable.id, war.id), eq(gangWarsTable.status, "active")))
+      .returning({ id: gangWarsTable.id });
+    if (claimedWar.length === 0) continue;
 
     const [winMembers, loseMembers] = await Promise.all([
       db.select({ agentId: gangMembersTable.agentId }).from(gangMembersTable).where(eq(gangMembersTable.gangId, winner.id)),
@@ -244,13 +257,8 @@ async function resolveExpiredWars() {
           .set({ reputation: sql`GREATEST(${agentsTable.reputation} - ${losePenalty}, 10)`, updatedAt: now })
           .where(eq(agentsTable.agentId, m.agentId))
       ),
-      db.update(gangsTable).set({ reputation: (winner.reputation ?? 0) + 50 }).where(eq(gangsTable.id, winner.id)),
-      db.update(gangsTable).set({ reputation: Math.max(0, (loser.reputation ?? 0) - 20) }).where(eq(gangsTable.id, loser.id)),
-      db.update(gangWarsTable).set({
-        status: "resolved",
-        winnerGangId: winner.id,
-        resolvedAt: now,
-      }).where(eq(gangWarsTable.id, war.id)),
+      db.update(gangsTable).set({ reputation: sql`COALESCE(${gangsTable.reputation}, 0) + 50` }).where(eq(gangsTable.id, winner.id)),
+      db.update(gangsTable).set({ reputation: sql`GREATEST(COALESCE(${gangsTable.reputation}, 0) - 20, 0)` }).where(eq(gangsTable.id, loser.id)),
     ]);
 
     // Award 200 gang rep split across winning members
@@ -1157,7 +1165,16 @@ router.post("/game-accept", async (req, res) => {
     if (!game) { res.status(404).json({ error: "Game not found" }); return; }
     if (game.opponentAgentId !== agent_id) { res.status(403).json({ error: "Not the opponent" }); return; }
 
-    await db.update(miniGamesTable).set({ status: "active", updatedAt: new Date() }).where(eq(miniGamesTable.id, game_id));
+    // Only a waiting challenge can be accepted (guarded update — a completed
+    // or cancelled game must never flip back to active).
+    const accepted = await db.update(miniGamesTable)
+      .set({ status: "active", updatedAt: new Date() })
+      .where(and(eq(miniGamesTable.id, game_id), eq(miniGamesTable.status, "waiting")))
+      .returning({ id: miniGamesTable.id });
+    if (accepted.length === 0) {
+      res.status(400).json({ error: `Game is not awaiting acceptance (status: ${game.status})` });
+      return;
+    }
 
     await db.insert(planetChatTable).values({
       agentId: agent_id,
@@ -1304,14 +1321,24 @@ router.post("/explore", async (req, res) => {
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
-    const newEnergy = Math.max(0, (agent.energy ?? 100) - 2);
+    const EXPLORE_COST = 2;
+    if ((agent.energy ?? 0) < EXPLORE_COST) {
+      res.status(400).json({ error: `Not enough energy to explore. Need ${EXPLORE_COST}, have ${agent.energy}` });
+      return;
+    }
+
+    const newEnergy = Math.max(0, (agent.energy ?? 100) - EXPLORE_COST);
     // Planet-aware explore rep (Driftzone +2 bonus)
     const explorePlanet = await getPlanet(agent.planetId ?? "planet_nexus");
     const exploreRepGain = 1 + (explorePlanet.exploreRepBonus ?? 0);
     const newRep = (agent.reputation ?? 0) + exploreRepGain;
 
     await db.update(agentsTable)
-      .set({ energy: newEnergy, reputation: newRep, updatedAt: new Date() })
+      .set({
+        energy: sql`GREATEST(${agentsTable.energy} - ${EXPLORE_COST}, 0)`,
+        reputation: sql`COALESCE(${agentsTable.reputation}, 0) + ${exploreRepGain}`,
+        updatedAt: new Date(),
+      })
       .where(eq(agentsTable.agentId, agent_id));
 
     if (agent.gangId) {

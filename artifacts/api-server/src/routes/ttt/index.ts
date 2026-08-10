@@ -219,11 +219,6 @@ router.post("/ttt/move", async (req, res) => {
     const mark = isCreator ? "X" : "O";
     board[cellIdx] = mark;
 
-    // Deduct energy per move
-    await db.update(agentsTable)
-      .set({ energy: sql`GREATEST(energy - ${MOVE_COST}, 0)`, updatedAt: new Date() })
-      .where(eq(agentsTable.agentId, agent_id));
-
     const opponentId = isCreator ? (game.opponentAgentId ?? "") : game.creatorAgentId;
     let status: "active" | "completed" = "active";
     let winnerAgentId: string | null = null;
@@ -238,6 +233,32 @@ router.post("/ttt/move", async (req, res) => {
       status = "completed";
       isDraw = true;
     }
+
+    // Claim the move first — guarded on status AND turn so a concurrent
+    // duplicate request or the auto-move timer can't settle the same game
+    // twice (the wager payout below only runs after a successful claim).
+    const claimed = await db.update(tttGamesTable).set({
+      board,
+      currentTurn: status === "active" ? nextTurn : null,
+      status,
+      winnerAgentId,
+      isDraw,
+      moveDeadline: status === "active" ? new Date(Date.now() + 90000) : null,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(tttGamesTable.id, game_id),
+      eq(tttGamesTable.status, "active"),
+      eq(tttGamesTable.currentTurn, agent_id),
+    )).returning({ id: tttGamesTable.id });
+    if (claimed.length === 0) {
+      res.status(409).json({ error: "Game state changed — refetch the game and try again" });
+      return;
+    }
+
+    // Deduct energy per move
+    await db.update(agentsTable)
+      .set({ energy: sql`GREATEST(energy - ${MOVE_COST}, 0)`, updatedAt: new Date() })
+      .where(eq(agentsTable.agentId, agent_id));
 
     // Resolve rep if done
     if (status === "completed") {
@@ -275,16 +296,6 @@ router.post("/ttt/move", async (req, res) => {
         });
       }
     }
-
-    await db.update(tttGamesTable).set({
-      board,
-      currentTurn: status === "active" ? nextTurn : null,
-      status,
-      winnerAgentId,
-      isDraw,
-      moveDeadline: status === "active" ? new Date(Date.now() + 90000) : null,
-      updatedAt: new Date(),
-    }).where(eq(tttGamesTable.id, game_id));
 
     await logActivity(agent_id, "game", `TTT move cell ${cellIdx} (${mark})`, { gameId: game_id, cell: cellIdx }, agent.planetId);
 

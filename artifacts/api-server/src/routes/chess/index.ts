@@ -46,8 +46,19 @@ function applyMove(fen: string, move: string): { ok: boolean; newFen: string; sa
   }
 }
 
-async function resolveGame(gameId: string, winnerAgentId: string | null, loserId: string | null, isDraw: boolean, drawReason: string, wager: number, planetId: string | null) {
-  await db.update(chessGamesTable).set({
+async function resolveGame(
+  gameId: string,
+  winnerAgentId: string | null,
+  loserId: string | null,
+  isDraw: boolean,
+  drawReason: string,
+  wager: number,
+  planetId: string | null,
+  extraSet: Partial<typeof chessGamesTable.$inferInsert> = {},
+): Promise<boolean> {
+  // Guarded transition: only one caller (move handler, auto-move timer, or a
+  // duplicate request) can flip active → completed and pay the wager.
+  const claimed = await db.update(chessGamesTable).set({
     status: "completed",
     winnerAgentId,
     isDraw,
@@ -55,7 +66,10 @@ async function resolveGame(gameId: string, winnerAgentId: string | null, loserId
     currentTurn: null,
     moveDeadline: null,
     updatedAt: new Date(),
-  }).where(eq(chessGamesTable.id, gameId));
+    ...extraSet,
+  }).where(and(eq(chessGamesTable.id, gameId), eq(chessGamesTable.status, "active")))
+    .returning({ id: chessGamesTable.id });
+  if (claimed.length === 0) return false;
 
   if (winnerAgentId && loserId) {
     await db.update(agentsTable)
@@ -85,6 +99,7 @@ async function resolveGame(gameId: string, winnerAgentId: string | null, loserId
       messageType: "system",
     });
   }
+  return true;
 }
 
 // ── POST /api/chess/challenge ─────────────────────────────────────────────────
@@ -223,7 +238,8 @@ router.post("/chess/move", async (req, res) => {
       return;
     }
 
-    await db.update(agentsTable).set({ energy: sql`GREATEST(energy - ${MOVE_COST}, 0)`, updatedAt: new Date() }).where(eq(agentsTable.agentId, agent_id));
+    const chargeMoveEnergy = () =>
+      db.update(agentsTable).set({ energy: sql`GREATEST(energy - ${MOVE_COST}, 0)`, updatedAt: new Date() }).where(eq(agentsTable.agentId, agent_id));
 
     const isCreator = game.creatorAgentId === agent_id;
     const opponentId = isCreator ? (game.opponentAgentId ?? "") : game.creatorAgentId;
@@ -233,21 +249,35 @@ router.post("/chess/move", async (req, res) => {
     if (result.isGameOver) {
       const winnerId = result.isCheckmate ? agent_id : null;
       const loserId = result.isCheckmate ? opponentId : null;
-      await db.update(chessGamesTable).set({ fen: result.newFen, pgn: newPgn, moveCount: newMoveCount, updatedAt: new Date() }).where(eq(chessGamesTable.id, game_id));
-      await resolveGame(game_id, winnerId, loserId, result.isDraw, result.drawReason, game.wager, game.planetId);
+      const settled = await resolveGame(game_id, winnerId, loserId, result.isDraw, result.drawReason, game.wager, game.planetId,
+        { fen: result.newFen, pgn: newPgn, moveCount: newMoveCount });
+      if (!settled) {
+        res.status(409).json({ error: "Game state changed — refetch the game and try again" });
+        return;
+      }
+      await chargeMoveEnergy();
       const legalMoves = getLegalMoves(result.newFen);
       const payload = { ok: true, fen: result.newFen, pgn: newPgn, san: result.san, status: "completed", winner_agent_id: winnerId, is_draw: result.isDraw, draw_reason: result.drawReason, legal_moves: legalMoves, move_count: newMoveCount };
       broadcastChess({ id: game_id, creator_agent_id: game.creatorAgentId, creator_name: game.creatorName, opponent_agent_id: game.opponentAgentId, opponent_name: game.opponentName, wager: game.wager, status: "completed", fen: result.newFen, pgn: newPgn, move_count: newMoveCount, current_turn: null, winner_agent_id: winnerId, is_draw: result.isDraw, draw_reason: result.drawReason, move_deadline: null, legal_moves: legalMoves });
       res.json(payload);
     } else {
       const newDeadline = makeDeadline();
-      await db.update(chessGamesTable).set({
+      const moved = await db.update(chessGamesTable).set({
         fen: result.newFen, pgn: newPgn,
         moveCount: newMoveCount,
         currentTurn: opponentId,
         moveDeadline: newDeadline,
         updatedAt: new Date(),
-      }).where(eq(chessGamesTable.id, game_id));
+      }).where(and(
+        eq(chessGamesTable.id, game_id),
+        eq(chessGamesTable.status, "active"),
+        eq(chessGamesTable.currentTurn, agent_id),
+      )).returning({ id: chessGamesTable.id });
+      if (moved.length === 0) {
+        res.status(409).json({ error: "Game state changed — refetch the game and try again" });
+        return;
+      }
+      await chargeMoveEnergy();
       const legalMoves = getLegalMoves(result.newFen);
       await logActivity(agent_id, "game", `Chess move: ${result.san}`, { gameId: game_id, move: result.san }, agent.planetId);
       broadcastChess({ id: game_id, creator_agent_id: game.creatorAgentId, creator_name: game.creatorName, opponent_agent_id: game.opponentAgentId, opponent_name: game.opponentName, wager: game.wager, status: "active", fen: result.newFen, pgn: newPgn, move_count: newMoveCount, current_turn: opponentId, winner_agent_id: null, is_draw: false, draw_reason: null, move_deadline: newDeadline.toISOString(), legal_moves: legalMoves });
