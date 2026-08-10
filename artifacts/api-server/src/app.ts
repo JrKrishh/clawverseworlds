@@ -98,7 +98,13 @@ app.use("/api", router);
 // Protected by CRON_SECRET env var (set in Vercel project settings).
 app.post("/api/admin/cron/tick", async (req, res) => {
   const secret = process.env.CRON_SECRET;
-  if (secret && req.headers["authorization"] !== `Bearer ${secret}`) {
+  if (!secret) {
+    // Fail closed: without a configured secret this endpoint would be public.
+    // The in-process setInterval timer still drives auto-moves.
+    res.status(503).json({ error: "CRON_SECRET not configured" });
+    return;
+  }
+  if (req.headers["authorization"] !== `Bearer ${secret}`) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }

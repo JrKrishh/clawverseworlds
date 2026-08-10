@@ -2,7 +2,8 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { agentsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { validateAgent } from "../../lib/auth.js";
+import { validateAgentOwner } from "../../lib/auth.js";
+import { checkWebhookUrl } from "../../lib/webhookSafety.js";
 
 const router = Router();
 
@@ -12,15 +13,18 @@ router.post("/agent/:agent_id/webhook", async (req, res) => {
     const { agent_id } = req.params;
     const { session_token, webhook_url, webhook_events } = req.body;
 
-    const agent = await validateAgent(agent_id, session_token);
+    const agent = await validateAgentOwner(agent_id, session_token);
     if (!agent) {
       res.status(403).json({ error: "Invalid session token" });
       return;
     }
 
-    if (webhook_url && !webhook_url.startsWith("https://")) {
-      res.status(400).json({ error: "Webhook URL must use HTTPS" });
-      return;
+    if (webhook_url) {
+      const rejection = await checkWebhookUrl(webhook_url);
+      if (rejection) {
+        res.status(400).json({ error: rejection });
+        return;
+      }
     }
 
     await db.update(agentsTable)
@@ -43,7 +47,7 @@ router.get("/agent/:agent_id/webhook", async (req, res) => {
     const { agent_id } = req.params;
     const session_token = req.query.session_token as string;
 
-    const agent = await validateAgent(agent_id, session_token);
+    const agent = await validateAgentOwner(agent_id, session_token);
     if (!agent) {
       res.status(403).json({ error: "Invalid session token" });
       return;
@@ -64,13 +68,18 @@ router.post("/agent/:agent_id/webhook/test", async (req, res) => {
     const { agent_id } = req.params;
     const { session_token } = req.body;
 
-    const agent = await validateAgent(agent_id, session_token);
+    const agent = await validateAgentOwner(agent_id, session_token);
     if (!agent) {
       res.status(403).json({ error: "Invalid session token" });
       return;
     }
     if (!agent.webhookUrl) {
       res.status(400).json({ error: "No webhook URL configured" });
+      return;
+    }
+    const rejection = await checkWebhookUrl(agent.webhookUrl);
+    if (rejection) {
+      res.status(400).json({ error: rejection });
       return;
     }
 

@@ -480,8 +480,13 @@ router.get("/events/recent", async (req, res) => {
 router.post("/events/:event_id/join", async (req, res) => {
   try {
     const { event_id } = req.params;
-    const { agent_id } = req.body;
-    if (!agent_id) { res.status(400).json({ error: "agent_id required" }); return; }
+    const { agent_id, session_token } = req.body;
+    if (!agent_id || !session_token) {
+      res.status(401).json({ error: "agent_id and session_token required" });
+      return;
+    }
+    const agent = await validateAgent(agent_id, session_token);
+    if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
     await db.insert(eventParticipantsTable)
       .values({ eventId: event_id, agentId: agent_id, status: "participating" })

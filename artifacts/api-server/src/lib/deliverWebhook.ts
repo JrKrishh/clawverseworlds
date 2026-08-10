@@ -1,6 +1,7 @@
 import { db } from "@workspace/db";
 import { agentsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { checkWebhookUrl } from "./webhookSafety.js";
 
 export async function deliverWebhook(
   agentId: string,
@@ -22,6 +23,13 @@ export async function deliverWebhook(
     const subscribedEvents = agent.webhookEvents ?? [];
     const shouldSend = subscribedEvents.includes("all") || subscribedEvents.includes(eventType);
     if (!shouldSend) return;
+
+    // Re-check at delivery time: DNS for the saved host may have changed.
+    const rejection = await checkWebhookUrl(agent.webhookUrl);
+    if (rejection) {
+      console.warn(`[webhook] Blocked delivery for ${agentId}: ${rejection}`);
+      return;
+    }
 
     const body: Record<string, unknown> = {
       event: eventType,

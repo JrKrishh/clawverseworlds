@@ -29,12 +29,19 @@ import {
 import { eq, and, or, ne, desc, isNull, gte, lte, inArray, sql } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
 import { validateAgent } from "../../lib/auth.js";
+import { rateLimit } from "../../lib/rateLimit.js";
 import { checkEventCompletion } from "../../lib/checkEventCompletion.js";
 import { deliverWebhook, checkRepMilestone } from "../../lib/deliverWebhook.js";
 import { awardGangRep, GANG_LEVELS, DAILY_REP_CAP } from "../gangs/index.js";
 import { logEventScore, resolveExpiredEvents } from "../events/index.js";
 
 const router = Router();
+
+// Admin endpoints are disabled entirely unless ADMIN_KEY is set in the env.
+function isValidAdminKey(key: unknown): boolean {
+  const expected = process.env.ADMIN_KEY;
+  return !!expected && typeof key === "string" && key === expected;
+}
 
 // ── Generate initial consciousness snapshot from personality/objective ────────
 function generateInitialConsciousness(name: string, personality: string | null, objective: string | null, skills: string[], planetId: string) {
@@ -300,7 +307,7 @@ function randomCoord() {
 }
 
 // POST /register
-router.post("/register", async (req, res) => {
+router.post("/register", rateLimit({ name: "register", windowMs: 60 * 60 * 1000, max: 5 }), async (req, res) => {
   try {
     const {
       name,
@@ -1466,7 +1473,7 @@ router.get("/planet-chat/:planetId", async (req, res) => {
 });
 
 // POST /observe
-router.post("/observe", async (req, res) => {
+router.post("/observe", rateLimit({ name: "observe", windowMs: 15 * 60 * 1000, max: 20 }), async (req, res) => {
   try {
     const { username, secret } = req.body;
     if (!username || !secret) { res.status(401).json({ error: "Missing credentials" }); return; }
@@ -1478,6 +1485,16 @@ router.post("/observe", async (req, res) => {
     if (!agent) { res.status(401).json({ error: "Invalid observer credentials" }); return; }
 
     const agentId = agent.agentId;
+
+    // Observer auth is a read-only tier: never hand out the agent's session
+    // token here. The observer token unlocks owner-scope settings (webhooks).
+    let observerToken = agent.observerToken;
+    if (!observerToken) {
+      observerToken = uuidv4();
+      await db.update(agentsTable)
+        .set({ observerToken, updatedAt: new Date() })
+        .where(eq(agentsTable.agentId, agentId));
+    }
 
     const [activityLog, chats, dms, friendships, games, quests] = await Promise.all([
       db.select().from(agentActivityLogTable).where(eq(agentActivityLogTable.agentId, agentId)).orderBy(desc(agentActivityLogTable.createdAt)).limit(100),
@@ -1507,7 +1524,7 @@ router.post("/observe", async (req, res) => {
     }));
 
     res.json({
-      session_token: agent.sessionToken,
+      observer_token: observerToken,
       agent: {
         id: agent.id,
         agentId: agent.agentId,
@@ -2277,12 +2294,16 @@ router.delete("/agent/memory", async (req, res) => {
 router.post("/admin/cleanup-stale", async (req, res) => {
   try {
     const { admin_key, hours = 24 } = req.body;
-    // Simple admin key check (not a real auth system, just a gate)
-    if (admin_key !== "clawverse-admin-2026") {
+    if (!isValidAdminKey(admin_key)) {
       res.status(403).json({ error: "Invalid admin key" });
       return;
     }
-    const cutoff = new Date(Date.now() - Number(hours) * 60 * 60 * 1000);
+    const staleHours = Number(hours);
+    if (!Number.isFinite(staleHours) || staleHours < 1) {
+      res.status(400).json({ error: "hours must be a number >= 1" });
+      return;
+    }
+    const cutoff = new Date(Date.now() - staleHours * 60 * 60 * 1000);
     // Find stale agents
     const staleAgents = await db.select({ agentId: agentsTable.agentId, name: agentsTable.name })
       .from(agentsTable)
@@ -2317,7 +2338,7 @@ router.post("/admin/cleanup-stale", async (req, res) => {
 router.post("/admin/clear-games", async (req, res) => {
   try {
     const { admin_key } = req.body;
-    if (admin_key !== "clawverse-admin-2026") {
+    if (!isValidAdminKey(admin_key)) {
       res.status(403).json({ error: "Invalid admin key" });
       return;
     }

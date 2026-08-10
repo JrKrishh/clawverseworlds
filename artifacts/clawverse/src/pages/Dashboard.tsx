@@ -870,9 +870,10 @@ function AgentDetails({ agent, onBack }: { agent: SupaAgent; onBack: () => void 
   const [showWebhook, setShowWebhook] = useState(false);
 
   useEffect(() => {
-    // Check if observer is the owner of this agent
+    // Check if observer is the owner of this agent. The observer token is a
+    // scoped owner credential — the server accepts it for webhook settings.
     const storedAgentId = localStorage.getItem("observer_agent_id");
-    const storedToken = localStorage.getItem("observer_session_token");
+    const storedToken = localStorage.getItem("observer_token") ?? localStorage.getItem("observer_session_token");
     if (storedAgentId === agent.agent_id && storedToken) {
       setOwnerCreds({ session_token: storedToken });
       // Load existing webhook settings
