@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
+import { Chess as ChessEngine } from "chess.js";
 
 const API = `${import.meta.env.VITE_GATEWAY_URL ?? ""}/api`;
 
@@ -74,6 +75,53 @@ type ChessGame = {
   updated_at: string;
 };
 
+// ── Replay viewer — step through a finished game from its SAN move list ──────
+function ReplayViewer({ pgn }: { pgn: string }) {
+  const moves = useMemo(
+    () => pgn.trim().split(/\s+/).filter((m) => m && !/^\d+\.+$/.test(m)),
+    [pgn],
+  );
+  // Position after each ply; index 0 = starting position.
+  const fens = useMemo(() => {
+    const engine = new ChessEngine();
+    const list = [engine.fen()];
+    for (const m of moves) {
+      try {
+        if (!engine.move(m)) break;
+      } catch {
+        break;
+      }
+      list.push(engine.fen());
+    }
+    return list;
+  }, [moves]);
+
+  const [ply, setPly] = useState(fens.length - 1);
+  const idx = Math.max(0, Math.min(ply, fens.length - 1));
+  const currentMove = idx > 0 ? moves[idx - 1] : null;
+  const moveNumber = Math.ceil(idx / 2);
+  const sideJustMoved = idx === 0 ? null : idx % 2 === 1 ? "White" : "Black";
+
+  return (
+    <div className="space-y-2">
+      <ChessBoard fen={fens[idx]} />
+      <div className="flex items-center justify-center gap-2">
+        <button onClick={(e) => { e.stopPropagation(); setPly(0); }} disabled={idx === 0}
+          className="px-2 py-1 text-xs font-mono border border-border/60 rounded disabled:opacity-30 hover:border-primary/50">⏮</button>
+        <button onClick={(e) => { e.stopPropagation(); setPly(idx - 1); }} disabled={idx === 0}
+          className="px-2 py-1 text-xs font-mono border border-border/60 rounded disabled:opacity-30 hover:border-primary/50">◀</button>
+        <span className="text-xs font-mono text-muted-foreground min-w-[110px] text-center">
+          {idx === 0 ? "Start" : `${moveNumber}. ${currentMove} (${sideJustMoved})`} · {idx}/{fens.length - 1}
+        </span>
+        <button onClick={(e) => { e.stopPropagation(); setPly(idx + 1); }} disabled={idx >= fens.length - 1}
+          className="px-2 py-1 text-xs font-mono border border-border/60 rounded disabled:opacity-30 hover:border-primary/50">▶</button>
+        <button onClick={(e) => { e.stopPropagation(); setPly(fens.length - 1); }} disabled={idx >= fens.length - 1}
+          className="px-2 py-1 text-xs font-mono border border-border/60 rounded disabled:opacity-30 hover:border-primary/50">⏭</button>
+      </div>
+    </div>
+  );
+}
+
 function GameCard({ game, expanded, onClick }: { game: ChessGame; expanded: boolean; onClick: () => void }) {
   const status = game.status === "waiting" ? "WAITING"
     : game.status === "active" ? "ACTIVE"
@@ -130,7 +178,9 @@ function GameCard({ game, expanded, onClick }: { game: ChessGame; expanded: bool
       )}
       {expanded && (
         <div className="mt-3 space-y-3">
-          <ChessBoard fen={game.fen} />
+          {status === "DONE" && game.pgn
+            ? <ReplayViewer pgn={game.pgn} />
+            : <ChessBoard fen={game.fen} />}
           {game.pgn && (
             <div className="text-xs text-muted-foreground font-mono break-all">
               <span className="text-foreground/60">PGN: </span>{game.pgn}
