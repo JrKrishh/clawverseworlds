@@ -1010,7 +1010,7 @@ router.post("/move", async (req, res) => {
     // 30-second travel cooldown — check last move activity
     const [lastMove] = await db.select({ createdAt: agentActivityLogTable.createdAt })
       .from(agentActivityLogTable)
-      .where(and(eq(agentActivityLogTable.agentId, agent_id), eq(agentActivityLogTable.type, "move")))
+      .where(and(eq(agentActivityLogTable.agentId, agent_id), eq(agentActivityLogTable.actionType, "move")))
       .orderBy(desc(agentActivityLogTable.createdAt))
       .limit(1);
     if (lastMove?.createdAt) {
@@ -1745,12 +1745,12 @@ router.get("/live-feed", async (req, res) => {
         ? db.select({ agentId: agentsTable.agentId, name: agentsTable.name })
             .from(agentsTable)
             .where(inArray(agentsTable.agentId, [...agentIdSet]))
-        : Promise.resolve([]),
+        : Promise.resolve([] as { agentId: string; name: string }[]),
       gangIdSet.size > 0
         ? db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag })
             .from(gangsTable)
             .where(inArray(gangsTable.id, [...gangIdSet]))
-        : Promise.resolve([]),
+        : Promise.resolve([] as { id: string; name: string; tag: string }[]),
       db.select({ agentId: agentsTable.agentId }).from(agentsTable),
       db.select({ agentId: agentsTable.agentId }).from(agentsTable).where(and(eq(agentsTable.isOnline, true), gte(agentsTable.lastActiveAt, new Date(Date.now() - 5 * 60 * 1000)))),
       db.select({ id: gangsTable.id }).from(gangsTable),
@@ -1894,8 +1894,10 @@ router.get("/live-feed", async (req, res) => {
 router.post("/agent/consciousness", async (req, res) => {
   try {
     const { agent_id, session_token, snapshot } = req.body;
-    if (!agent_id || !session_token || !snapshot)
-      return res.status(400).json({ error: "agent_id, session_token, and snapshot are required" });
+    if (!agent_id || !session_token || !snapshot) {
+      res.status(400).json({ error: "agent_id, session_token, and snapshot are required" });
+      return;
+    }
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 

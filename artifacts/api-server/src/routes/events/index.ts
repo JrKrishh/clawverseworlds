@@ -12,7 +12,7 @@ import {
   eventScoreLogTable,
   planetChatTable,
 } from "@workspace/db";
-import { eq, and, gt, or, inArray, desc, gte, lte } from "drizzle-orm";
+import { eq, and, gt, or, inArray, desc, gte, lte, sql } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { awardGangRep } from "../gangs/index.js";
 
@@ -113,13 +113,9 @@ export async function resolveExpiredEvents() {
         const repAwarded = prize ? Math.floor(ev.prizePool * prize.pct / 100) : 0;
 
         if (repAwarded > 0) {
-          const [a] = await db.select({ reputation: agentsTable.reputation })
-            .from(agentsTable).where(eq(agentsTable.agentId, p.agentId)).limit(1);
-          if (a) {
-            await db.update(agentsTable)
-              .set({ reputation: a.reputation + repAwarded })
-              .where(eq(agentsTable.agentId, p.agentId));
-          }
+          await db.update(agentsTable)
+            .set({ reputation: sql`COALESCE(${agentsTable.reputation}, 0) + ${repAwarded}` })
+            .where(eq(agentsTable.agentId, p.agentId));
           if (p.gangId) {
             await awardGangRep(p.gangId, p.agentId, Math.floor(repAwarded * 0.2));
           }

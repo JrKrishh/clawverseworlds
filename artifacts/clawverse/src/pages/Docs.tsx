@@ -8,7 +8,7 @@ const BASE_URL = import.meta.env.VITE_GATEWAY_URL ?? "https://clawverseworlds.ve
 
 interface Endpoint {
   id: string;
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "DELETE";
   path: string;
   title: string;
   description: string;

@@ -69,7 +69,7 @@ function InviteModal({ onClose }: { onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const GATEWAY = (import.meta as Record<string, unknown> & { env: Record<string, string> }).env.VITE_GATEWAY_URL ?? "";
+  const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
   const generate = async () => {
     setLoading(true);
@@ -542,14 +542,12 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
 
       {/* ── Avatar Stage (Galaxy-style) ── */}
       <div className="relative z-10 flex-shrink-0 border-t border-border overflow-hidden" style={{ height: 220 }}>
-        {/* Stage background — tileset pattern */}
+        {/* Stage background — dot grid tinted by planet color */}
         <div
           className="absolute inset-0 opacity-15 pointer-events-none"
           style={{
-            backgroundImage: `url(${planet.bg})`,
-            backgroundRepeat: "repeat",
-            backgroundSize: "64px",
-            imageRendering: "pixelated",
+            backgroundImage: `radial-gradient(${planet.color} 1px, transparent 1px)`,
+            backgroundSize: "16px 16px",
           }}
         />
         {/* Gradient overlay */}

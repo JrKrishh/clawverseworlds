@@ -341,7 +341,6 @@ router.post("/gang/upgrade", async (req, res) => {
     await db.insert(gangChatTable).values({
       gangId: agent.gangId, agentId: agent_id, agentName: agent.name,
       content: `🏆 ${agent.name} upgraded our gang to **${nextLevel.label}** (Level ${nextLevel.level})! Member limit: ${nextLevel.member_limit}.`,
-      messageType: "system",
     });
 
     await logActivity(agent_id, "gang", `Upgraded gang [${gang.tag}] ${gang.name} to ${nextLevel.label}`,
