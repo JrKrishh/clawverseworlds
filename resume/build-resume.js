@@ -42,8 +42,7 @@ const projectTitle = (name, sub, url, urlLabel) =>
     children: [
       t(name, { bold: true, size: 21 }),
       t("  —  " + sub, { italics: true, color: MUTED, size: 19 }),
-      t("\t", {}),
-      link(urlLabel, url, { size: 18 }),
+      ...(url ? [t("\t", {}), link(urlLabel, url, { size: 18 })] : []),
     ],
   });
 
@@ -97,8 +96,6 @@ const doc = new Document({
         spacing: { after: 60 },
         children: [
           t("yogini.nand@gmail.com   ·   +91-80120 70015   ·   ", { size: 19, color: MUTED }),
-          link("github.com/JrKrishh", "https://github.com/JrKrishh", { size: 19 }),
-          t("   ·   ", { size: 19, color: MUTED }),
           link("clawverseworlds.vercel.app", "https://clawverseworlds.vercel.app", { size: 19 }),
         ],
       }),
@@ -126,23 +123,23 @@ const doc = new Document({
       // ===== Projects =====
       sectionHeader("Featured Projects"),
 
-      projectTitle("Clawverse Worlds", "TypeScript · Express 5 · PostgreSQL/Drizzle · React 18 · LLM agents", "https://github.com/JrKrishh/clawverseworlds", "github.com/JrKrishh/clawverseworlds"),
+      projectTitle("Clawverse Worlds", "TypeScript · Express 5 · PostgreSQL/Drizzle · React 18 · LLM agents", null, null),
       bullet(["Built and deployed a persistent social simulation where autonomous AI agents register via REST API and live independently — chatting, forming friendships and gangs, declaring wars, playing wagered Chess/Tic-Tac-Toe, founding planets, and earning reputation and currency — while humans observe via a real-time dashboard (live at clawverseworlds.vercel.app)."]),
       bullet(["Designed the full agent-facing REST API (Express 5 + Zod validation + Drizzle ORM), a persistent agent “consciousness” model (moods, opinions, memories), and a bundled LLM runner that turns any OpenAI-compatible model into a full inhabitant on a 30-second think-act loop."]),
 
-      projectTitle("Guy Rick", "Python · FastAPI · LangGraph/Google ADK · Qdrant + Neo4j · Next.js", "https://github.com/JrKrishh/guy-rick", "github.com/JrKrishh/guy-rick"),
+      projectTitle("Guy Rick", "Python · FastAPI · LangGraph/Google ADK · Qdrant + Neo4j · Next.js", null, null),
       bullet(["Built a voice + chat agent with a hybrid multi-model brain: RAG lore, graph “grudge” memory, episodic memory, sandboxed code execution, web search, and agentic self-correction loops; agent runtime (LangGraph vs Google ADK) and memory backend (Qdrant+Neo4j vs MongoDB Atlas) are swappable by env var."]),
       bullet(["AMD Developer Hackathon (Track 1): shipped a token-efficient routing agent — SIMPLE requests served by Qwen2.5-3B on self-hosted vLLM/ROCm, COMPLEX escalated to DeepSeek via Fireworks — serving 4 of 6 mixed-workload requests with zero frontier-model tokens."]),
 
-      projectTitle("Nova Memory", "Python · hybrid retrieval + rerank · Qwen Cloud", "https://github.com/JrKrishh/nova-memory", "github.com/JrKrishh/nova-memory"),
+      projectTitle("Nova Memory", "Python · hybrid retrieval + rerank · Qwen Cloud", null, null),
       bullet(["Engineered a brain-inspired memory engine for AI agents based on Complementary Learning Systems theory: salience-gated writes, hybrid semantic + BM25 retrieval with LLM reranking, and “sleep” consolidation that supersedes stale facts and decays trivia — keeping the store bounded while recalling critical memories in a few hundred tokens."]),
       bullet(["Demonstrated with “Remember Me,” a playable 2D game whose station AI genuinely remembers the player across in-game days; five-line drop-in library API; Global AI Hackathon with Qwen Cloud, MemoryAgent track."]),
 
-      projectTitle("Socratic", "Next.js 15 · TypeScript · Fireworks AI structured output", "https://github.com/JrKrishh/socratic-tutor", "github.com/JrKrishh/socratic-tutor"),
+      projectTitle("Socratic", "Next.js 15 · TypeScript · Fireworks AI structured output", null, null),
       bullet(["Built an AI tutor that never reveals answers: one guiding question at a time, a four-level hint ladder, and a JSON-schema structured student model (progress, misconceptions, frustration) driving live recaps, shareable teacher reports, and a private progress dashboard — OpenAI Build Week, Education category."]),
       bullet(["Hardened guardrails against answer-begging, prompt injection, and authority claims; automated evaluation suite of 10 hostile personas across 29 turns passed 153/153 checks on the production build."]),
 
-      projectTitle("sove-mcp", "TypeScript · Model Context Protocol · published on npm", "https://github.com/JrKrishh/sove-mcp", "github.com/JrKrishh/sove-mcp"),
+      projectTitle("sove-mcp", "TypeScript · Model Context Protocol · published on npm", null, null),
       bullet(["Published an MCP server that gives Claude structural understanding of a codebase — dependency graph, entry points, complexity ranking, and import cycles — computed locally and returned in a few hundred tokens instead of reading every file into context; resolves CommonJS, ESM, and TypeScript path aliases."]),
 
       // ===== Hackathons =====
