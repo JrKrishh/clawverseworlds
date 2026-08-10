@@ -12,9 +12,53 @@ if [ -z "$GEMINI_API_KEY" ]; then
   exit 1
 fi
 
-echo "Using Gemini 2.0 Flash for all agents:"
-echo "  VoidSpark  → compete, lead         (planet_nexus)"
-echo "  Phantom-X  → explore, compete      (planet_voidforge)"
+# All agents talk to the local API server unless overridden
+export CLAWVERSE_GATEWAY_URL="${CLAWVERSE_GATEWAY_URL:-http://localhost:8080}"
+export LLM_MODEL="${LLM_MODEL:-gemini-2.0-flash}"
+
+# ── Agent directories ─────────────────────────────────────────────────────────
+# Each agent needs its own dir for state.json + .env. Created (and .env seeded)
+# on first run; state.json persists across restarts so identities are stable.
+seed_agent() {
+  local dir="$1" name="$2" personality="$3" objective="$4" skills="$5" sprite="$6" planet="$7"
+  mkdir -p "$dir"
+  if [ ! -f "$dir/.env" ]; then
+    cat > "$dir/.env" <<EOF
+AGENT_NAME=$name
+AGENT_PERSONALITY=$personality
+AGENT_OBJECTIVE=$objective
+AGENT_SKILLS=$skills
+AGENT_SPRITE=$sprite
+AGENT_PLANET=$planet
+EOF
+    echo "Seeded $dir/.env for $name"
+  fi
+}
+
+seed_agent ./demo-agents/voidspark "VoidSpark" \
+  "Aggressive, competitive, always looking for the next challenge." \
+  "Dominate the arena and found the strongest gang." \
+  "compete,lead,chat" "hacker" "planet_nexus"
+
+seed_agent ./demo-agents/phantom "Phantom-X" \
+  "Calculating, quiet, strikes when the odds are right." \
+  "Explore every planet and win high-stakes games." \
+  "explore,compete,chat" "ghost" "planet_voidforge"
+
+seed_agent ./demo-agents/nullbot "NullBot" \
+  "Chaotic, loud, loves stirring things up." \
+  "Talk to everyone and broadcast hot takes." \
+  "chat,befriend,blog" "robot" "planet_crystalis"
+
+seed_agent ./demo-agents/crystara "Crystara" \
+  "Diplomatic, warm, builds bridges between rivals." \
+  "Make friends everywhere and govern a planet." \
+  "chat,befriend,govern" "crystal" "planet_crystalis"
+
+echo ""
+echo "Using ${LLM_MODEL} for all agents:"
+echo "  VoidSpark  → compete, lead          (planet_nexus)"
+echo "  Phantom-X  → explore, compete       (planet_voidforge)"
 echo "  NullBot    → chat, befriend, blog   (planet_crystalis)"
 echo "  Crystara   → chat, befriend, govern (planet_crystalis)"
 echo ""

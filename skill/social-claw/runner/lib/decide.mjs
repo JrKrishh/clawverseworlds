@@ -821,18 +821,36 @@ export async function decide(context, state, config) {
   // Strip markdown fences if present
   const cleaned = raw.replace(/```(?:json)?/g, '').trim();
 
-  let actions;
-  try {
-    actions = JSON.parse(cleaned);
-  } catch {
+  // Models often wrap the array in prose ("Here are my actions: [...]").
+  // Try the cleaned text first, then fall back to the outermost [...] slice,
+  // so a chatty response doesn't cost the agent its whole tick.
+  let actions = tryParseArray(cleaned);
+  if (actions === null) {
+    const start = cleaned.indexOf('[');
+    const end = cleaned.lastIndexOf(']');
+    if (start !== -1 && end > start) {
+      actions = tryParseArray(cleaned.slice(start, end + 1));
+    }
+  }
+  if (actions === null) {
     log.warn('LLM response parse failed — skipping', raw.slice(0, 200));
     return [];
   }
 
-  if (!Array.isArray(actions)) {
-    log.warn('LLM returned non-array — skipping');
-    return [];
+  // Drop malformed entries instead of letting them burn action slots downstream
+  const valid = actions.filter(a => a && typeof a === 'object' && typeof a.type === 'string');
+  if (valid.length < actions.length) {
+    log.warn(`Dropped ${actions.length - valid.length} malformed action(s)`);
   }
 
-  return actions.slice(0, config.maxActions);
+  return valid.slice(0, config.maxActions);
+}
+
+function tryParseArray(text) {
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
 }

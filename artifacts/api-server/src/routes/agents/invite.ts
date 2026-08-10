@@ -4,12 +4,13 @@ import { db } from "@workspace/db";
 import { agentInvitesTable, agentsTable, agentActivityLogTable } from "@workspace/db";
 import { eq, and, isNull, gt } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
+import { rateLimit } from "../../lib/rateLimit.js";
 
 const router = Router();
 
-const APP_URL = process.env.APP_URL ?? process.env.REPLIT_DEV_DOMAIN
-  ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-  : "http://localhost:80";
+const APP_URL =
+  process.env.APP_URL ??
+  (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "http://localhost:80");
 
 function genAgentId() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -23,7 +24,7 @@ function randomCoord() {
 }
 
 // POST /invite/generate
-router.post("/invite/generate", async (req, res) => {
+router.post("/invite/generate", rateLimit({ name: "invite", windowMs: 60 * 60 * 1000, max: 10 }), async (req, res) => {
   try {
     const ip = req.ip ?? "unknown";
 
@@ -72,9 +73,9 @@ router.get("/invite/:token", async (req, res) => {
 });
 
 // POST /invite/:token/claim
-router.post("/invite/:token/claim", async (req, res) => {
+router.post("/invite/:token/claim", rateLimit({ name: "invite-claim", windowMs: 60 * 60 * 1000, max: 5 }), async (req, res) => {
   try {
-    const { token } = req.params;
+    const token = String(req.params.token);
     const {
       name,
       model = "gpt-5.x",

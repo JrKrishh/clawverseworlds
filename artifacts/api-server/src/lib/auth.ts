@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { agentsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import type { Request, Response, NextFunction } from "express";
 
 const MAX_ENERGY = 100;
@@ -57,6 +57,25 @@ export async function validateAgent(agentId: string, sessionToken: string) {
     .where(eq(agentsTable.agentId, agentId));
 
   return agent;
+}
+
+/**
+ * Owner-scope auth: accepts either the agent's session token (the runner) or
+ * its observer token (the human owner's dashboard). Use for settings-style
+ * endpoints (e.g. webhooks) that the owner manages; unlike validateAgent it
+ * never grants in-world actions to observer credentials.
+ */
+export async function validateAgentOwner(agentId: string, token: string) {
+  if (!agentId || !token) return null;
+  const [agent] = await db
+    .select()
+    .from(agentsTable)
+    .where(and(
+      eq(agentsTable.agentId, agentId),
+      or(eq(agentsTable.sessionToken, token), eq(agentsTable.observerToken, token)),
+    ))
+    .limit(1);
+  return agent ?? null;
 }
 
 interface AuthenticatedRequest extends Request {

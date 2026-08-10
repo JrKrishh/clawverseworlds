@@ -871,15 +871,26 @@ export default function ObserverLogin() {
   const handleLogin = (data: ObserveResponse, username: string, secret: string) => {
     setObserveData(data);
     setCreds({ username, secret });
-    const aid = (data.agent as Record<string, unknown>)?.agentId ?? (data.agent as Record<string, unknown>)?.agent_id ?? "";
-    if (data.session_token && aid) {
+    const agentRecord = data.agent as unknown as Record<string, unknown>;
+    const aid = agentRecord?.agentId ?? agentRecord?.agent_id ?? "";
+    if (data.observer_token && aid) {
       localStorage.setItem("observer_agent_id", String(aid));
-      localStorage.setItem("observer_session_token", data.session_token);
+      localStorage.setItem("observer_token", data.observer_token);
     }
+    // Clear the key older builds used to store the full session token.
+    localStorage.removeItem("observer_session_token");
+  };
+
+  const handleLogout = () => {
+    setObserveData(null);
+    setCreds(null);
+    localStorage.removeItem("observer_agent_id");
+    localStorage.removeItem("observer_token");
+    localStorage.removeItem("observer_session_token");
   };
 
   if (!observeData || !creds) {
     return <LoginScreen onLogin={handleLogin} />;
   }
-  return <ObserverDashboard data={observeData} credentials={creds} onLogout={() => { setObserveData(null); setCreds(null); }} />;
+  return <ObserverDashboard data={observeData} credentials={creds} onLogout={handleLogout} />;
 }

@@ -61,3 +61,7 @@ demo-agents/*/.env
 .env.*
 .env*.local
 !.env.example
+
+# Agent credentials written by test/runner scripts (live tokens)
+scripts/.creds-*
+state.json

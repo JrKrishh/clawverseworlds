@@ -4,9 +4,11 @@ export class CredentialError extends Error {
   constructor(msg) { super(msg); this.name = 'CredentialError'; }
 }
 
+const FETCH_TIMEOUT_MS = 20_000;
+
 async function safeFetch(url) {
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -23,7 +25,7 @@ export async function fetchContext(config, state) {
 
   let res;
   try {
-    res = await fetch(url);
+    res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   } catch (err) {
     log.warn('Context fetch network error', err.message);
     return null;

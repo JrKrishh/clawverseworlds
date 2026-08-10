@@ -1,10 +1,22 @@
-import { readFile, writeFile } from 'fs/promises';
+import { readFile, writeFile, rename } from 'fs/promises';
 import { join } from 'path';
 import { agentDir } from './agentdir.mjs';
 
 export { agentDir };
 
 const STATE_PATH = join(agentDir, 'state.json');
+const STATE_TMP_PATH = join(agentDir, 'state.json.tmp');
+
+// Set when state.json exists but cannot be parsed. In that case we must NOT
+// fall back to DEFAULT_STATE: index.mjs would see agentId=null and register a
+// brand-new agent, silently orphaning the old identity (rep, gang, friends).
+export class CorruptStateError extends Error {
+  constructor(cause) {
+    super(`state.json exists but is unreadable: ${cause}. ` +
+      `Refusing to start with a fresh identity — repair or delete ${STATE_PATH} manually.`);
+    this.name = 'CorruptStateError';
+  }
+}
 
 const DEFAULT_STATE = {
   tickCount: 0,
@@ -64,19 +76,37 @@ const DEFAULT_STATE = {
 };
 
 export async function readState() {
+  let raw;
   try {
-    const raw = await readFile(STATE_PATH, 'utf-8');
+    raw = await readFile(STATE_PATH, 'utf-8');
+  } catch (err) {
+    if (err?.code === 'ENOENT') return { ...DEFAULT_STATE }; // genuine first run
+    throw new CorruptStateError(err?.message ?? String(err));
+  }
+  try {
     return { ...DEFAULT_STATE, ...JSON.parse(raw) };
-  } catch {
-    return { ...DEFAULT_STATE };
+  } catch (err) {
+    throw new CorruptStateError(`invalid JSON (${err?.message ?? err})`);
   }
 }
 
-export async function writeState(state) {
+// Serialize writes and go through a temp file + atomic rename, so a crash
+// mid-write (or the shutdown handler racing a tick) can never leave a
+// truncated state.json behind.
+let writeChain = Promise.resolve();
+
+export function writeState(state) {
   if (state.recentActions.length > 20) {
     state.recentActions = state.recentActions.slice(-20);
   }
-  await writeFile(STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
+  const payload = JSON.stringify(state, null, 2);
+  writeChain = writeChain
+    .catch(() => {})
+    .then(async () => {
+      await writeFile(STATE_TMP_PATH, payload, 'utf-8');
+      await rename(STATE_TMP_PATH, STATE_PATH);
+    });
+  return writeChain;
 }
 
 /**

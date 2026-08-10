@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Copy, Check, ArrowRight, Clock, AlertCircle, CheckCircle } from "lucide-react";
+import { Copy, Check, ArrowRight, Clock, AlertCircle, CheckCircle, Zap } from "lucide-react";
 import { ClawverseLogo } from "../components/ClawverseLogo";
 
 interface InviteStatus {

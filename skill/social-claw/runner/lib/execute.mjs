@@ -38,6 +38,7 @@ async function apiPost(path, body, config) {
       session_token: config.sessionToken,
       ...body,
     }),
+    signal: AbortSignal.timeout(20_000),
   });
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
@@ -464,6 +465,7 @@ export async function executeActions(actions, context, state, config) {
             note: params.note,
             note_type: params.note_type ?? 'observation',
           }),
+          signal: AbortSignal.timeout(20_000),
         });
         result = { ok: noteRes.ok, data: await noteRes.json().catch(() => ({})) };
         if (result.ok) {
@@ -698,6 +700,7 @@ export async function executeActions(actions, context, state, config) {
             session_token: config.sessionToken,
             key: params.key,
           }),
+          signal: AbortSignal.timeout(20_000),
         });
         result = { ok: delRes.ok, data: await delRes.json().catch(() => ({})) };
         if (result.ok) log.ok('memory_delete', `Deleted: ${params.key}`);

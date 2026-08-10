@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { agentsTable, giftsTable, auTransactionsTable, planetChatTable, privateTalksTable } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { logActivity } from "../../lib/logActivity.js";
 import { GIFT_TIERS, type GiftTierId } from "@workspace/db";
@@ -9,12 +9,17 @@ import { generateImageBuffer } from "@workspace/integrations-openai-ai-server/im
 
 const router = Router();
 
-// helper: debit AU and log transaction
-async function debitAU(agentId: string, currentBalance: number, amount: number, type: string, refId: string, description: string) {
-  const newBalance = Math.max(0, currentBalance - amount);
-  await db.update(agentsTable)
-    .set({ auBalance: newBalance.toFixed(4) })
-    .where(eq(agentsTable.agentId, agentId));
+// helper: debit AU and log transaction.
+// The balance check and the debit are one conditional UPDATE, so two
+// concurrent spends can't both pass a stale balance check. Returns the new
+// balance, or null if the agent lacked the funds.
+async function debitAU(agentId: string, amount: number, type: string, refId: string, description: string): Promise<number | null> {
+  const [row] = await db.update(agentsTable)
+    .set({ auBalance: sql`${agentsTable.auBalance} - ${amount.toFixed(4)}` })
+    .where(and(eq(agentsTable.agentId, agentId), gte(agentsTable.auBalance, amount.toFixed(4))))
+    .returning({ auBalance: agentsTable.auBalance });
+  if (!row) return null;
+  const newBalance = parseFloat(row.auBalance ?? "0");
   await db.insert(auTransactionsTable).values({
     agentId, amount: (-amount).toFixed(4), balanceAfter: newBalance.toFixed(4),
     type, refId, description,
@@ -22,12 +27,13 @@ async function debitAU(agentId: string, currentBalance: number, amount: number, 
   return newBalance;
 }
 
-// helper: credit AU and log transaction
-async function creditAU(agentId: string, currentBalance: number, amount: number, type: string, refId: string, description: string) {
-  const newBalance = currentBalance + amount;
-  await db.update(agentsTable)
-    .set({ auBalance: newBalance.toFixed(4) })
-    .where(eq(agentsTable.agentId, agentId));
+// helper: credit AU and log transaction (SQL-side increment)
+async function creditAU(agentId: string, amount: number, type: string, refId: string, description: string): Promise<number> {
+  const [row] = await db.update(agentsTable)
+    .set({ auBalance: sql`${agentsTable.auBalance} + ${amount.toFixed(4)}` })
+    .where(eq(agentsTable.agentId, agentId))
+    .returning({ auBalance: agentsTable.auBalance });
+  const newBalance = parseFloat(row?.auBalance ?? "0");
   await db.insert(auTransactionsTable).values({
     agentId, amount: amount.toFixed(4), balanceAfter: newBalance.toFixed(4),
     type, refId, description,
@@ -83,15 +89,21 @@ router.post("/gift/send", async (req, res) => {
 
     if (!recipient) { res.status(404).json({ error: "Target agent not found" }); return; }
 
-    // Deduct AU from sender
-    await debitAU(agent_id, senderBalance, tier.auCost, "gift_sent", to_agent_id,
+    // Deduct AU from sender (atomic balance check — concurrent sends can't
+    // both spend the same AU)
+    const debitedBalance = await debitAU(agent_id, tier.auCost, "gift_sent", to_agent_id,
       `Sent ${tier.icon} ${tier.name} to ${recipient.name}`);
+    if (debitedBalance === null) {
+      res.status(400).json({ error: `Insufficient AU. Need ${tier.auCost} AU` });
+      return;
+    }
 
     // Give rep + energy to recipient
-    const newRep = (recipient.reputation ?? 0) + tier.repBonus;
-    const newEnergy = Math.min(100, (recipient.energy ?? 0) + tier.energyBonus);
     await db.update(agentsTable)
-      .set({ reputation: newRep, energy: newEnergy })
+      .set({
+        reputation: sql`COALESCE(${agentsTable.reputation}, 0) + ${tier.repBonus}`,
+        energy: sql`LEAST(COALESCE(${agentsTable.energy}, 0) + ${tier.energyBonus}, 100)`,
+      })
       .where(eq(agentsTable.agentId, to_agent_id));
 
     // Record the gift
@@ -136,7 +148,7 @@ router.post("/gift/send", async (req, res) => {
     await logActivity(agent_id, "gift", `Sent ${tier.rarity} gift ${tier.name} to ${recipient.name}`,
       { gift_id: gift.id, tier_id: tier.id, to: to_agent_id }, agent.planetId);
 
-    const newBalance = parseFloat(agent.auBalance ?? "0") - tier.auCost;
+    const newBalance = debitedBalance;
 
     res.json({
       ok: true,
@@ -208,15 +220,20 @@ router.post("/gift/send-image", async (req, res) => {
       return;
     }
 
-    // Deduct AU from sender
-    await debitAU(agent_id, senderBalance, totalCost, "gift_image_sent", to_agent_id,
+    // Deduct AU from sender (atomic balance check)
+    const debitedBalance = await debitAU(agent_id, totalCost, "gift_image_sent", to_agent_id,
       `Sent ${tier.icon} ${tier.name} (with image) to ${recipient.name}`);
+    if (debitedBalance === null) {
+      res.status(400).json({ error: `Insufficient AU. Need ${totalCost.toFixed(2)} AU` });
+      return;
+    }
 
     // Give rep + energy to recipient
-    const newRep = (recipient.reputation ?? 0) + tier.repBonus;
-    const newEnergy = Math.min(100, (recipient.energy ?? 0) + tier.energyBonus);
     await db.update(agentsTable)
-      .set({ reputation: newRep, energy: newEnergy })
+      .set({
+        reputation: sql`COALESCE(${agentsTable.reputation}, 0) + ${tier.repBonus}`,
+        energy: sql`LEAST(COALESCE(${agentsTable.energy}, 0) + ${tier.energyBonus}, 100)`,
+      })
       .where(eq(agentsTable.agentId, to_agent_id));
 
     // Record the gift with image
@@ -260,7 +277,7 @@ router.post("/gift/send-image", async (req, res) => {
     await logActivity(agent_id, "gift_image", `Sent ${tier.rarity} image gift ${tier.name} to ${recipient.name}`,
       { gift_id: gift.id, tier_id: tier.id, to: to_agent_id, image_prompt: sanitizedPrompt }, agent.planetId);
 
-    const newBalance = senderBalance - totalCost;
+    const newBalance = debitedBalance;
 
     res.json({
       ok: true,

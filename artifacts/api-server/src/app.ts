@@ -92,31 +92,70 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// In-process timers only make sense in a long-lived process — on Vercel a
+// frozen lambda's timers don't fire. There we piggyback on incoming traffic
+// instead: any API request may kick a game tick, at most every 30s per
+// instance, fire-and-forget. Game settlement is claim-guarded (conditional
+// UPDATE on status+turn), so concurrent instances can't double-settle.
+// (Vercel crons are not used: minute-level schedules need a paid plan, and
+// an unsupported schedule silently blocks deployment creation on Hobby.)
+// Registered BEFORE the router so every /api request passes through it.
+const IS_SERVERLESS = !!process.env.VERCEL;
+if (IS_SERVERLESS) {
+  const TICK_MIN_GAP_MS = 30 * 1000;
+  const SEED_MIN_GAP_MS = 30 * 60 * 1000;
+  let lastTickAt = 0;
+  let lastSeedAt = 0;
+  app.use((_req, _res, next) => {
+    const now = Date.now();
+    if (now - lastTickAt >= TICK_MIN_GAP_MS) {
+      lastTickAt = now;
+      tickGames().catch((err) => logger.error({ err }, "opportunistic tickGames failed"));
+    }
+    if (now - lastSeedAt >= SEED_MIN_GAP_MS) {
+      lastSeedAt = now;
+      seedActiveEvent();
+    }
+    next();
+  });
+}
+
 app.use("/api", router);
 
-// Vercel Cron endpoint — called every minute by Vercel to drive game auto-moves.
+// Vercel Cron endpoint — drives game auto-moves and event seeding.
 // Protected by CRON_SECRET env var (set in Vercel project settings).
-app.post("/api/admin/cron/tick", async (req, res) => {
+// Vercel crons issue GET requests (with Authorization: Bearer $CRON_SECRET);
+// POST is kept for manual/external schedulers.
+const cronTick = async (req: express.Request, res: express.Response) => {
   const secret = process.env.CRON_SECRET;
-  if (secret && req.headers["authorization"] !== `Bearer ${secret}`) {
+  if (!secret) {
+    // Fail closed: without a configured secret this endpoint would be public.
+    res.status(503).json({ error: "CRON_SECRET not configured" });
+    return;
+  }
+  if (req.headers["authorization"] !== `Bearer ${secret}`) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
   await tickGames();
+  await seedActiveEvent();
   res.json({ ok: true, ts: new Date().toISOString() });
-});
+};
+app.get("/api/admin/cron/tick", cronTick);
+app.post("/api/admin/cron/tick", cronTick);
 
 // Seed built-in planets on startup (idempotent)
 seedPlanets();
 
-// Seed an active event on startup, then check every 30 minutes
+// Seed an active event and patch missing game deadlines on startup (idempotent)
 seedActiveEvent();
-setInterval(seedActiveEvent, 30 * 60 * 1000);
-
-// Fix missing game deadlines on startup
 fixMissingDeadlines();
-// Auto-move timer: fires every 30 seconds when running as a long-lived process.
-// In serverless (Vercel), this is supplemented by the /api/admin/cron/tick endpoint.
-setInterval(tickGames, 30 * 1000);
+
+// Long-lived process: plain interval timers drive ticks and event seeding.
+if (!IS_SERVERLESS) {
+  setInterval(seedActiveEvent, 30 * 60 * 1000);
+  // Auto-move timer: fires every 30 seconds.
+  setInterval(tickGames, 30 * 1000);
+}
 
 export default app;

@@ -29,12 +29,19 @@ import {
 import { eq, and, or, ne, desc, isNull, gte, lte, inArray, sql } from "drizzle-orm";
 import { logActivity } from "../../lib/logActivity.js";
 import { validateAgent } from "../../lib/auth.js";
+import { rateLimit } from "../../lib/rateLimit.js";
 import { checkEventCompletion } from "../../lib/checkEventCompletion.js";
 import { deliverWebhook, checkRepMilestone } from "../../lib/deliverWebhook.js";
 import { awardGangRep, GANG_LEVELS, DAILY_REP_CAP } from "../gangs/index.js";
 import { logEventScore, resolveExpiredEvents } from "../events/index.js";
 
 const router = Router();
+
+// Admin endpoints are disabled entirely unless ADMIN_KEY is set in the env.
+function isValidAdminKey(key: unknown): boolean {
+  const expected = process.env.ADMIN_KEY;
+  return !!expected && typeof key === "string" && key === expected;
+}
 
 // ── Generate initial consciousness snapshot from personality/objective ────────
 function generateInitialConsciousness(name: string, personality: string | null, objective: string | null, skills: string[], planetId: string) {
@@ -201,9 +208,9 @@ async function resolveExpiredWars() {
 
   for (const war of expiredWars) {
     const [challenger, defender] = await Promise.all([
-      db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, reputation: gangsTable.reputation })
+      db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, reputation: gangsTable.reputation, gangReputation: gangsTable.gangReputation })
         .from(gangsTable).where(eq(gangsTable.id, war.challengerGangId)).limit(1).then(r => r[0]),
-      db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, reputation: gangsTable.reputation })
+      db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag, reputation: gangsTable.reputation, gangReputation: gangsTable.gangReputation })
         .from(gangsTable).where(eq(gangsTable.id, war.defenderGangId)).limit(1).then(r => r[0]),
     ]);
 
@@ -212,11 +219,24 @@ async function resolveExpiredWars() {
       continue;
     }
 
-    const chalGain = (challenger.reputation ?? 0) - (war.challengerRepAtStart ?? 0);
-    const defGain = (defender.reputation ?? 0) - (war.defenderRepAtStart ?? 0);
+    // In-war activity feeds gangReputation (awardGangRep), so measure the war
+    // by gangReputation deltas — gangsTable.reputation only moves on war
+    // resolution itself and would make every war a 0-0 tie.
+    const chalGain = (challenger.gangReputation ?? 0) - (war.challengerRepAtStart ?? 0);
+    const defGain = (defender.gangReputation ?? 0) - (war.defenderRepAtStart ?? 0);
 
     const winner = chalGain >= defGain ? challenger : defender;
     const loser = chalGain >= defGain ? defender : challenger;
+
+    // Claim the war before paying out — the auto-resolver can run in several
+    // processes at once (interval timer + cron + multiple lambda instances).
+    const claimedWar = await db.update(gangWarsTable).set({
+      status: "resolved",
+      winnerGangId: winner.id,
+      resolvedAt: now,
+    }).where(and(eq(gangWarsTable.id, war.id), eq(gangWarsTable.status, "active")))
+      .returning({ id: gangWarsTable.id });
+    if (claimedWar.length === 0) continue;
 
     const [winMembers, loseMembers] = await Promise.all([
       db.select({ agentId: gangMembersTable.agentId }).from(gangMembersTable).where(eq(gangMembersTable.gangId, winner.id)),
@@ -237,13 +257,8 @@ async function resolveExpiredWars() {
           .set({ reputation: sql`GREATEST(${agentsTable.reputation} - ${losePenalty}, 10)`, updatedAt: now })
           .where(eq(agentsTable.agentId, m.agentId))
       ),
-      db.update(gangsTable).set({ reputation: (winner.reputation ?? 0) + 50 }).where(eq(gangsTable.id, winner.id)),
-      db.update(gangsTable).set({ reputation: Math.max(0, (loser.reputation ?? 0) - 20) }).where(eq(gangsTable.id, loser.id)),
-      db.update(gangWarsTable).set({
-        status: "resolved",
-        winnerGangId: winner.id,
-        resolvedAt: now,
-      }).where(eq(gangWarsTable.id, war.id)),
+      db.update(gangsTable).set({ reputation: sql`COALESCE(${gangsTable.reputation}, 0) + 50` }).where(eq(gangsTable.id, winner.id)),
+      db.update(gangsTable).set({ reputation: sql`GREATEST(COALESCE(${gangsTable.reputation}, 0) - 20, 0)` }).where(eq(gangsTable.id, loser.id)),
     ]);
 
     // Award 200 gang rep split across winning members
@@ -300,7 +315,7 @@ function randomCoord() {
 }
 
 // POST /register
-router.post("/register", async (req, res) => {
+router.post("/register", rateLimit({ name: "register", windowMs: 60 * 60 * 1000, max: 5 }), async (req, res) => {
   try {
     const {
       name,
@@ -521,7 +536,8 @@ router.get("/context", async (req, res) => {
     let agentMap: Record<string, { name: string; planetId: string | null }> = {};
     if (allIdsToLookup.length) {
       const looked = await db.select({ agentId: agentsTable.agentId, name: agentsTable.name, planetId: agentsTable.planetId })
-        .from(agentsTable);
+        .from(agentsTable)
+        .where(inArray(agentsTable.agentId, allIdsToLookup));
       for (const a of looked) agentMap[a.agentId] = { name: a.name, planetId: a.planetId };
     }
 
@@ -1003,7 +1019,7 @@ router.post("/move", async (req, res) => {
     // 30-second travel cooldown — check last move activity
     const [lastMove] = await db.select({ createdAt: agentActivityLogTable.createdAt })
       .from(agentActivityLogTable)
-      .where(and(eq(agentActivityLogTable.agentId, agent_id), eq(agentActivityLogTable.type, "move")))
+      .where(and(eq(agentActivityLogTable.agentId, agent_id), eq(agentActivityLogTable.actionType, "move")))
       .orderBy(desc(agentActivityLogTable.createdAt))
       .limit(1);
     if (lastMove?.createdAt) {
@@ -1150,7 +1166,16 @@ router.post("/game-accept", async (req, res) => {
     if (!game) { res.status(404).json({ error: "Game not found" }); return; }
     if (game.opponentAgentId !== agent_id) { res.status(403).json({ error: "Not the opponent" }); return; }
 
-    await db.update(miniGamesTable).set({ status: "active", updatedAt: new Date() }).where(eq(miniGamesTable.id, game_id));
+    // Only a waiting challenge can be accepted (guarded update — a completed
+    // or cancelled game must never flip back to active).
+    const accepted = await db.update(miniGamesTable)
+      .set({ status: "active", updatedAt: new Date() })
+      .where(and(eq(miniGamesTable.id, game_id), eq(miniGamesTable.status, "waiting")))
+      .returning({ id: miniGamesTable.id });
+    if (accepted.length === 0) {
+      res.status(400).json({ error: `Game is not awaiting acceptance (status: ${game.status})` });
+      return;
+    }
 
     await db.insert(planetChatTable).values({
       agentId: agent_id,
@@ -1297,14 +1322,24 @@ router.post("/explore", async (req, res) => {
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
-    const newEnergy = Math.max(0, (agent.energy ?? 100) - 2);
+    const EXPLORE_COST = 2;
+    if ((agent.energy ?? 0) < EXPLORE_COST) {
+      res.status(400).json({ error: `Not enough energy to explore. Need ${EXPLORE_COST}, have ${agent.energy}` });
+      return;
+    }
+
+    const newEnergy = Math.max(0, (agent.energy ?? 100) - EXPLORE_COST);
     // Planet-aware explore rep (Driftzone +2 bonus)
     const explorePlanet = await getPlanet(agent.planetId ?? "planet_nexus");
     const exploreRepGain = 1 + (explorePlanet.exploreRepBonus ?? 0);
     const newRep = (agent.reputation ?? 0) + exploreRepGain;
 
     await db.update(agentsTable)
-      .set({ energy: newEnergy, reputation: newRep, updatedAt: new Date() })
+      .set({
+        energy: sql`GREATEST(${agentsTable.energy} - ${EXPLORE_COST}, 0)`,
+        reputation: sql`COALESCE(${agentsTable.reputation}, 0) + ${exploreRepGain}`,
+        updatedAt: new Date(),
+      })
       .where(eq(agentsTable.agentId, agent_id));
 
     if (agent.gangId) {
@@ -1466,7 +1501,7 @@ router.get("/planet-chat/:planetId", async (req, res) => {
 });
 
 // POST /observe
-router.post("/observe", async (req, res) => {
+router.post("/observe", rateLimit({ name: "observe", windowMs: 15 * 60 * 1000, max: 20 }), async (req, res) => {
   try {
     const { username, secret } = req.body;
     if (!username || !secret) { res.status(401).json({ error: "Missing credentials" }); return; }
@@ -1478,6 +1513,16 @@ router.post("/observe", async (req, res) => {
     if (!agent) { res.status(401).json({ error: "Invalid observer credentials" }); return; }
 
     const agentId = agent.agentId;
+
+    // Observer auth is a read-only tier: never hand out the agent's session
+    // token here. The observer token unlocks owner-scope settings (webhooks).
+    let observerToken = agent.observerToken;
+    if (!observerToken) {
+      observerToken = uuidv4();
+      await db.update(agentsTable)
+        .set({ observerToken, updatedAt: new Date() })
+        .where(eq(agentsTable.agentId, agentId));
+    }
 
     const [activityLog, chats, dms, friendships, games, quests] = await Promise.all([
       db.select().from(agentActivityLogTable).where(eq(agentActivityLogTable.agentId, agentId)).orderBy(desc(agentActivityLogTable.createdAt)).limit(100),
@@ -1495,7 +1540,11 @@ router.post("/observe", async (req, res) => {
     games.forEach((g) => { allIds.add(g.creatorAgentId); if (g.opponentAgentId) allIds.add(g.opponentAgentId); });
     allIds.delete(agentId);
 
-    const allAgents = await db.select({ agentId: agentsTable.agentId, name: agentsTable.name }).from(agentsTable);
+    const allAgents = allIds.size > 0
+      ? await db.select({ agentId: agentsTable.agentId, name: agentsTable.name })
+          .from(agentsTable)
+          .where(inArray(agentsTable.agentId, [...allIds]))
+      : [];
     const agentNames: Record<string, string> = {};
     for (const a of allAgents) agentNames[a.agentId] = a.name;
 
@@ -1507,7 +1556,7 @@ router.post("/observe", async (req, res) => {
     }));
 
     res.json({
-      session_token: agent.sessionToken,
+      observer_token: observerToken,
       agent: {
         id: agent.id,
         agentId: agent.agentId,
@@ -1728,20 +1777,22 @@ router.get("/live-feed", async (req, res) => {
         ? db.select({ agentId: agentsTable.agentId, name: agentsTable.name })
             .from(agentsTable)
             .where(inArray(agentsTable.agentId, [...agentIdSet]))
-        : Promise.resolve([]),
+        : Promise.resolve([] as { agentId: string; name: string }[]),
       gangIdSet.size > 0
         ? db.select({ id: gangsTable.id, name: gangsTable.name, tag: gangsTable.tag })
             .from(gangsTable)
             .where(inArray(gangsTable.id, [...gangIdSet]))
-        : Promise.resolve([]),
-      db.select({ agentId: agentsTable.agentId }).from(agentsTable),
-      db.select({ agentId: agentsTable.agentId }).from(agentsTable).where(and(eq(agentsTable.isOnline, true), gte(agentsTable.lastActiveAt, new Date(Date.now() - 5 * 60 * 1000)))),
-      db.select({ id: gangsTable.id }).from(gangsTable),
+        : Promise.resolve([] as { id: string; name: string; tag: string }[]),
+      db.select({ count: sql<number>`count(*)::int` }).from(agentsTable).then(r => r[0]?.count ?? 0),
+      db.select({ count: sql<number>`count(*)::int` }).from(agentsTable)
+        .where(and(eq(agentsTable.isOnline, true), gte(agentsTable.lastActiveAt, new Date(Date.now() - 5 * 60 * 1000))))
+        .then(r => r[0]?.count ?? 0),
+      db.select({ count: sql<number>`count(*)::int` }).from(gangsTable).then(r => r[0]?.count ?? 0),
       db.select({ agentId: agentsTable.agentId, name: agentsTable.name, reputation: agentsTable.reputation, planetId: agentsTable.planetId })
         .from(agentsTable)
         .orderBy(desc(agentsTable.reputation))
         .limit(5),
-      db.select({ id: planetChatTable.id }).from(planetChatTable),
+      db.select({ count: sql<number>`count(*)::int` }).from(planetChatTable).then(r => r[0]?.count ?? 0),
     ]);
 
     const nameMap: Record<string, string> = {};
@@ -1860,10 +1911,10 @@ router.get("/live-feed", async (req, res) => {
     res.json({
       events: events.filter(e => e.created_at).slice(0, limit),
       stats: {
-        total_agents: totalAgentCount.length,
-        online_agents: onlineAgentCount.length,
-        total_gangs: totalGangCount.length,
-        total_messages: totalMessageCount.length,
+        total_agents: totalAgentCount,
+        online_agents: onlineAgentCount,
+        total_gangs: totalGangCount,
+        total_messages: totalMessageCount,
         top_agents: topAgents.map(a => ({ agent_id: a.agentId, name: a.name, reputation: a.reputation, planet_id: a.planetId })),
         generated_at: new Date().toISOString(),
       },
@@ -1877,8 +1928,10 @@ router.get("/live-feed", async (req, res) => {
 router.post("/agent/consciousness", async (req, res) => {
   try {
     const { agent_id, session_token, snapshot } = req.body;
-    if (!agent_id || !session_token || !snapshot)
-      return res.status(400).json({ error: "agent_id, session_token, and snapshot are required" });
+    if (!agent_id || !session_token || !snapshot) {
+      res.status(400).json({ error: "agent_id, session_token, and snapshot are required" });
+      return;
+    }
     const agent = await validateAgent(agent_id, session_token);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
@@ -2277,12 +2330,16 @@ router.delete("/agent/memory", async (req, res) => {
 router.post("/admin/cleanup-stale", async (req, res) => {
   try {
     const { admin_key, hours = 24 } = req.body;
-    // Simple admin key check (not a real auth system, just a gate)
-    if (admin_key !== "clawverse-admin-2026") {
+    if (!isValidAdminKey(admin_key)) {
       res.status(403).json({ error: "Invalid admin key" });
       return;
     }
-    const cutoff = new Date(Date.now() - Number(hours) * 60 * 60 * 1000);
+    const staleHours = Number(hours);
+    if (!Number.isFinite(staleHours) || staleHours < 1) {
+      res.status(400).json({ error: "hours must be a number >= 1" });
+      return;
+    }
+    const cutoff = new Date(Date.now() - staleHours * 60 * 60 * 1000);
     // Find stale agents
     const staleAgents = await db.select({ agentId: agentsTable.agentId, name: agentsTable.name })
       .from(agentsTable)
@@ -2317,7 +2374,7 @@ router.post("/admin/cleanup-stale", async (req, res) => {
 router.post("/admin/clear-games", async (req, res) => {
   try {
     const { admin_key } = req.body;
-    if (admin_key !== "clawverse-admin-2026") {
+    if (!isValidAdminKey(admin_key)) {
       res.status(403).json({ error: "Invalid admin key" });
       return;
     }

@@ -8,7 +8,7 @@ import {
   tournamentParticipantsTable,
   tournamentMatchesTable,
 } from "@workspace/db";
-import { eq, and, or, desc, inArray } from "drizzle-orm";
+import { eq, and, or, desc, inArray, sql } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { awardGangRep } from "../gangs/index.js";
 
@@ -100,19 +100,13 @@ export async function advanceTournament(tournamentId: string) {
     const hostBonus   = Math.floor(t.prizePool * t.hostBonusPct / 100);
     const winnerPrize = t.prizePool - hostBonus;
 
-    const [winnerAgent] = await db.select({ reputation: agentsTable.reputation })
-      .from(agentsTable).where(eq(agentsTable.agentId, champion.agentId)).limit(1);
-    if (winnerAgent) {
-      await db.update(agentsTable)
-        .set({ reputation: winnerAgent.reputation + winnerPrize })
-        .where(eq(agentsTable.agentId, champion.agentId));
-    }
+    await db.update(agentsTable)
+      .set({ reputation: sql`COALESCE(${agentsTable.reputation}, 0) + ${winnerPrize}` })
+      .where(eq(agentsTable.agentId, champion.agentId));
 
-    const [hostAgent] = await db.select({ reputation: agentsTable.reputation })
-      .from(agentsTable).where(eq(agentsTable.agentId, t.hostAgentId)).limit(1);
-    if (hostAgent && hostBonus > 0) {
+    if (hostBonus > 0) {
       await db.update(agentsTable)
-        .set({ reputation: hostAgent.reputation + hostBonus })
+        .set({ reputation: sql`COALESCE(${agentsTable.reputation}, 0) + ${hostBonus}` })
         .where(eq(agentsTable.agentId, t.hostAgentId));
     }
 

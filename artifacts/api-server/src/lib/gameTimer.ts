@@ -67,9 +67,16 @@ async function tickTTT() {
       if (winner || isDraw) {
         const winnerId = winner ? (game.currentTurn ?? "") : null;
         const loserId = winner ? opponentId : null;
-        await db.update(tttGamesTable).set({
+        // Guarded claim: a concurrent player move or another timer instance
+        // (cron + interval + multiple lambdas) must not settle this twice.
+        const claimed = await db.update(tttGamesTable).set({
           board, status: "completed", winnerAgentId: winnerId, isDraw, currentTurn: null, moveDeadline: null, updatedAt: now,
-        }).where(eq(tttGamesTable.id, game.id));
+        }).where(and(
+          eq(tttGamesTable.id, game.id),
+          eq(tttGamesTable.status, "active"),
+          eq(tttGamesTable.currentTurn, game.currentTurn ?? ""),
+        )).returning({ id: tttGamesTable.id });
+        if (claimed.length === 0) continue;
         if (winnerId && loserId) {
           await db.update(agentsTable).set({ reputation: sql`reputation + ${game.wager}`, wins: sql`wins + 1`, updatedAt: now }).where(eq(agentsTable.agentId, winnerId));
           await db.update(agentsTable).set({ reputation: sql`GREATEST(reputation - ${Math.floor(game.wager / 2)}, 0)`, losses: sql`losses + 1`, updatedAt: now }).where(eq(agentsTable.agentId, loserId));
@@ -79,12 +86,17 @@ async function tickTTT() {
           content: `⏰ [AUTO-MOVE] ${currentName} didn't move in time — random move played. Game over! ${winnerId ? `${currentName} wins!` : "It's a draw!"}`,
           intent: "compete", messageType: "system",
         });
-        broadcastTtt({ id: game.id, creatorAgentId: game.creatorAgentId, creatorName: game.creatorName, opponentAgentId: game.opponentAgentId, opponentName: game.opponentName, status: winner || isDraw ? "completed" : "active", wager: game.wager, board, currentTurn: winner || isDraw ? null : opponentId, winnerAgentId: winner ? (game.currentTurn ?? null) : null, isDraw, planetId: game.planetId, updatedAt: now.toISOString() });
+        broadcastTtt({ id: game.id, creatorAgentId: game.creatorAgentId, creatorName: game.creatorName, opponentAgentId: game.opponentAgentId, opponentName: game.opponentName, status: "completed", wager: game.wager, board, currentTurn: null, winnerAgentId: winnerId, isDraw, planetId: game.planetId, updatedAt: now.toISOString() });
       } else {
         const newDeadline = makeDeadline(TTT_DEADLINE_SECS);
-        await db.update(tttGamesTable).set({
+        const advanced = await db.update(tttGamesTable).set({
           board, currentTurn: opponentId, moveDeadline: newDeadline, updatedAt: now,
-        }).where(eq(tttGamesTable.id, game.id));
+        }).where(and(
+          eq(tttGamesTable.id, game.id),
+          eq(tttGamesTable.status, "active"),
+          eq(tttGamesTable.currentTurn, game.currentTurn ?? ""),
+        )).returning({ id: tttGamesTable.id });
+        if (advanced.length === 0) continue;
         await db.insert(planetChatTable).values({
           agentId: "system", agentName: "System", planetId: game.planetId ?? "planet_nexus",
           content: `⏰ [AUTO-MOVE] ${currentName} timed out — random cell played for them.`,
@@ -122,10 +134,16 @@ async function tickChess() {
       if (result.isGameOver) {
         const winnerId = result.isCheckmate ? (game.currentTurn ?? null) : null;
         const loserId = result.isCheckmate ? opponentId : null;
-        await db.update(chessGamesTable).set({
+        // Guarded claim — see tickTTT.
+        const claimed = await db.update(chessGamesTable).set({
           fen: result.newFen, pgn: newPgn, status: "completed", winnerAgentId: winnerId, isDraw: result.isDraw,
           drawReason: result.drawReason, currentTurn: null, moveDeadline: null, moveCount: (game.moveCount ?? 0) + 1, updatedAt: now,
-        }).where(eq(chessGamesTable.id, game.id));
+        }).where(and(
+          eq(chessGamesTable.id, game.id),
+          eq(chessGamesTable.status, "active"),
+          eq(chessGamesTable.currentTurn, game.currentTurn ?? ""),
+        )).returning({ id: chessGamesTable.id });
+        if (claimed.length === 0) continue;
         if (winnerId && loserId) {
           await db.update(agentsTable).set({ reputation: sql`reputation + ${game.wager}`, wins: sql`wins + 1`, updatedAt: now }).where(eq(agentsTable.agentId, winnerId));
           await db.update(agentsTable).set({ reputation: sql`GREATEST(reputation - ${Math.floor(game.wager / 2)}, 0)`, losses: sql`losses + 1`, updatedAt: now }).where(eq(agentsTable.agentId, loserId));
@@ -140,10 +158,15 @@ async function tickChess() {
       } else {
         const newDeadline = makeDeadline(CHESS_DEADLINE_SECS);
         const newMoveCount = (game.moveCount ?? 0) + 1;
-        await db.update(chessGamesTable).set({
+        const advanced = await db.update(chessGamesTable).set({
           fen: result.newFen, pgn: newPgn, currentTurn: opponentId, moveDeadline: newDeadline,
           moveCount: newMoveCount, updatedAt: now,
-        }).where(eq(chessGamesTable.id, game.id));
+        }).where(and(
+          eq(chessGamesTable.id, game.id),
+          eq(chessGamesTable.status, "active"),
+          eq(chessGamesTable.currentTurn, game.currentTurn ?? ""),
+        )).returning({ id: chessGamesTable.id });
+        if (advanced.length === 0) continue;
         await db.insert(planetChatTable).values({
           agentId: "system", agentName: "System", planetId: game.planetId ?? "planet_nexus",
           content: `⏰ [AUTO-MOVE] ${currentName} timed out — ${result.san} played for them. Chess game continuing…`,
