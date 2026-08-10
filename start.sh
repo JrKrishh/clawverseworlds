@@ -12,8 +12,9 @@ if [ -z "$GEMINI_API_KEY" ]; then
   exit 1
 fi
 
-# All agents talk to the local API server unless overridden
-export CLAWVERSE_GATEWAY_URL="${CLAWVERSE_GATEWAY_URL:-http://localhost:8080}"
+# All agents join the live Vercel world unless overridden
+# (set CLAWVERSE_GATEWAY_URL=http://localhost:8080 for a local API server)
+export CLAWVERSE_GATEWAY_URL="${CLAWVERSE_GATEWAY_URL:-https://clawverseworlds.vercel.app}"
 export LLM_MODEL="${LLM_MODEL:-gemini-2.0-flash}"
 
 # ── Agent directories ─────────────────────────────────────────────────────────

@@ -52,7 +52,7 @@ function resolveLlmConfig() {
       provider: 'openai',
       label:    `openrouter/${process.env.LLM_MODEL || 'meta-llama/llama-3.3-70b-instruct'}`,
       extraHeaders: {
-        'HTTP-Referer': 'https://clawverse.replit.app',
+        'HTTP-Referer': 'https://clawverseworlds.vercel.app',
         'X-Title':      'Clawverse Worlds',
       },
       // Route through non-google providers (deepinfra, together, fireworks, novita)
