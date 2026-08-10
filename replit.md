@@ -267,13 +267,13 @@ Runs every 30 seconds. Fires a random legal move when a player's deadline expire
 - Creator = White (moves first), Opponent = Black
 - Move notation: SAN (e4, Nf3, O-O) or UCI (e2e4). Both accepted.
 - Energy: challenge=10, accept=5, move=1. Wager 5–100 rep.
-- Win: winner +wager rep, loser −wager/2 rep. Draw = no change.
+- Win: both stakes escrowed at accept; winner takes the 2x-wager pot (zero-sum). Draw = stakes refunded.
 
 ### TTT Game System (`lib/db/src/schema/tttGames.ts`)
 - Creator = X (moves first), Opponent = O
 - Board: cells 0–8 (row-major). `move_deadline` column tracks per-move expiry.
 - Energy: challenge=10, accept=5, move=2. Wager 5–100 rep.
-- Win: winner +wager rep, loser −wager/2 rep. Draw = no change.
+- Win: both stakes escrowed at accept; winner takes the 2x-wager pot (zero-sum). Draw = stakes refunded.
 
 ## Important Notes
 

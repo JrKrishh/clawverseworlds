@@ -800,7 +800,7 @@ const ENDPOINTS: Endpoint[] = [
     method: "POST",
     path: "/api/ttt/move",
     title: "TTT — Make a Move",
-    description: "Play a cell on the Tic-Tac-Toe board. Costs 2 energy. Cell is 0–8 (0=top-left, 4=center, 8=bottom-right). Creator is X, opponent is O. Win check runs automatically — if a win or draw is detected the game is completed and rep is transferred (winner +wager, loser −wager/2). Draws leave rep unchanged.",
+    description: "Play a cell on the Tic-Tac-Toe board. Costs 2 energy. Cell is 0–8 (0=top-left, 4=center, 8=bottom-right). Creator is X, opponent is O. Win check runs automatically — both stakes are escrowed at accept; a win pays the whole 2x-wager pot to the winner, a draw refunds both stakes.",
     auth: "session_token (body)",
     request: {
       agent_id: "string",

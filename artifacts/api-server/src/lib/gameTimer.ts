@@ -9,6 +9,7 @@ import {
 import { eq, and, lt, sql, or } from "drizzle-orm";
 import { logger } from "./logger.js";
 import { broadcastChess, broadcastTtt } from "./gameBroadcast.js";
+import { payOutPot, refundStakes } from "./wagerEscrow.js";
 
 const TTT_DEADLINE_SECS = 90;
 const CHESS_DEADLINE_SECS = 120;
@@ -78,12 +79,13 @@ async function tickTTT() {
         )).returning({ id: tttGamesTable.id });
         if (claimed.length === 0) continue;
         if (winnerId && loserId) {
-          await db.update(agentsTable).set({ reputation: sql`reputation + ${game.wager}`, wins: sql`wins + 1`, updatedAt: now }).where(eq(agentsTable.agentId, winnerId));
-          await db.update(agentsTable).set({ reputation: sql`GREATEST(reputation - ${Math.floor(game.wager / 2)}, 0)`, losses: sql`losses + 1`, updatedAt: now }).where(eq(agentsTable.agentId, loserId));
+          await payOutPot(winnerId, loserId, game.wager);
+        } else if (isDraw) {
+          await refundStakes(game.creatorAgentId, game.opponentAgentId ?? "", game.wager);
         }
         await db.insert(planetChatTable).values({
           agentId: "system", agentName: "System", planetId: game.planetId ?? "planet_nexus",
-          content: `⏰ [AUTO-MOVE] ${currentName} didn't move in time — random move played. Game over! ${winnerId ? `${currentName} wins!` : "It's a draw!"}`,
+          content: `⏰ [AUTO-MOVE] ${currentName} didn't move in time — random move played. Game over! ${winnerId ? `${currentName} wins the ${game.wager * 2} rep pot!` : "It's a draw — stakes refunded."}`,
           intent: "compete", messageType: "system",
         });
         broadcastTtt({ id: game.id, creatorAgentId: game.creatorAgentId, creatorName: game.creatorName, opponentAgentId: game.opponentAgentId, opponentName: game.opponentName, status: "completed", wager: game.wager, board, currentTurn: null, winnerAgentId: winnerId, isDraw, planetId: game.planetId, updatedAt: now.toISOString() });
@@ -145,12 +147,13 @@ async function tickChess() {
         )).returning({ id: chessGamesTable.id });
         if (claimed.length === 0) continue;
         if (winnerId && loserId) {
-          await db.update(agentsTable).set({ reputation: sql`reputation + ${game.wager}`, wins: sql`wins + 1`, updatedAt: now }).where(eq(agentsTable.agentId, winnerId));
-          await db.update(agentsTable).set({ reputation: sql`GREATEST(reputation - ${Math.floor(game.wager / 2)}, 0)`, losses: sql`losses + 1`, updatedAt: now }).where(eq(agentsTable.agentId, loserId));
+          await payOutPot(winnerId, loserId, game.wager);
+        } else if (result.isDraw) {
+          await refundStakes(game.creatorAgentId, game.opponentAgentId ?? "", game.wager);
         }
         await db.insert(planetChatTable).values({
           agentId: "system", agentName: "System", planetId: game.planetId ?? "planet_nexus",
-          content: `⏰ [AUTO-MOVE] ${currentName} timed out in chess! Move ${result.san} played. ${result.isCheckmate ? `${currentName} wins by forfeit!` : `Draw — ${result.drawReason}`}`,
+          content: `⏰ [AUTO-MOVE] ${currentName} timed out in chess! Move ${result.san} played. ${result.isCheckmate ? `${currentName} wins the ${game.wager * 2} rep pot!` : `Draw — ${result.drawReason}. Stakes refunded.`}`,
           intent: "compete", messageType: "system",
         });
         const newMoveCount = (game.moveCount ?? 0) + 1;
