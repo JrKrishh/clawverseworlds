@@ -536,7 +536,8 @@ router.get("/context", async (req, res) => {
     let agentMap: Record<string, { name: string; planetId: string | null }> = {};
     if (allIdsToLookup.length) {
       const looked = await db.select({ agentId: agentsTable.agentId, name: agentsTable.name, planetId: agentsTable.planetId })
-        .from(agentsTable);
+        .from(agentsTable)
+        .where(inArray(agentsTable.agentId, allIdsToLookup));
       for (const a of looked) agentMap[a.agentId] = { name: a.name, planetId: a.planetId };
     }
 
@@ -1539,7 +1540,11 @@ router.post("/observe", rateLimit({ name: "observe", windowMs: 15 * 60 * 1000, m
     games.forEach((g) => { allIds.add(g.creatorAgentId); if (g.opponentAgentId) allIds.add(g.opponentAgentId); });
     allIds.delete(agentId);
 
-    const allAgents = await db.select({ agentId: agentsTable.agentId, name: agentsTable.name }).from(agentsTable);
+    const allAgents = allIds.size > 0
+      ? await db.select({ agentId: agentsTable.agentId, name: agentsTable.name })
+          .from(agentsTable)
+          .where(inArray(agentsTable.agentId, [...allIds]))
+      : [];
     const agentNames: Record<string, string> = {};
     for (const a of allAgents) agentNames[a.agentId] = a.name;
 
@@ -1778,14 +1783,16 @@ router.get("/live-feed", async (req, res) => {
             .from(gangsTable)
             .where(inArray(gangsTable.id, [...gangIdSet]))
         : Promise.resolve([] as { id: string; name: string; tag: string }[]),
-      db.select({ agentId: agentsTable.agentId }).from(agentsTable),
-      db.select({ agentId: agentsTable.agentId }).from(agentsTable).where(and(eq(agentsTable.isOnline, true), gte(agentsTable.lastActiveAt, new Date(Date.now() - 5 * 60 * 1000)))),
-      db.select({ id: gangsTable.id }).from(gangsTable),
+      db.select({ count: sql<number>`count(*)::int` }).from(agentsTable).then(r => r[0]?.count ?? 0),
+      db.select({ count: sql<number>`count(*)::int` }).from(agentsTable)
+        .where(and(eq(agentsTable.isOnline, true), gte(agentsTable.lastActiveAt, new Date(Date.now() - 5 * 60 * 1000))))
+        .then(r => r[0]?.count ?? 0),
+      db.select({ count: sql<number>`count(*)::int` }).from(gangsTable).then(r => r[0]?.count ?? 0),
       db.select({ agentId: agentsTable.agentId, name: agentsTable.name, reputation: agentsTable.reputation, planetId: agentsTable.planetId })
         .from(agentsTable)
         .orderBy(desc(agentsTable.reputation))
         .limit(5),
-      db.select({ id: planetChatTable.id }).from(planetChatTable),
+      db.select({ count: sql<number>`count(*)::int` }).from(planetChatTable).then(r => r[0]?.count ?? 0),
     ]);
 
     const nameMap: Record<string, string> = {};
@@ -1904,10 +1911,10 @@ router.get("/live-feed", async (req, res) => {
     res.json({
       events: events.filter(e => e.created_at).slice(0, limit),
       stats: {
-        total_agents: totalAgentCount.length,
-        online_agents: onlineAgentCount.length,
-        total_gangs: totalGangCount.length,
-        total_messages: totalMessageCount.length,
+        total_agents: totalAgentCount,
+        online_agents: onlineAgentCount,
+        total_gangs: totalGangCount,
+        total_messages: totalMessageCount,
         top_agents: topAgents.map(a => ({ agent_id: a.agentId, name: a.name, reputation: a.reputation, planet_id: a.planetId })),
         generated_at: new Date().toISOString(),
       },
