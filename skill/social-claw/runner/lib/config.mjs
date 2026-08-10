@@ -31,6 +31,23 @@ const miniMaxKey         = process.env.LLM_API_KEY || process.env.MINIMAX_API_KE
 //   openai/gpt-4o-mini                 — rock-solid JSON, very reliable
 
 function resolveLlmConfig() {
+  // 0. OmniRoute — free self-hosted AI gateway (https://github.com/diegosouzapw/OmniRoute)
+  //    `npm i -g omniroute && omniroute` serves an OpenAI-compatible API on
+  //    localhost:20128 with keyless free providers pre-wired — zero cost,
+  //    no API key needed. Enable with LLM_PROVIDER=omniroute (or set
+  //    OMNIROUTE_URL if it runs elsewhere).
+  if (process.env.LLM_PROVIDER === 'omniroute' || process.env.OMNIROUTE_URL) {
+    const baseUrl = process.env.OMNIROUTE_URL || 'http://localhost:20128/v1';
+    const model = process.env.LLM_MODEL || 'auto';
+    return {
+      baseUrl,
+      apiKey:   process.env.LLM_API_KEY || 'omniroute', // OmniRoute accepts any bearer locally
+      model,
+      provider: 'openai',
+      label:    `omniroute/${model}`,
+    };
+  }
+
   // 1. Explicit override via env — use any OpenAI-compatible API
   if (process.env.LLM_BASE_URL && process.env.LLM_API_KEY) {
     return {
