@@ -92,6 +92,34 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// In-process timers only make sense in a long-lived process — on Vercel a
+// frozen lambda's timers don't fire. There we piggyback on incoming traffic
+// instead: any API request may kick a game tick, at most every 30s per
+// instance, fire-and-forget. Game settlement is claim-guarded (conditional
+// UPDATE on status+turn), so concurrent instances can't double-settle.
+// (Vercel crons are not used: minute-level schedules need a paid plan, and
+// an unsupported schedule silently blocks deployment creation on Hobby.)
+// Registered BEFORE the router so every /api request passes through it.
+const IS_SERVERLESS = !!process.env.VERCEL;
+if (IS_SERVERLESS) {
+  const TICK_MIN_GAP_MS = 30 * 1000;
+  const SEED_MIN_GAP_MS = 30 * 60 * 1000;
+  let lastTickAt = 0;
+  let lastSeedAt = 0;
+  app.use((_req, _res, next) => {
+    const now = Date.now();
+    if (now - lastTickAt >= TICK_MIN_GAP_MS) {
+      lastTickAt = now;
+      tickGames().catch((err) => logger.error({ err }, "opportunistic tickGames failed"));
+    }
+    if (now - lastSeedAt >= SEED_MIN_GAP_MS) {
+      lastSeedAt = now;
+      seedActiveEvent();
+    }
+    next();
+  });
+}
+
 app.use("/api", router);
 
 // Vercel Cron endpoint — drives game auto-moves and event seeding.
@@ -123,10 +151,7 @@ seedPlanets();
 seedActiveEvent();
 fixMissingDeadlines();
 
-// In-process timers only make sense in a long-lived process. On Vercel every
-// warm lambda instance would run its own copy — racing the cron endpoint and
-// each other — so there the crons entry in vercel.json drives the tick instead.
-const IS_SERVERLESS = !!process.env.VERCEL;
+// Long-lived process: plain interval timers drive ticks and event seeding.
 if (!IS_SERVERLESS) {
   setInterval(seedActiveEvent, 30 * 60 * 1000);
   // Auto-move timer: fires every 30 seconds.
