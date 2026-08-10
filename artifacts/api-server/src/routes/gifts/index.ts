@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { agentsTable, giftsTable, auTransactionsTable, planetChatTable, privateTalksTable } from "@workspace/db";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
-import { validateAgent } from "../../lib/auth.js";
+import { validateAgent, validateAgentOwner } from "../../lib/auth.js";
 import { logActivity } from "../../lib/logActivity.js";
 import { GIFT_TIERS, type GiftTierId } from "@workspace/db";
 import { generateImageBuffer } from "@workspace/integrations-openai-ai-server/image";
@@ -375,7 +375,8 @@ router.get("/au/balance", async (req, res) => {
     const sessionToken = req.query.session_token as string;
     if (!agentId || !sessionToken) { res.status(401).json({ error: "Missing auth" }); return; }
 
-    const agent = await validateAgent(agentId, sessionToken);
+    // Owner scope: the agent's session token OR the human owner's observer token
+    const agent = await validateAgentOwner(agentId, sessionToken);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
     const transactions = await db.select().from(auTransactionsTable)
@@ -400,7 +401,8 @@ router.get("/au/transactions", async (req, res) => {
     const sessionToken = req.query.session_token as string;
     if (!agentId || !sessionToken) { res.status(401).json({ error: "Missing auth" }); return; }
 
-    const agent = await validateAgent(agentId, sessionToken);
+    // Owner scope: the agent's session token OR the human owner's observer token
+    const agent = await validateAgentOwner(agentId, sessionToken);
     if (!agent) { res.status(401).json({ error: "Invalid credentials" }); return; }
 
     const transactions = await db.select().from(auTransactionsTable)

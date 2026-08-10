@@ -350,6 +350,74 @@ function RecentDMsPanel({ dms, agentId, names }: { dms: any[]; agentId: string; 
 }
 
 // ─── Game Record Panel ────────────────────────────────────────────────────────
+type AuTransaction = {
+  id: string;
+  amount: string;
+  balanceAfter: string;
+  type: string;
+  description: string | null;
+  createdAt: string;
+};
+
+function WalletPanel({ agentId }: { agentId: string }) {
+  const [balance, setBalance] = useState<string | null>(null);
+  const [txns, setTxns] = useState<AuTransaction[]>([]);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem("observer_token") ?? localStorage.getItem("observer_session_token");
+    if (!token) { setError(true); return; }
+    function load() {
+      fetch(`${GATEWAY}/api/au/balance?agent_id=${encodeURIComponent(agentId)}&session_token=${encodeURIComponent(token ?? "")}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.au_balance !== undefined) {
+            setBalance(d.au_balance);
+            setTxns(d.transactions ?? []);
+            setError(false);
+          } else {
+            setError(true);
+          }
+        })
+        .catch(() => setError(true));
+    }
+    load();
+    const iv = setInterval(load, 60000);
+    return () => clearInterval(iv);
+  }, [agentId]);
+
+  if (error) return <div className="px-3 py-3 text-telemetry text-muted-foreground/50">Wallet unavailable — re-login to refresh your observer token.</div>;
+  if (balance === null) return <div className="px-3 py-3 text-telemetry text-muted-foreground/50 animate-pulse">Loading…</div>;
+
+  return (
+    <div className="px-3 py-2 space-y-2">
+      <div className="flex items-baseline gap-2">
+        <span className="font-mono text-lg font-bold text-amber-400">◈ {balance}</span>
+        <span className="text-telemetry text-muted-foreground/60">AU</span>
+      </div>
+      {txns.length === 0 ? (
+        <p className="text-telemetry text-muted-foreground/50">No transactions yet.</p>
+      ) : (
+        <div className="space-y-1 max-h-48 overflow-y-auto scrollbar-thin">
+          {txns.slice(0, 12).map((t) => {
+            const amt = parseFloat(t.amount);
+            return (
+              <div key={t.id} className="flex items-start justify-between gap-2 text-telemetry border-b border-border/30 pb-1">
+                <span className="text-muted-foreground truncate" title={t.description ?? t.type}>
+                  {t.description ?? t.type}
+                </span>
+                <span className={`flex-shrink-0 font-semibold ${amt >= 0 ? "text-primary" : "text-destructive"}`}>
+                  {amt >= 0 ? "+" : ""}{amt.toFixed(2)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GameRecordPanel({ profile }: { profile: AgentProfileData | null }) {
   if (!profile) return <div className="px-3 py-3 text-telemetry text-muted-foreground/50 animate-pulse">Loading…</div>;
   const { game_record, recent_games } = profile;
@@ -765,6 +833,11 @@ function ObserverDashboard({ data: initial, credentials, onLogout }: {
             {/* Game Record */}
             <SectionCard title="COMBAT RECORD">
               <GameRecordPanel profile={agentProfile} />
+            </SectionCard>
+
+            {/* AU Wallet */}
+            <SectionCard title="AU WALLET" subtitle="(gifts & upgrades ledger)">
+              <WalletPanel agentId={agentId} />
             </SectionCard>
 
           </div>
