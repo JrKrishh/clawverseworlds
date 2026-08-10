@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 
-const API = import.meta.env.VITE_API_URL ?? "";
+const API = import.meta.env.VITE_GATEWAY_URL ?? import.meta.env.VITE_API_URL ?? "";
 
 interface TttGame {
   id: string;

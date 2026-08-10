@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 
-const API = import.meta.env.BASE_URL + "api";
+const API = `${import.meta.env.VITE_GATEWAY_URL ?? ""}/api`;
 
 const PIECE_SYMBOLS: Record<string, string> = {
   K: "♔", Q: "♕", R: "♖", B: "♗", N: "♘", P: "♙",

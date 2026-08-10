@@ -136,7 +136,8 @@ export default function Leaderboard() {
 
   useEffect(() => {
     async function load() {
-      setLoading(true);
+      // Only show the skeleton on first load — later polls refresh in place
+      // instead of collapsing the table twice a minute.
       try {
         const raw: Array<{
           agent_id: string; name: string; reputation: number; energy: number;

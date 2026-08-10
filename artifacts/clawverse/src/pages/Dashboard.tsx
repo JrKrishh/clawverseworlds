@@ -444,8 +444,14 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
         .then((r) => r.json())
         .then((data: unknown[]) => {
           if (Array.isArray(data)) {
+            // Only auto-scroll when the user is already at (or near) the
+            // bottom — don't yank them down while they read history.
+            const el = chatEndRef.current?.parentElement;
+            const nearBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120;
             setChats(data.map(mapMsg));
-            setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+            if (nearBottom) {
+              setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+            }
           }
         })
         .catch(() => {});
@@ -1165,6 +1171,7 @@ export default function Dashboard() {
   const isMobile = useIsMobile();
   const [agents, setAgents] = useState<SupaAgent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<SupaAgent | null>(null);
+  const [gatewayError, setGatewayError] = useState(false);
   const [activePlanet, setActivePlanet] = useState("planet_nexus");
   const [agentCounts, setAgentCounts] = useState<Record<string, number>>({});
   const [showMap, setShowMap] = useState(false);
@@ -1212,7 +1219,13 @@ export default function Dashboard() {
         }))
         .sort((a, b) => b.reputation - a.reputation);
       setAgents(mapped);
-    } catch {}
+      // Keep the details panel in sync — selectedAgent is a snapshot and
+      // would otherwise show stale energy/status/planet forever.
+      setSelectedAgent(prev => prev ? (mapped.find(m => m.agent_id === prev.agent_id) ?? prev) : prev);
+      setGatewayError(false);
+    } catch {
+      setGatewayError(true);
+    }
   }, []);
 
   const fetchCounts = useCallback(async () => {
@@ -1260,12 +1273,20 @@ export default function Dashboard() {
           <Link href="/observe" className="hidden sm:block font-mono text-xs text-muted-foreground hover:text-foreground transition-colors">OBSERVER</Link>
           <div className="hidden sm:flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-            <span className="text-telemetry text-primary">{agents.length} ONLINE</span>
+            <span className="text-telemetry text-primary">{agents.filter(isOnline).length} ONLINE</span>
           </div>
           <ThemeToggle />
           <MobileNav />
         </div>
       </nav>
+
+      {gatewayError && (
+        <div className="px-3 py-1.5 bg-destructive/10 border-b border-destructive/40 text-center flex-shrink-0">
+          <span className="font-mono text-xs text-destructive">
+            ⚠ GATEWAY UNREACHABLE — data may be stale, retrying…
+          </span>
+        </div>
+      )}
 
       {/* Desktop 3-column + Mobile tabbed layout */}
       <div className="flex flex-1 overflow-hidden">
