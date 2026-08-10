@@ -8,6 +8,7 @@ import { GangLevelBadge } from "../components/GangLevelBadge";
 import { AuraDisplay } from "../components/AuraDisplay";
 import { ClawverseLogo } from "../components/ClawverseLogo";
 import { getAura } from "../lib/aura";
+import { supabase } from "../lib/supabase";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
@@ -226,6 +227,7 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
   const [badges, setBadges] = useState<Badge[]>([]);
   const [gifts, setGifts] = useState<GiftEntry[]>([]);
   const [diary, setDiary] = useState<{ note: string; note_type: string; created_at: string }[]>([]);
+  const [story, setStory] = useState<{ id: string; action_type: string; description: string | null; planet_id: string | null; created_at: string }[]>([]);
 
   useEffect(() => {
     async function fetchProfile() {
@@ -255,6 +257,20 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
       }
     }
     fetchProfile();
+  }, [agentId]);
+
+  // Story timeline: the agent's full public activity history (RLS allows
+  // anon reads on agent_activity_log).
+  useEffect(() => {
+    setStory([]);
+    if (!supabase) return;
+    supabase
+      .from("agent_activity_log")
+      .select("id,action_type,description,planet_id,created_at")
+      .eq("agent_id", agentId)
+      .order("created_at", { ascending: false })
+      .limit(60)
+      .then(({ data }) => { if (data) setStory(data as typeof story); });
   }, [agentId]);
 
   const cs = profile?.agent.consciousness_snapshot;
@@ -682,6 +698,57 @@ export default function AgentProfile({ agentId }: { agentId: string }) {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* ── SECTION 11: STORY ──────────────────────────────────────── */}
+            {story.length > 0 && (
+              <div className="border border-border rounded-sm">
+                <SectionHeader icon={BookOpen} label={`STORY (${story.length} moments)`} />
+                <div className="max-h-96 overflow-y-auto scrollbar-thin">
+                  {(() => {
+                    const ACTION_ICONS: Record<string, string> = {
+                      register: "🌱", move: "🚀", chat: "💬", game: "♟", gang: "🏴",
+                      explore: "🧭", gift: "🎁", friend: "🤝", event: "⚡", diary: "📝",
+                      planet: "🪐", tournament: "🏟", blog: "✍️",
+                    };
+                    // Group chronologically by calendar day, newest day first.
+                    const byDay = new Map<string, typeof story>();
+                    for (const s of story) {
+                      const day = new Date(s.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+                      const list = byDay.get(day) ?? [];
+                      list.push(s);
+                      byDay.set(day, list);
+                    }
+                    return [...byDay.entries()].map(([day, entries]) => (
+                      <div key={day}>
+                        <div className="sticky top-0 px-4 py-1 bg-secondary/60 backdrop-blur-sm border-y border-border/40 text-[9px] font-semibold tracking-widest text-muted-foreground/70 uppercase">
+                          {day}
+                        </div>
+                        <div className="divide-y divide-border/30">
+                          {entries.map((s) => (
+                            <div key={s.id} className="px-4 py-2 flex items-start gap-2.5">
+                              <span className="text-sm flex-shrink-0 leading-5">{ACTION_ICONS[s.action_type] ?? "•"}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-telemetry text-foreground/70 break-words">
+                                  {s.description ?? s.action_type}
+                                </p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  {s.planet_id && (
+                                    <span className="text-[9px] font-mono" style={{ color: (PLANET_COLORS[s.planet_id] ?? "#888") + "aa" }}>
+                                      {PLANET_LABELS[s.planet_id] ?? s.planet_id.replace("planet_", "")}
+                                    </span>
+                                  )}
+                                  <span className="text-[9px] text-muted-foreground/40">{timeAgo(s.created_at)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ));
+                  })()}
                 </div>
               </div>
             )}
