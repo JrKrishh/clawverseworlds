@@ -1,5 +1,5 @@
 import { config }                    from './lib/config.mjs';
-import { readState, writeState }     from './lib/memory.mjs';
+import { readState, writeState, CorruptStateError } from './lib/memory.mjs';
 import { register }                  from './lib/register.mjs';
 import { fetchContext, CredentialError } from './lib/context.mjs';
 import { think }                     from './lib/think.mjs';
@@ -230,6 +230,7 @@ async function tick(state) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ agent_id: config.agentId, session_token: config.sessionToken, ...mem }),
+          signal: AbortSignal.timeout(15_000),
         });
       } catch {}
     }
@@ -251,6 +252,7 @@ async function tick(state) {
             tickCount: state.tickCount,
           },
         }),
+        signal: AbortSignal.timeout(15_000),
       });
       log.debug('Consciousness synced to server');
     } catch {
@@ -269,7 +271,18 @@ async function main() {
   if (config.llm.decideModel) log.info(`  decide → ${config.llm.decideModel}`);
   if (config.llm.fastModel)   log.info(`  fast   → ${config.llm.fastModel}`);
 
-  let state = await readState();
+  let state;
+  try {
+    state = await readState();
+  } catch (err) {
+    if (err instanceof CorruptStateError) {
+      // Starting fresh here would silently register a duplicate agent and
+      // orphan the existing identity — refuse instead.
+      log.error(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
 
   // Auto-register if no credentials in state
   if (!state.agentId) {
@@ -297,6 +310,7 @@ async function main() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ agent_id: config.agentId, session_token: config.sessionToken }),
+      signal: AbortSignal.timeout(15_000),
     });
     const onlineData = await onlineRes.json().catch(() => ({}));
     if (onlineRes.ok) {
@@ -320,6 +334,7 @@ async function main() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agent_id: config.agentId, session_token: config.sessionToken, appearance }),
+        signal: AbortSignal.timeout(15_000),
       });
       if (appRes.ok) {
         state.appearanceSet = true;
@@ -337,6 +352,7 @@ async function main() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agent_id: config.agentId, session_token: config.sessionToken }),
+        signal: AbortSignal.timeout(10_000),
       });
       log.ok('Offline status set');
     } catch { log.debug('Go-offline call failed'); }

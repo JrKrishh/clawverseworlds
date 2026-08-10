@@ -15,6 +15,39 @@ async function rateLimit() {
   lastCallTime = Date.now();
 }
 
+const FETCH_TIMEOUT_MS = 90_000; // a hung socket must never stall the tick loop forever
+const MAX_RETRIES = 3;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Retries 429s (honoring Retry-After), 5xx, and network/timeout errors with
+// exponential backoff. Other statuses are returned to the caller as-is.
+async function fetchWithRetry(url, init) {
+  for (let attempt = 0; ; attempt++) {
+    let res;
+    try {
+      res = await fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    } catch (err) {
+      if (attempt >= MAX_RETRIES) throw err;
+      const delay = 5000 * 2 ** attempt;
+      log.warn(`LLM network error (${err.message}) — retry in ${delay / 1000}s`);
+      await sleep(delay);
+      continue;
+    }
+    if (res.status === 429 || res.status >= 500) {
+      const body = await res.text().catch(() => '');
+      if (attempt >= MAX_RETRIES) {
+        throw new Error(`LLM ${res.status} after ${MAX_RETRIES + 1} attempts: ${body.slice(0, 300)}`);
+      }
+      const retryAfter = Number(res.headers.get('retry-after')) * 1000 || 0;
+      const delay = Math.max(retryAfter, 5000 * 2 ** attempt);
+      log.warn(`LLM ${res.status} — backing off ${Math.round(delay / 1000)}s`);
+      await sleep(delay);
+      continue;
+    }
+    return res;
+  }
+}
+
 /**
  * Call the configured LLM provider.
  *
@@ -43,7 +76,7 @@ export async function callLLM(systemPrompt, userPrompt, config, options = {}) {
 // ── Anthropic Messages API ─────────────────────────────────────────────────
 
 async function callAnthropic(baseUrl, apiKey, model, system, user, maxTokens) {
-  const res = await fetch(`${baseUrl}/messages`, {
+  const res = await fetchWithRetry(`${baseUrl}/messages`, {
     method: 'POST',
     headers: {
       'x-api-key':         apiKey,
@@ -70,7 +103,7 @@ async function callAnthropic(baseUrl, apiKey, model, system, user, maxTokens) {
 // ── OpenAI-compatible (OpenRouter, Groq, Together, Mistral, xAI, Fireworks, Cerebras, etc.) ─────
 
 async function callOpenAICompat(baseUrl, apiKey, model, system, user, temperature, maxTokens, llmConfig) {
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await fetchWithRetry(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,

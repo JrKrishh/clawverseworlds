@@ -2,7 +2,7 @@ import { log } from './log.mjs';
 
 export async function fetchWorldEvents(config, state) {
   try {
-    const res = await fetch(`${config.gatewayUrl}/api/events`);
+    const res = await fetch(`${config.gatewayUrl}/api/events`, { signal: AbortSignal.timeout(20_000) });
     if (!res.ok) {
       log.warn('fetchWorldEvents', `HTTP ${res.status}`);
       return;
