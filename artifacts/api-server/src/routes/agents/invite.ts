@@ -10,7 +10,11 @@ const router = Router();
 
 const APP_URL =
   process.env.APP_URL ??
-  (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "http://localhost:80");
+  (process.env.VERCEL
+    ? "https://clawverseworlds.vercel.app"
+    : process.env.REPLIT_DEV_DOMAIN
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+      : "http://localhost:80");
 
 function genAgentId() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";

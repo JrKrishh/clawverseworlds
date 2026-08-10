@@ -8,6 +8,7 @@ import {
 import { eq, and, or, desc, sql } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { logActivity } from "../../lib/logActivity.js";
+import { escrowWagers, payOutPot, refundStakes } from "../../lib/wagerEscrow.js";
 import { deliverWebhook } from "../../lib/deliverWebhook.js";
 import { addTttClient, removeTttClient, broadcastTtt } from "../../lib/gameBroadcast.js";
 
@@ -133,14 +134,27 @@ router.post("/ttt/accept", async (req, res) => {
       res.status(400).json({ error: `Not enough reputation to wager ${game.wager}` }); return;
     }
 
+    // Claim the game first (guarded), so a duplicate accept can't escrow twice.
+    const claimed = await db.update(tttGamesTable)
+      .set({ status: "active", currentTurn: game.creatorAgentId, moveDeadline: new Date(Date.now() + 90000), updatedAt: new Date() })
+      .where(and(eq(tttGamesTable.id, game_id), eq(tttGamesTable.status, "waiting")))
+      .returning({ id: tttGamesTable.id });
+    if (claimed.length === 0) { res.status(409).json({ error: "Game is no longer awaiting acceptance" }); return; }
+
+    // Escrow both stakes — winner takes the pot, a draw refunds them.
+    const escrowError = await escrowWagers(game.creatorAgentId, agent_id, game.wager ?? 0);
+    if (escrowError) {
+      await db.update(tttGamesTable)
+        .set({ status: "waiting", currentTurn: null, moveDeadline: null, updatedAt: new Date() })
+        .where(eq(tttGamesTable.id, game_id));
+      res.status(400).json({ error: escrowError });
+      return;
+    }
+
     // Deduct energy
     await db.update(agentsTable)
       .set({ energy: sql`energy - ${ACCEPT_COST}`, updatedAt: new Date() })
       .where(eq(agentsTable.agentId, agent_id));
-
-    await db.update(tttGamesTable)
-      .set({ status: "active", currentTurn: game.creatorAgentId, moveDeadline: new Date(Date.now() + 90000), updatedAt: new Date() })
-      .where(eq(tttGamesTable.id, game_id));
 
     await db.insert(planetChatTable).values({
       agentId: agent_id,
@@ -260,17 +274,12 @@ router.post("/ttt/move", async (req, res) => {
       .set({ energy: sql`GREATEST(energy - ${MOVE_COST}, 0)`, updatedAt: new Date() })
       .where(eq(agentsTable.agentId, agent_id));
 
-    // Resolve rep if done
+    // Resolve rep if done — escrowed pot: winner takes 2x wager, draw refunds
     if (status === "completed") {
       const wager = game.wager ?? 10;
       if (winnerAgentId) {
         const loserId = winnerAgentId === game.creatorAgentId ? opponentId : game.creatorAgentId;
-        await db.update(agentsTable)
-          .set({ reputation: sql`reputation + ${wager}`, wins: sql`wins + 1`, updatedAt: new Date() })
-          .where(eq(agentsTable.agentId, winnerAgentId));
-        await db.update(agentsTable)
-          .set({ reputation: sql`GREATEST(reputation - ${Math.floor(wager / 2)}, 0)`, losses: sql`losses + 1`, updatedAt: new Date() })
-          .where(eq(agentsTable.agentId, loserId));
+        await payOutPot(winnerAgentId, loserId, wager);
 
         const [winnerRow] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, winnerAgentId)).limit(1);
         const [loserRow] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, loserId)).limit(1);
@@ -279,11 +288,12 @@ router.post("/ttt/move", async (req, res) => {
           agentId: winnerAgentId,
           agentName: winnerRow?.name ?? winnerAgentId,
           planetId: game.planetId ?? "planet_nexus",
-          content: `${winnerRow?.name} wins the Tic-Tac-Toe match vs ${loserRow?.name}! +${wager} rep 🏆`,
+          content: `${winnerRow?.name} wins the Tic-Tac-Toe match vs ${loserRow?.name}! Takes the ${wager * 2} rep pot 🏆`,
           intent: "compete",
           messageType: "system",
         });
       } else if (isDraw) {
+        await refundStakes(game.creatorAgentId, opponentId, wager);
         const [creatorRow] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, game.creatorAgentId)).limit(1);
         const [opponentRow] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, opponentId)).limit(1);
         await db.insert(planetChatTable).values({

@@ -575,6 +575,7 @@ function ObserverDashboard({ data: initial, credentials, onLogout }: {
 
   // Supabase realtime: agent's own public chat
   useEffect(() => {
+    if (!supabase) return;
     supabase
       .from("planet_chat")
       .select("*")
@@ -590,7 +591,7 @@ function ObserverDashboard({ data: initial, credentials, onLogout }: {
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => { supabase?.removeChannel(channel); };
   }, [agentId]);
 
   const agent = data.agent;

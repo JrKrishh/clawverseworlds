@@ -9,6 +9,7 @@ import {
 import { eq, and, or, desc, sql } from "drizzle-orm";
 import { validateAgent } from "../../lib/auth.js";
 import { logActivity } from "../../lib/logActivity.js";
+import { escrowWagers, payOutPot, refundStakes } from "../../lib/wagerEscrow.js";
 import { deliverWebhook } from "../../lib/deliverWebhook.js";
 import { addChessClient, removeChessClient, broadcastChess } from "../../lib/gameBroadcast.js";
 
@@ -54,6 +55,8 @@ async function resolveGame(
   drawReason: string,
   wager: number,
   planetId: string | null,
+  creatorIdForRefund: string,
+  opponentIdForRefund: string,
   extraSet: Partial<typeof chessGamesTable.$inferInsert> = {},
 ): Promise<boolean> {
   // Guarded transition: only one caller (move handler, auto-move timer, or a
@@ -72,12 +75,8 @@ async function resolveGame(
   if (claimed.length === 0) return false;
 
   if (winnerAgentId && loserId) {
-    await db.update(agentsTable)
-      .set({ reputation: sql`reputation + ${wager}`, wins: sql`wins + 1`, updatedAt: new Date() })
-      .where(eq(agentsTable.agentId, winnerAgentId));
-    await db.update(agentsTable)
-      .set({ reputation: sql`GREATEST(reputation - ${Math.floor(wager / 2)}, 0)`, losses: sql`losses + 1`, updatedAt: new Date() })
-      .where(eq(agentsTable.agentId, loserId));
+    // Escrowed pot: winner takes 2x wager (both stakes were taken at accept).
+    await payOutPot(winnerAgentId, loserId, wager);
 
     const [wRow] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, winnerAgentId)).limit(1);
     const [lRow] = await db.select({ name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.agentId, loserId)).limit(1);
@@ -85,16 +84,17 @@ async function resolveGame(
       agentId: winnerAgentId,
       agentName: wRow?.name ?? winnerAgentId,
       planetId: planetId ?? "planet_nexus",
-      content: `♟️ ${wRow?.name} wins the chess match vs ${lRow?.name}! Checkmate! +${wager} rep 🏆`,
+      content: `♟️ ${wRow?.name} wins the chess match vs ${lRow?.name}! Checkmate! Takes the ${wager * 2} rep pot 🏆`,
       intent: "compete",
       messageType: "system",
     });
   } else if (isDraw) {
+    await refundStakes(creatorIdForRefund, opponentIdForRefund, wager);
     await db.insert(planetChatTable).values({
       agentId: "system",
       agentName: "System",
       planetId: planetId ?? "planet_nexus",
-      content: `♟️ Chess draw by ${drawReason}! No rep changes.`,
+      content: `♟️ Chess draw by ${drawReason}! Stakes refunded.`,
       intent: "compete",
       messageType: "system",
     });
@@ -174,11 +174,25 @@ router.post("/chess/accept", async (req, res) => {
     if ((agent.energy ?? 0) < COST) { res.status(400).json({ error: `Need ${COST} energy` }); return; }
     if ((agent.reputation ?? 0) < (game.wager ?? 0)) { res.status(400).json({ error: `Need ${game.wager} rep to wager` }); return; }
 
-    await db.update(agentsTable).set({ energy: sql`energy - ${COST}`, updatedAt: new Date() }).where(eq(agentsTable.agentId, agent_id));
-    await db.update(chessGamesTable).set({
+    // Claim the game first (guarded), so a duplicate accept can't escrow twice.
+    const claimed = await db.update(chessGamesTable).set({
       status: "active", currentTurn: game.creatorAgentId,
       moveDeadline: makeDeadline(), updatedAt: new Date(),
-    }).where(eq(chessGamesTable.id, game_id));
+    }).where(and(eq(chessGamesTable.id, game_id), eq(chessGamesTable.status, "waiting")))
+      .returning({ id: chessGamesTable.id });
+    if (claimed.length === 0) { res.status(409).json({ error: "Game is no longer awaiting acceptance" }); return; }
+
+    // Escrow both stakes — winner takes the pot, a draw refunds them.
+    const escrowError = await escrowWagers(game.creatorAgentId, agent_id, game.wager ?? 0);
+    if (escrowError) {
+      await db.update(chessGamesTable)
+        .set({ status: "waiting", currentTurn: null, moveDeadline: null, updatedAt: new Date() })
+        .where(eq(chessGamesTable.id, game_id));
+      res.status(400).json({ error: escrowError });
+      return;
+    }
+
+    await db.update(agentsTable).set({ energy: sql`energy - ${COST}`, updatedAt: new Date() }).where(eq(agentsTable.agentId, agent_id));
 
     const legalMoves = getLegalMoves(game.fen ?? "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     await db.insert(planetChatTable).values({
@@ -250,6 +264,7 @@ router.post("/chess/move", async (req, res) => {
       const winnerId = result.isCheckmate ? agent_id : null;
       const loserId = result.isCheckmate ? opponentId : null;
       const settled = await resolveGame(game_id, winnerId, loserId, result.isDraw, result.drawReason, game.wager, game.planetId,
+        game.creatorAgentId, game.opponentAgentId ?? "",
         { fen: result.newFen, pgn: newPgn, moveCount: newMoveCount });
       if (!settled) {
         res.status(409).json({ error: "Game state changed — refetch the game and try again" });

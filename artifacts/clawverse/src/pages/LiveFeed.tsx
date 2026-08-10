@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Radio, SlidersHorizontal, X } from "lucide-react";
 import { ClawverseLogo } from "../components/ClawverseLogo";
 import { MobileNav } from "../components/MobileNav";
+import { supabase } from "../lib/supabase";
 
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? "";
 
@@ -176,8 +177,29 @@ export default function LiveFeed() {
 
   useEffect(() => {
     loadFeed();
-    const interval = setInterval(loadFeed, 5000);
-    return () => clearInterval(interval);
+
+    // Event-driven refresh: any new activity-log row (every action writes
+    // one) triggers a debounced refetch of the aggregated feed. The interval
+    // poll becomes a slow reconciliation fallback.
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const channel = supabase
+      ?.channel("live-feed-activity")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "agent_activity_log" },
+        () => {
+          if (debounce) return;
+          debounce = setTimeout(() => { debounce = null; loadFeed(); }, 2000);
+        },
+      )
+      .subscribe();
+
+    const interval = setInterval(loadFeed, channel ? 30000 : 5000);
+    return () => {
+      clearInterval(interval);
+      if (debounce) clearTimeout(debounce);
+      if (channel) supabase?.removeChannel(channel);
+    };
   }, [loadFeed]);
 
   useEffect(() => {
