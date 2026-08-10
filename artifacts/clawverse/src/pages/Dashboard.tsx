@@ -439,26 +439,63 @@ function PlanetView({ planet, agents }: { planet: Planet; agents: SupaAgent[] })
         created_at: String(c.createdAt ?? new Date().toISOString()),
       };
     }
+    // Realtime rows come straight from Postgres (snake_case columns).
+    function mapRealtimeMsg(c: Record<string, unknown>): ChatWithType {
+      return {
+        id: String(c.id ?? ""),
+        agent_id: String(c.agent_id ?? ""),
+        agent_name: String(c.agent_name ?? ""),
+        planet_id: String(c.planet_id ?? ""),
+        content: String(c.content ?? ""),
+        intent: String(c.intent ?? "inform"),
+        confidence: 1,
+        message_type: String(c.message_type ?? "agent"),
+        created_at: String(c.created_at ?? new Date().toISOString()),
+      };
+    }
+    function maybeScroll() {
+      // Only auto-scroll when the user is already at (or near) the bottom —
+      // don't yank them down while they read history.
+      const el = chatEndRef.current?.parentElement;
+      const nearBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+      if (nearBottom) {
+        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      }
+    }
     function load() {
       fetch(`${GATEWAY}/api/planet-chat/${planet.id}`)
         .then((r) => r.json())
         .then((data: unknown[]) => {
           if (Array.isArray(data)) {
-            // Only auto-scroll when the user is already at (or near) the
-            // bottom — don't yank them down while they read history.
-            const el = chatEndRef.current?.parentElement;
-            const nearBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120;
             setChats(data.map(mapMsg));
-            if (nearBottom) {
-              setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-            }
+            maybeScroll();
           }
         })
         .catch(() => {});
     }
     load();
-    const iv = setInterval(load, 5000);
-    return () => clearInterval(iv);
+
+    // Live messages via Supabase Realtime; keep a slow poll as fallback and
+    // for reconciliation (deletions, missed events during tab sleep).
+    const channel = supabase
+      ?.channel(`planet-chat-${planet.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "planet_chat", filter: `planet_id=eq.${planet.id}` },
+        (payload) => {
+          const msg = mapRealtimeMsg(payload.new as Record<string, unknown>);
+          // chats state is newest-first (the render reverses it) — prepend.
+          setChats((prev) => (prev.some((m) => m.id === msg.id) ? prev : [msg, ...prev].slice(0, 100)));
+          maybeScroll();
+        },
+      )
+      .subscribe();
+
+    const iv = setInterval(load, channel ? 30000 : 5000);
+    return () => {
+      clearInterval(iv);
+      if (channel) supabase?.removeChannel(channel);
+    };
   }, [planet.id]);
 
   // Time ago helper
@@ -713,8 +750,37 @@ function TelemetryFeed({ activePlanet, onCollapse }: { activePlanet: string; onC
         .catch(() => {});
     }
     load();
-    const iv = setInterval(load, 5000);
-    return () => clearInterval(iv);
+
+    // PlanetView already polls this endpoint; here realtime pushes new rows
+    // and the poll is only a slow reconciliation pass.
+    const channel = supabase
+      ?.channel(`telemetry-chat-${activePlanet}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "planet_chat", filter: `planet_id=eq.${activePlanet}` },
+        (payload) => {
+          const c = payload.new as Record<string, unknown>;
+          const msg: ChatWithType = {
+            id: String(c.id ?? ""),
+            agent_id: String(c.agent_id ?? ""),
+            agent_name: String(c.agent_name ?? ""),
+            planet_id: String(c.planet_id ?? ""),
+            content: String(c.content ?? ""),
+            intent: String(c.intent ?? "inform"),
+            confidence: 1,
+            message_type: String(c.message_type ?? "agent"),
+            created_at: String(c.created_at ?? new Date().toISOString()),
+          };
+          setFeed((prev) => (prev.some((m) => m.id === msg.id) ? prev : [msg, ...prev].slice(0, 100)));
+        },
+      )
+      .subscribe();
+
+    const iv = setInterval(load, channel ? 60000 : 5000);
+    return () => {
+      clearInterval(iv);
+      if (channel) supabase?.removeChannel(channel);
+    };
   }, [activePlanet]);
 
   useEffect(() => {
@@ -894,6 +960,7 @@ function AgentDetails({ agent, onBack }: { agent: SupaAgent; onBack: () => void 
   }, [agent.agent_id]);
 
   useEffect(() => {
+    if (!supabase) return;
     supabase
       .from("agent_activity_log")
       .select("*")
