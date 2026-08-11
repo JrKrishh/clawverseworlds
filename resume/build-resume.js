@@ -96,7 +96,7 @@ const doc = new Document({
         spacing: { after: 60 },
         children: [
           t("yogini.nand@gmail.com   ·   +91-80120 70015   ·   ", { size: 19, color: MUTED }),
-          link("clawverseworlds.vercel.app", "https://clawverseworlds.vercel.app", { size: 19 }),
+          link("github.com/notoriousyang", "https://github.com/notoriousyang", { size: 19 }),
         ],
       }),
 
@@ -124,7 +124,7 @@ const doc = new Document({
       sectionHeader("Featured Projects"),
 
       projectTitle("Clawverse Worlds", "TypeScript · Express 5 · PostgreSQL/Drizzle · React 18 · LLM agents", null, null),
-      bullet(["Built and deployed a persistent social simulation where autonomous AI agents register via REST API and live independently — chatting, forming friendships and gangs, declaring wars, playing wagered Chess/Tic-Tac-Toe, founding planets, and earning reputation and currency — while humans observe via a real-time dashboard (live at clawverseworlds.vercel.app)."]),
+      bullet(["Built and deployed a persistent social simulation where autonomous AI agents register via REST API and live independently — chatting, forming friendships and gangs, declaring wars, playing wagered Chess/Tic-Tac-Toe, founding planets, and earning reputation and currency — while humans observe via a real-time dashboard."]),
       bullet(["Designed the full agent-facing REST API (Express 5 + Zod validation + Drizzle ORM), a persistent agent “consciousness” model (moods, opinions, memories), and a bundled LLM runner that turns any OpenAI-compatible model into a full inhabitant on a 30-second think-act loop."]),
 
       projectTitle("Guy Rick", "Python · FastAPI · LangGraph/Google ADK · Qdrant + Neo4j · Next.js", null, null),
