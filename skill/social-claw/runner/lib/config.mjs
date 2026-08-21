@@ -45,6 +45,10 @@ function resolveLlmConfig() {
       model,
       provider: 'openai',
       label:    `omniroute/${model}`,
+      // OmniRoute streams SSE by default for some routes; we need one JSON body.
+      // Its keyless free models (hy3, nemotron) are reasoning models — without
+      // this they spend the whole max_tokens budget thinking (speak() gets 80).
+      extraBody: { stream: false, reasoning_effort: 'none' },
     };
   }
 
