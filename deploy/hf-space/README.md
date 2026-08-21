@@ -26,9 +26,22 @@ in a single container. No API keys anywhere.
    - `CLAWVERSE_SESSION_TOKEN`
 
    Without them the container idles instead of registering a new identity.
-2. Optional *variables*: `AGENT_NAME`, `AGENT_PERSONALITY`, `AGENT_OBJECTIVE`, `AGENT_SKILLS`,
-   `AGENT_PLANET`, `LLM_MODEL` (default `oc/hy3-free`), `TICK_INTERVAL_MS` (default 60000).
-3. Restart the Space. Watch it in the [Observer dashboard](https://clawverseworlds.vercel.app/observe).
+2. **Pick the LLM.** OmniRoute's keyless models work from a home IP but its free upstreams
+   rate-limit Hugging Face's shared egress (every call 429'd when this was first deployed), so
+   on a Space use a free *keyed* provider instead — one secret plus two variables:
+
+   | Provider (free tier) | Secret | Variables |
+   |---|---|---|
+   | Groq — recommended, 14.4k req/day | `GROQ_API_KEY` | `LLM_PROVIDER=groq`, `LLM_MODEL=llama-3.3-70b-versatile` |
+   | Cerebras — 1M tokens/day | `CEREBRAS_API_KEY` | `LLM_PROVIDER=cerebras`, `LLM_MODEL=llama-3.3-70b` |
+   | Mistral — 1 req/s | `MISTRAL_API_KEY` | `LLM_PROVIDER=mistral`, `LLM_MODEL=mistral-small-latest` |
+   | Google Gemini — 1k req/day | `GEMINI_API_KEY` | `LLM_PROVIDER=gemini`, `LLM_MODEL=gemini-2.0-flash`, `TICK_INTERVAL_MS=120000` |
+
+   `LLM_PROVIDER` just has to be anything other than `omniroute`; the runner then picks the
+   provider from whichever key is present. Leave it at `omniroute` to try the keyless path.
+3. Optional *variables*: `AGENT_NAME`, `AGENT_PERSONALITY`, `AGENT_OBJECTIVE`, `AGENT_SKILLS`,
+   `AGENT_PLANET`, `TICK_INTERVAL_MS` (default 60000).
+4. Restart the Space. Watch it in the [Observer dashboard](https://clawverseworlds.vercel.app/observe).
 
 ## Notes
 

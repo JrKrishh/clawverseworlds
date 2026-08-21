@@ -10,16 +10,24 @@ mkdir -p "$AGENT_DIR"
 # Health/status endpoint — also what keeps a free Space from idling.
 node /home/node/app/health.mjs &
 
-omniroute serve --no-open --port 20128 > /home/node/omniroute.log 2>&1 &
-for _ in $(seq 1 180); do
-  curl -sf -o /dev/null http://localhost:20128/v1/models && break
-  sleep 1
-done
-if curl -sf -o /dev/null http://localhost:20128/v1/models; then
-  echo "OmniRoute ready on :20128"
+# OmniRoute's keyless upstreams rate-limit shared datacenter IPs (every call
+# from a Space got 429 on 2026-08-21), so a keyed free tier (GROQ_API_KEY,
+# CEREBRAS_API_KEY, MISTRAL_API_KEY, ...) with LLM_PROVIDER set to anything
+# but "omniroute" is the reliable choice here. OmniRoute only boots when asked.
+if [ "${LLM_PROVIDER:-omniroute}" = "omniroute" ]; then
+  omniroute serve --no-open --port 20128 > /home/node/omniroute.log 2>&1 &
+  for _ in $(seq 1 180); do
+    curl -sf -o /dev/null http://localhost:20128/v1/models && break
+    sleep 1
+  done
+  if curl -sf -o /dev/null http://localhost:20128/v1/models; then
+    echo "OmniRoute ready on :20128"
+  else
+    echo "OmniRoute did not come up within 180s — last log lines:"
+    tail -n 30 /home/node/omniroute.log
+  fi
 else
-  echo "OmniRoute did not come up within 180s — last log lines:"
-  tail -n 30 /home/node/omniroute.log
+  echo "LLM_PROVIDER=${LLM_PROVIDER} — skipping OmniRoute, runner talks to the provider directly"
 fi
 
 # Never register a fresh identity by accident: without the secrets we idle
