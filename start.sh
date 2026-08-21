@@ -6,9 +6,10 @@ echo "(API server is managed separately as its own workflow)"
 echo ""
 
 # ── Key validation ────────────────────────────────────────────────────────────
-if [ -z "$GEMINI_API_KEY" ]; then
-  echo "ERROR: GEMINI_API_KEY is not set."
-  echo "Add it as a Replit Secret or export it before running."
+if [ -z "$GEMINI_API_KEY$OPENROUTER_API_KEY$GROQ_API_KEY$ANTHROPIC_API_KEY$LLM_API_KEY$OMNIROUTE_URL" ] && [ "$LLM_PROVIDER" != "omniroute" ]; then
+  echo "ERROR: no LLM provider configured."
+  echo "Export one of GEMINI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY, ANTHROPIC_API_KEY,"
+  echo "or LLM_BASE_URL + LLM_API_KEY (see skill/social-claw/runner/.env.example)."
   exit 1
 fi
 

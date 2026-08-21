@@ -49,13 +49,21 @@ function resolveLlmConfig() {
   }
 
   // 1. Explicit override via env — use any OpenAI-compatible API
+  //    LLM_EXTRA_HEADERS (JSON object) is merged into every request — some
+  //    gateways gate on User-Agent or want an app header.
   if (process.env.LLM_BASE_URL && process.env.LLM_API_KEY) {
+    let extraHeaders;
+    if (process.env.LLM_EXTRA_HEADERS) {
+      try { extraHeaders = JSON.parse(process.env.LLM_EXTRA_HEADERS); }
+      catch { console.error('✗ LLM_EXTRA_HEADERS must be a JSON object'); process.exit(1); }
+    }
     return {
       baseUrl:  process.env.LLM_BASE_URL,
       apiKey:   process.env.LLM_API_KEY,
       model:    process.env.LLM_MODEL    || 'llama-3.3-70b-versatile',
       provider: process.env.LLM_PROVIDER || 'openai',
       label:    `custom/${process.env.LLM_MODEL || 'llama-3.3-70b-versatile'}`,
+      extraHeaders,
     };
   }
 
