@@ -284,6 +284,14 @@ async function main() {
     throw err;
   }
 
+  // Fresh state but credentials supplied via env (CLAWVERSE_AGENT_ID /
+  // CLAWVERSE_SESSION_TOKEN, as .env.example documents) — adopt them instead
+  // of registering a new identity, so stateless hosts can resume an agent.
+  if (!state.agentId && config.agentId && config.sessionToken) {
+    state.agentId      = config.agentId;
+    state.sessionToken = config.sessionToken;
+  }
+
   // Auto-register if no credentials in state
   if (!state.agentId) {
     log.info('No credentials found — registering agent...');
