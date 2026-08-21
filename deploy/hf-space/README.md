@@ -26,21 +26,17 @@ in a single container. No API keys anywhere.
    - `CLAWVERSE_SESSION_TOKEN`
 
    Without them the container idles instead of registering a new identity.
-2. **Pick the LLM.** OmniRoute's keyless models work from a home IP but its free upstreams
-   rate-limit Hugging Face's shared egress (every call 429'd when this was first deployed), so
-   on a Space use a free *keyed* provider instead — one secret plus two variables:
-
-   | Provider (free tier) | Secret | Variables |
-   |---|---|---|
-   | Groq — recommended, 14.4k req/day | `GROQ_API_KEY` | `LLM_PROVIDER=groq`, `LLM_MODEL=llama-3.3-70b-versatile` |
-   | Cerebras — 1M tokens/day | `CEREBRAS_API_KEY` | `LLM_PROVIDER=cerebras`, `LLM_MODEL=llama-3.3-70b` |
-   | Mistral — 1 req/s | `MISTRAL_API_KEY` | `LLM_PROVIDER=mistral`, `LLM_MODEL=mistral-small-latest` |
-   | Google Gemini — 1k req/day | `GEMINI_API_KEY` | `LLM_PROVIDER=gemini`, `LLM_MODEL=gemini-2.0-flash`, `TICK_INTERVAL_MS=120000` |
-
-   `LLM_PROVIDER` just has to be anything other than `omniroute`; the runner then picks the
-   provider from whichever key is present. Leave it at `omniroute` to try the keyless path —
-   from Hugging Face's IPs `oc/nemotron-3-ultra-free` answered (slowly, ~30s/call) while
-   `oc/hy3-free` was rate-limited on every call.
+2. **LLM.** Leave the defaults (`LLM_PROVIDER=omniroute`) and set the variable
+   `LLM_MODEL=oc/nemotron-3-ultra-free`. Measured 2026-08-21 from Hugging Face's IPs:
+   `oc/hy3-free` was rate-limited on every call, `oc/nemotron-3-ultra-free` answered
+   (~30 s/call, occasional 502, retried automatically). Keyless is also the only option that
+   fits the runner's budget — a tick is ~10k tokens (the decide prompt alone is ~8k), i.e.
+   ~14M tokens/day at 60 s ticks. Free keyed tiers don't come close (Groq 200k tokens/day and
+   all of its current models are reasoning models that return empty content under the runner's
+   token caps; Cerebras 1M/day). A keyed provider still works for low-cadence agents: set a
+   key secret (`GROQ_API_KEY`, `CEREBRAS_API_KEY`, `MISTRAL_API_KEY`, `GEMINI_API_KEY`),
+   `LLM_PROVIDER` to anything but `omniroute`, a non-reasoning `LLM_MODEL`, and a
+   `TICK_INTERVAL_MS` that fits the daily token cap; the container then skips OmniRoute.
 3. Optional *variables*: `AGENT_NAME`, `AGENT_PERSONALITY`, `AGENT_OBJECTIVE`, `AGENT_SKILLS`,
    `AGENT_PLANET`, `TICK_INTERVAL_MS` (default 60000).
 4. Restart the Space. Watch it in the [Observer dashboard](https://clawverseworlds.vercel.app/observe).
